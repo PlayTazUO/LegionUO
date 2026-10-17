@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LegionUO</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%2317130c'/%3E%3Cpath d='M32 8 56 32 32 56 8 32Z' fill='%239b3c2b'/%3E%3Cpath d='M32 18 46 32 32 46 18 32Z' fill='%23e5cd8d'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <div id="loginScreen" class="screen">
+      <div class="loginPanel">
+        <div class="brand">LEGION<span>UO</span></div>
+        <div class="tagline">A browser client for Ultima Online</div>
+        <div id="loginForm">
+          <label>Account <input id="account" autocomplete="off" autocapitalize="none" spellcheck="false" /></label>
+          <label>Password <input id="password" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" /></label>
+          <label class="showPass"><input id="showPass" type="checkbox" /> Show password</label>
+          <label class="showPass"><input id="rememberLogin" type="checkbox" /> Remember account/password (stored in this browser)</label>
+          <div class="row">
+            <label>Host <input id="host" placeholder="127.0.0.1" /></label>
+            <label class="small">Port <input id="port" value="2593" /></label>
+          </div>
+          <div class="row">
+            <label class="small">Client <input id="clientVersion" value="7.0.116.0" /></label>
+          </div>
+          <button id="connectBtn">Connect</button>
+        </div>
+        <div id="loginStatus" class="status"></div>
+        <div id="serverList" class="list hidden"></div>
+        <div id="charList" class="list hidden"></div>
+        <div class="meta" id="assetMeta"></div>
+      </div>
+    </div>
+
+    <div id="hud" class="hidden">
+      <div id="statusPanel" class="panel">
+        <div id="playerName" class="playerName">Unknown</div>
+        <div class="statRow"><span>HP</span><div class="bar"><div id="hpBar" class="fill hp"></div></div><span id="hpText">0/0</span></div>
+        <div class="statRow"><span>MP</span><div class="bar"><div id="manaBar" class="fill mana"></div></div><span id="manaText">0/0</span></div>
+        <div class="statRow"><span>SP</span><div class="bar"><div id="stamBar" class="fill stam"></div></div><span id="stamText">0/0</span></div>
+        <div class="smallInfo"><span id="coords">0,0</span> · <span id="weight">0/0</span> st · <span id="gold">0</span> gp</div>
+      </div>
+
+      <div id="topButtons" class="panel">
+        <button id="btnPaperdoll" title="Paperdoll">PD</button>
+        <button id="btnSkills" title="Skills">SK</button>
+        <button id="btnWar" title="War/Peace">PEACE</button>
+        <button id="btnStatus" title="Status">ST</button>
+        <button id="btnLogout" title="Logout">X</button>
+      </div>
+
+      <div id="journalPanel" class="panel">
+        <div id="journal"></div>
+        <div id="chatRow">
+          <input id="chatInput" placeholder="Say something..." autocomplete="off" />
+          <button id="sendBtn">Send</button>
+        </div>
+      </div>
+
+      <div id="skillsPanel" class="panel hidden"></div>
+      <div id="targetInfo" class="panel hidden"></div>
+      <div id="cursorHint" class="hidden">Select a target — right click to cancel</div>
+    </div>
+
+    <div id="modalBackdrop" class="screen hidden">
+      <div class="modal">
+        <div id="modalTitle"></div>
+        <div id="modalBody"></div>
+        <div class="modalButtons">
+          <button id="modalOk">OK</button>
+          <button id="modalCancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/js/main.js"></script>
+  </body>
+</html>

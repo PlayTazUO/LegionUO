@@ -1,0 +1,371 @@
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { fileURLToPath } from 'node:url';
+import { AssetService } from './assets.js';
+import { attachWebSocketServer } from './ws.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(__dirname, '..');
+const clientDir = path.join(root, 'client');
+
+function dirHasArt(dir) {
+  try {
+    const names = fs.readdirSync(dir).map((n) => n.toLowerCase());
+    return names.includes('art.mul') || names.includes('artlegacymul.uop');
+  } catch {
+    return false;
+  }
+}
+
+function detectUODir() {
+  const seen = new Set();
+  const add = (dir) => {
+    if (dir && !seen.has(dir)) seen.add(dir);
+  };
+
+  add(path.join(os.homedir(), 'Library', 'Application Support', 'Ultima Adventures'));
+  add(path.join(os.homedir(), 'Library', 'Application Support', 'Ultima Online'));
+  add(path.join(os.homedir(), 'Documents', 'Ultima Online'));
+  add('C:\\Program Files (x86)\\Electronic Arts\\Ultima Online Classic');
+  add('C:\\Program Files\\Electronic Arts\\Ultima Online Classic');
+
+  // TazUO launcher profiles know where each shard's data lives.
+  const profileDirs = [
+    path.join(os.homedir(), 'Library', 'Application Support', 'TazUO Launcher', 'Profiles', 'Settings'),
+    '/Applications/TUO/Profiles/Settings',
+  ];
+  for (const dir of profileDirs) {
+    try {
+      for (const file of fs.readdirSync(dir)) {
+        if (!file.endsWith('.json')) continue;
+        try {
+          const json = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
+          if (json.ultimaonlinedirectory) add(json.ultimaonlinedirectory);
+        } catch {
+          /* ignore broken profile */
+        }
+      }
+    } catch {
+      /* ignore missing profile dir */
+    }
+  }
+
+  // Common Windows/macOS TazUO install roots.
+  for (const root of ['/Applications/TUO', path.join(os.homedir(), 'Applications', 'TUO')]) {
+    try {
+      for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+        if (entry.isDirectory()) add(path.join(root, entry.name));
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const dirs = [...seen].filter((dir) => {
+    try {
+      return fs.existsSync(dir) && fs.statSync(dir).isDirectory();
+    } catch {
+      return false;
+    }
+  });
+  return dirs.find(dirHasArt) || dirs[0] || '';
+}
+
+function loadConfig() {
+  const config = {
+    uoDir: '',
+    httpPort: 8080,
+    host: '127.0.0.1',
+    clientVersion: '7.0.104.0',
+    mapCount: 6,
+    cacheMb: 256,
+    allowProxyHosts: [],
+    defaultLoginHost: '',
+    language: 'enu',
+    walkDelay: 400,
+    runDelay: 200,
+    mountedWalkDelay: 200,
+    mountedRunDelay: 100,
+    moveSpeedMultiplier: 1,
+  };
+  try {
+    Object.assign(config, JSON.parse(fs.readFileSync(path.join(root, 'config.json'), 'utf8')));
+  } catch {
+    /* ignore */
+  }
+  const args = process.argv.slice(2);
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--uo-dir' && args[i + 1]) config.uoDir = args[++i];
+    else if (args[i] === '--port' && args[i + 1]) config.httpPort = Number(args[++i]);
+    else if (args[i] === '--host' && args[i + 1]) config.host = args[++i];
+  }
+  if (process.env.UO_DIR) config.uoDir = process.env.UO_DIR;
+  if (process.env.PORT) config.httpPort = Number(process.env.PORT);
+  if (!config.uoDir) {
+    config.uoDir = detectUODir();
+  }
+  return config;
+}
+
+const configPath = path.join(root, 'config.json');
+let config = loadConfig();
+let assets = new AssetService(config);
+let configMtime = (() => {
+  try {
+    return fs.statSync(configPath).mtimeMs;
+  } catch {
+    return 0;
+  }
+})();
+
+function reloadConfigIfChanged() {
+  try {
+    const mtime = fs.statSync(configPath).mtimeMs;
+    if (mtime === configMtime) return;
+    configMtime = mtime;
+    const next = loadConfig();
+    const changed = next.uoDir !== config.uoDir || next.clientVersion !== config.clientVersion || next.mapCount !== config.mapCount;
+    if (!changed) {
+      Object.assign(config, next);
+      return;
+    }
+    console.log(`[legionuo] config changed, reloading assets (${next.uoDir || 'no UO dir'})`);
+    try {
+      assets.files.closeAll();
+    } catch {
+      /* ignore */
+    }
+    Object.assign(config, next);
+    assets = new AssetService(config);
+  } catch {
+    /* ignore */
+  }
+}
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+  '.wav': 'audio/wav',
+  '.mp3': 'audio/mpeg',
+};
+
+function sendJSON(res, status, obj) {
+  const body = Buffer.from(JSON.stringify(obj));
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': body.length,
+    'Cache-Control': 'no-store',
+  });
+  res.end(body);
+}
+
+function sendBuffer(res, status, body, type, cache = 'public, max-age=86400') {
+  res.writeHead(status, {
+    'Content-Type': type,
+    'Content-Length': body.length,
+    'Cache-Control': cache,
+  });
+  res.end(body);
+}
+
+function serveStatic(res, urlPath) {
+  let relative = decodeURIComponent(urlPath.split('?')[0]);
+  if (relative === '/' || relative === '') relative = '/index.html';
+  const filePath = path.resolve(clientDir, '.' + relative);
+  if (!filePath.startsWith(clientDir + path.sep) && filePath !== path.join(clientDir, 'index.html')) {
+    sendJSON(res, 403, { error: 'forbidden' });
+    return;
+  }
+  fs.readFile(filePath, (err, data) => {
+    if (err) {
+      sendJSON(res, 404, { error: 'not found' });
+      return;
+    }
+    const ext = path.extname(filePath).toLowerCase();
+    sendBuffer(res, 200, data, MIME[ext] || 'application/octet-stream', 'no-cache');
+  });
+}
+
+const server = http.createServer((req, res) => {
+  reloadConfigIfChanged();
+  const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  const pathname = url.pathname;
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    });
+    res.end();
+    return;
+  }
+
+  try {
+    if (pathname === '/api/config') {
+      sendJSON(res, 200, {
+        ...assets.info(),
+        wsPath: '/proxy',
+        defaultLoginHost: config.defaultLoginHost || '',
+        allowProxyHosts: config.allowProxyHosts || [],
+        walkDelay: config.walkDelay,
+        runDelay: config.runDelay,
+        mountedWalkDelay: config.mountedWalkDelay,
+        mountedRunDelay: config.mountedRunDelay,
+        moveSpeedMultiplier: config.moveSpeedMultiplier,
+        features: { animations: true, gumps: true, maps: true, cliloc: true },
+      });
+      return;
+    }
+
+    if (pathname === '/api/hues') {
+      sendJSON(res, 200, assets.hueInfo());
+      return;
+    }
+
+    if (pathname === '/api/tiledata') {
+      const buf = assets.tiledataJSON(url.searchParams.get('names') === '1');
+      const acceptsGzip = String(req.headers['accept-encoding'] || '').includes('gzip');
+      if (acceptsGzip) {
+        import('node:zlib').then(({ gzipSync }) => {
+          const gz = gzipSync(buf);
+          res.writeHead(200, {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Encoding': 'gzip',
+            'Content-Length': gz.length,
+            'Cache-Control': 'public, max-age=3600',
+          });
+          res.end(gz);
+        }).catch(() => sendBuffer(res, 200, buf, 'application/json; charset=utf-8', 'public, max-age=3600'));
+      } else {
+        sendBuffer(res, 200, buf, 'application/json; charset=utf-8', 'public, max-age=3600');
+      }
+      return;
+    }
+
+    if (pathname === '/api/skills') {
+      sendJSON(res, 200, assets.skills.toJSON());
+      return;
+    }
+
+    let m = pathname.match(/^\/api\/cliloc\/(\d+)$/);
+    if (m) {
+      const text = assets.clilocs.get(Number(m[1]));
+      if (text == null) sendJSON(res, 404, { error: 'not found' });
+      else sendJSON(res, 200, { id: Number(m[1]), text });
+      return;
+    }
+
+    if (pathname === '/api/cliloc/all') {
+      const buf = assets.clilocs.allJSON();
+      const acceptsGzip = String(req.headers['accept-encoding'] || '').includes('gzip');
+      if (acceptsGzip) {
+        import('node:zlib').then(({ gzipSync }) => {
+          const gz = gzipSync(buf);
+          res.writeHead(200, {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Encoding': 'gzip',
+            'Content-Length': gz.length,
+            'Cache-Control': 'public, max-age=86400',
+          });
+          res.end(gz);
+        });
+      } else {
+        sendBuffer(res, 200, buf, 'application/json; charset=utf-8', 'public, max-age=86400');
+      }
+      return;
+    }
+
+    m = pathname.match(/^\/api\/cliloc$/);
+    if (m) {
+      const ids = String(url.searchParams.get('ids') || '').split(',').map((x) => Number(x)).filter(Number.isFinite);
+      const out = {};
+      for (const id of ids) out[id] = assets.clilocs.get(id);
+      sendJSON(res, 200, out);
+      return;
+    }
+
+    m = pathname.match(/^\/api\/multi\/(\d+)$/);
+    if (m) {
+      sendJSON(res, 200, assets.multis.get(Number(m[1])));
+      return;
+    }
+
+    m = pathname.match(/^\/api\/art\/land\/(\d+)\.png$/);
+    if (m) {
+      const hue = Number(url.searchParams.get('hue') || 0);
+      sendBuffer(res, 200, assets.artLand(Number(m[1]), hue), 'image/png');
+      return;
+    }
+
+    m = pathname.match(/^\/api\/art\/static\/(\d+)\.png$/);
+    if (m) {
+      const hue = Number(url.searchParams.get('hue') || 0);
+      sendBuffer(res, 200, assets.artStatic(Number(m[1]), hue), 'image/png');
+      return;
+    }
+
+    m = pathname.match(/^\/api\/gump\/(\d+)\.png$/);
+    if (m) {
+      const hue = Number(url.searchParams.get('hue') || 0);
+      sendBuffer(res, 200, assets.gump(Number(m[1]), hue), 'image/png');
+      return;
+    }
+
+    m = pathname.match(/^\/api\/anim\/(\d+)\/(\d+)\/(\d+)(\.png)?$/);
+    if (m) {
+      const body = Number(m[1]);
+      const action = Number(m[2]);
+      const dir = Number(m[3]);
+      const hue = Number(url.searchParams.get('hue') || 0);
+      if (action >= 80 || dir >= 5) {
+        sendJSON(res, 400, { error: 'invalid animation' });
+        return;
+      }
+      const result = assets.animation(body, action, dir, hue);
+      if (m[4]) sendBuffer(res, 200, result.png, 'image/png', 'public, max-age=86400');
+      else sendJSON(res, 200, result.meta);
+      return;
+    }
+
+    m = pathname.match(/^\/api\/map\/(\d+)\/(\d+)\/(\d+)$/);
+    if (m) {
+      const block = assets.mapBlock(Number(m[1]), Number(m[2]), Number(m[3]));
+      if (!block) sendJSON(res, 404, { error: 'no map block' });
+      else sendJSON(res, 200, block);
+      return;
+    }
+
+    if (pathname === '/api/health') {
+      sendJSON(res, 200, { ok: true, uoDir: config.uoDir });
+      return;
+    }
+
+    serveStatic(res, pathname);
+  } catch (err) {
+    console.error('[legionuo] request error', req.url, err);
+    sendJSON(res, 500, { error: String(err?.message || err) });
+  }
+});
+
+attachWebSocketServer(server, config);
+
+server.listen(config.httpPort, config.host, () => {
+  console.log(`[legionuo] asset server listening on http://${config.host}:${config.httpPort}`);
+  console.log(`[legionuo] UO data: ${config.uoDir || '(not configured)'}`);
+  const info = assets.info();
+  console.log(`[legionuo] art: ${info.paths.art || 'NOT FOUND'}`);
+  console.log(`[legionuo] gumps: ${info.paths.gumps || 'NOT FOUND'}`);
+  console.log(`[legionuo] tiledata: ${info.paths.tiledata || 'NOT FOUND'}`);
+  console.log(`[legionuo] cliloc: ${info.paths.cliloc || 'NOT FOUND'}`);
+  if (!config.uoDir) console.log('[legionuo] Set uoDir in config.json or pass --uo-dir <path>');
+});

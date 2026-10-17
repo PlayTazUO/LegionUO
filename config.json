@@ -1,0 +1,15 @@
+{
+  "uoDir": "/Applications/TUO/UOAlive 7.0.116.0",
+  "httpPort": 8080,
+  "host": "127.0.0.1",
+  "clientVersion": "7.0.116.0",
+  "mapCount": 6,
+  "cacheMb": 256,
+  "allowProxyHosts": [],
+  "defaultLoginHost": "192.168.0.39",
+  "walkDelay": 400,
+  "runDelay": 200,
+  "mountedWalkDelay": 200,
+  "mountedRunDelay": 100,
+  "moveSpeedMultiplier": 1
+}
