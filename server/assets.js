@@ -225,8 +225,8 @@ export class AssetService {
     return result;
   }
 
-  mapBlock(map, bx, by) {
-    return this.maps.getBlock(map, bx, by);
+  mapBlock(map, bx, by, useXFiles = false) {
+    return this.maps.getBlock(map, bx, by, useXFiles);
   }
 
   radarColors() {

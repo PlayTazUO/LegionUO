@@ -1,5 +1,6 @@
 import { Entity, isGhostGraphic, isMobileSerial, Layer } from './entity.js';
 import { OPLManager } from './opl.js';
+import { UltimaLiveManager } from './uolive.js';
 
 export class Mobile extends Entity {
   constructor(serial) {
@@ -22,6 +23,7 @@ export class World {
     this.player = null;
     this.inGame = false;
     this.mapIndex = 0;
+    this.useXMapFiles = false;
     this.range = 24;
     this.light = { overall: 0, personal: 0 };
     this.realSeason = 0;
@@ -73,6 +75,7 @@ export class World {
     this.mapPending = new Set();
     this.blockPromises = new Map();
     this.mapListeners = [];
+    this.uolive = new UltimaLiveManager(this);
     this.hues = null;
     this.textScale = 1;
     this.playerSerial = 0;
@@ -610,21 +613,36 @@ export class World {
   }
 
   getBlock(bx, by) {
-    const key = `${this.mapIndex}|${bx}|${by}`;
+    const key = `${this.mapIndex}|${this.useXMapFiles ? 'x' : 'm'}|${bx}|${by}`;
     if (this.mapCache.has(key)) return this.mapCache.get(key);
     this.requestBlock(bx, by);
     return null;
   }
 
+  setMapIndex(mapIndex) {
+    const mapCount = Number(this.config.mapCount) || this.config.maps?.length || 6;
+    if (!Number.isFinite(mapIndex) || mapIndex < 0 || mapIndex >= mapCount) return;
+    if (mapIndex === this.mapIndex) return;
+    this.mapIndex = mapIndex;
+    this.mapCache.clear();
+    this.mapPending.clear();
+    if (this.blockPromises) this.blockPromises.clear();
+    if (this.player) this.ensureMapAround(this.player.x, this.player.y, 4);
+  }
+
   requestBlock(bx, by) {
-    const key = `${this.mapIndex}|${bx}|${by}`;
+    const mapIndex = this.mapIndex;
+    const useX = this.useXMapFiles;
+    const key = `${mapIndex}|${useX ? 'x' : 'm'}|${bx}|${by}`;
     if (this.mapCache.has(key)) return Promise.resolve(this.mapCache.get(key));
     if (!this.blockPromises) this.blockPromises = new Map();
     if (this.blockPromises.has(key)) return this.blockPromises.get(key);
     this.mapPending.add(key);
-    const promise = fetch(`/api/map/${this.mapIndex}/${bx}/${by}`)
+    const xQuery = useX ? '?x=1' : '';
+    const promise = fetch(`/api/map/${mapIndex}/${bx}/${by}${xQuery}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
+        data = this.uolive.applyToBlock(data, mapIndex, bx, by);
         this.mapCache.set(key, data);
         return data;
       })
@@ -908,6 +926,9 @@ export class World {
     this.player = null;
     this.playerSerial = 0;
     this.inGame = false;
+    this.mapIndex = 0;
+    this.useXMapFiles = false;
+    this.uolive?.reset();
     this.mapCache.clear();
     this.mapPending.clear();
     if (this.blockPromises) this.blockPromises.clear();

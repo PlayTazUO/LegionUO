@@ -178,7 +178,8 @@ you trust. The asset server itself never stores credentials.
   functional quantities, totals, gold checks and confirmation, and secure trade has a
   functional window but no trade history or enchantment preview.
 - Tooltips/OPL are rendered for world objects, containers, shops, paperdolls, and gump controls.
-- Map patches, UOLive and custom house editing are received but mostly inert.
+- UOLive map definitions, terrain/static patches and CRC hash queries are handled
+  client-side; custom house editing is still inert.
 - No audio files are served yet (the audio manager is a stub).
 - BWT/UOP paths are implemented from the TazUO formats but have not been tested
   against every UO installation variant.

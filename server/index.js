@@ -346,7 +346,8 @@ const server = http.createServer((req, res) => {
 
     m = pathname.match(/^\/api\/map\/(\d+)\/(\d+)\/(\d+)$/);
     if (m) {
-      const block = assets.mapBlock(Number(m[1]), Number(m[2]), Number(m[3]));
+      const useXFiles = ['1', 'true'].includes(String(url.searchParams.get('x') || '').toLowerCase());
+      const block = assets.mapBlock(Number(m[1]), Number(m[2]), Number(m[3]), useXFiles);
       if (!block) sendJSON(res, 404, { error: 'no map block' });
       else sendJSON(res, 200, block);
       return;

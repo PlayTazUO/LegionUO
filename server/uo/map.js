@@ -17,38 +17,56 @@ export class MapManager {
   constructor(files, mapCount = 6) {
     this.files = files;
     this.mapCount = mapCount;
-    this.maps = new Array(mapCount).fill(null);
+    this.maps = new Map();
     this.sizes = MAP_SIZES.slice(0, mapCount).map(([w, h]) => [w, h]);
   }
 
-  get(mapIndex) {
+  get(mapIndex, useXFiles = false) {
     if (mapIndex < 0 || mapIndex >= this.mapCount) return null;
-    if (this.maps[mapIndex]) return this.maps[mapIndex];
+    const key = `${mapIndex}|${useXFiles ? 'x' : ''}`;
+    if (this.maps.has(key)) return this.maps.get(key);
 
     let map = null;
-    const uop = this.files.uop(`map${mapIndex}LegacyMUL.uop`, `build/map${mapIndex}legacymul/{0:D8}.dat`, false);
+    let uop = null;
+    if (useXFiles) {
+      uop = this.files.uop(`map${mapIndex}xLegacyMUL.uop`, `build/map${mapIndex}legacymul/{0:D8}.dat`, false);
+    }
+    if (!uop) {
+      uop = this.files.uop(`map${mapIndex}LegacyMUL.uop`, `build/map${mapIndex}legacymul/{0:D8}.dat`, false);
+    }
     if (uop) {
       map = { type: 'uop', file: uop };
     } else {
-      const mul = this.files.mul(`map${mapIndex}.mul`);
+      let mul = null;
+      if (useXFiles) mul = this.files.mul(`map${mapIndex}x.mul`);
+      if (!mul) mul = this.files.mul(`map${mapIndex}.mul`);
       if (mul) map = { type: 'mul', file: mul };
     }
-    if (!map) return null;
+    if (!map) {
+      this.maps.set(key, null);
+      return null;
+    }
 
-    const staticFile = this.files.mul(`statics${mapIndex}.mul`);
-    const idxFile = this.files.mul(`staidx${mapIndex}.mul`);
+    let staticFile = null;
+    let idxFile = null;
+    if (useXFiles) {
+      staticFile = this.files.mul(`statics${mapIndex}x.mul`);
+      idxFile = this.files.mul(`staidx${mapIndex}x.mul`);
+    }
+    if (!staticFile) staticFile = this.files.mul(`statics${mapIndex}.mul`);
+    if (!idxFile) idxFile = this.files.mul(`staidx${mapIndex}.mul`);
     map.statics = staticFile;
     map.staidx = idxFile;
     map.width = this.sizes[mapIndex][0];
     map.height = this.sizes[mapIndex][1];
     map.blocksX = map.width >> 3;
     map.blocksY = map.height >> 3;
-    this.maps[mapIndex] = map;
+    this.maps.set(key, map);
     return map;
   }
 
-  getBlock(mapIndex, bx, by) {
-    const map = this.get(mapIndex);
+  getBlock(mapIndex, bx, by, useXFiles = false) {
+    const map = this.get(mapIndex, useXFiles);
     if (!map || bx < 0 || by < 0 || bx >= map.blocksX || by >= map.blocksY) return null;
     const block = bx * map.blocksY + by;
 
@@ -71,6 +89,7 @@ export class MapManager {
       cells[i] = { tile: raw.readUInt16LE(p) & 0x3fff, z: raw.readInt8(p + 2) };
     }
 
+    let staticsRaw = null;
     const statics = [];
     if (map.staidx) {
       const idxPos = block * STAIDX_SIZE;
@@ -82,6 +101,7 @@ export class MapManager {
           const count = Math.min(1024, Math.floor(size / STATIC_SIZE));
           const staticRaw = map.statics.reader.readAt(position, count * STATIC_SIZE);
           if (staticRaw) {
+            staticsRaw = staticRaw;
             for (let i = 0; i < count; i++) {
               const p = i * STATIC_SIZE;
               if (p + STATIC_SIZE > staticRaw.length) break;
@@ -100,6 +120,13 @@ export class MapManager {
       }
     }
 
-    return { bx, by, cells, statics };
+    return {
+      bx,
+      by,
+      cells,
+      statics,
+      land: raw.subarray(4, 4 + 64 * 3).toString('base64'),
+      staticsRaw: staticsRaw ? staticsRaw.toString('base64') : '',
+    };
   }
 }

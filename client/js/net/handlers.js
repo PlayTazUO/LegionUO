@@ -225,6 +225,7 @@ export class Handlers {
       world.login.characters = chars;
       world.login.cities = cities;
       world.login.characterListFlags = flags;
+      world.useXMapFiles = (flags & 0x8000) !== 0;
       world.login.step = 'characters';
       game.ui?.showCharacters(chars, cities);
     });
@@ -1215,6 +1216,9 @@ export class Handlers {
         multi.z = z;
       }
     });
+
+    this.set(0x3f, (r) => world.uolive.onPacket(r));
+    this.set(0x40, (r) => world.uolive.onTerrain(r));
 
     this.set(0xf7, (r) => {
       const count = r.readU16BE();

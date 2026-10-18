@@ -1609,6 +1609,8 @@ export class UI {
         const gumpId = r.readU32BE();
         const button = r.readU32BE();
         this.closeServerGump(gumpId, button);
+      } else if (sub === 0x08) {
+        this.world.setMapIndex(r.readU8());
       } else if (sub === 0x16) {
         const id = r.readU32BE();
         const serial = r.readU32BE();
