@@ -1,10 +1,13 @@
 import { Gump } from '../game/gump.js';
+import { hasUoHtmlMarkup, uoHtmlFragment, appendServerText } from '../game/html.js';
 import {
   ContainerWindow,
   PaperdollWindow,
   ShopWindow,
   BookWindow,
   ProfileWindow,
+  StatusWindow,
+  DebugGumpWindow,
 } from '../game/windows.js';
 import { Layer } from '../game/entity.js';
 import { Reader } from '../util/binary.js';
@@ -16,13 +19,20 @@ export class UI {
     this.game = game;
     this.world = game.world;
     this.windows = [];
-    this.lastClick = { time: 0, x: 0, y: 0 };
+    this.mouseWalk = false;
     this.promptMode = false;
     this.chatHistory = [];
     this.chatIndex = -1;
     this.hues = null;
     this.skillInfo = null;
     this.lastStatusRefresh = 0;
+    this.mouse = { x: 0, y: 0 };
+    this.tooltipEl = $('tooltip');
+    this.hoverId = null;
+    this.hoverSerial = 0;
+    this.hoverSince = 0;
+    this.tooltipContentKey = '';
+    this.gumpDebugWindow = null;
     this.bind();
   }
 
@@ -57,6 +67,13 @@ export class UI {
       }
     });
 
+    $('btnBackpack').addEventListener('click', () => {
+      const player = this.world.player;
+      const backpack =
+        player?.getItem(Layer.Backpack) ||
+        [...(player?.items.values() || [])].find((item) => item.layer === Layer.Backpack);
+      if (backpack) this.world.socket.out.doubleClick(backpack.serial);
+    });
     $('btnPaperdoll').addEventListener('click', () => {
       if (this.world.player) this.world.socket.out.doubleClick(this.world.playerSerial);
     });
@@ -92,6 +109,7 @@ export class UI {
     canvas.addEventListener('mousedown', (e) => this.onMouseDown(e));
     canvas.addEventListener('mouseup', (e) => this.onMouseUp(e));
     canvas.addEventListener('dblclick', (e) => this.onDoubleClick(e));
+    canvas.addEventListener('mouseleave', () => this.hideTooltip());
     canvas.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       if (this.world.target.type) {
@@ -114,9 +132,13 @@ export class UI {
 
     window.addEventListener('keydown', (e) => this.onKeyDown(e));
     window.addEventListener('keyup', (e) => this.onKeyUp(e));
+    window.addEventListener('mouseup', (e) => {
+      if (e.button === 2) this.stopMouseWalk();
+    });
     window.addEventListener('blur', () => {
       this.keyDir = {};
       this.shiftDown = false;
+      this.stopMouseWalk();
     });
   }
 
@@ -244,7 +266,7 @@ export class UI {
       const b = document.createElement('button');
       const name = document.createElement('span');
       name.className = 'serverName';
-      name.textContent = s.name || `Server ${s.index}`;
+      appendServerText(name, s.name || `Server ${s.index}`);
       const meta = document.createElement('span');
       meta.className = 'serverMeta';
       meta.textContent = s.percentFull ? `${s.percentFull}%` : '';
@@ -276,7 +298,7 @@ export class UI {
     chars.forEach((name, index) => {
       if (!name) return;
       const b = document.createElement('button');
-      b.textContent = name;
+      appendServerText(b, name);
       b.addEventListener('click', () => {
         this.setLoginStatus('Entering world...');
         this.world.login.step = 'entering';
@@ -362,6 +384,7 @@ export class UI {
     }
     this.refreshStatus();
     this.refreshSkills();
+    this.showStatus();
     if (document.activeElement && typeof document.activeElement.blur === 'function') document.activeElement.blur();
     $('btnWar').textContent = this.world.player?.inWarMode ? 'WAR' : 'PEACE';
   }
@@ -371,19 +394,6 @@ export class UI {
   refreshStatus() {
     const p = this.world.player;
     if (!p) return;
-    $('playerName').textContent = p.name || 'Unknown';
-    const hpPct = p.hitsMax ? Math.max(0, Math.min(100, (p.hits / p.hitsMax) * 100)) : 0;
-    const mpPct = p.manaMax ? Math.max(0, Math.min(100, (p.mana / p.manaMax) * 100)) : 0;
-    const stPct = p.staminaMax ? Math.max(0, Math.min(100, (p.stamina / p.staminaMax) * 100)) : 0;
-    $('hpBar').style.width = `${hpPct}%`;
-    $('manaBar').style.width = `${mpPct}%`;
-    $('stamBar').style.width = `${stPct}%`;
-    $('hpText').textContent = `${p.hits}/${p.hitsMax}`;
-    $('manaText').textContent = `${p.mana}/${p.manaMax}`;
-    $('stamText').textContent = `${p.stamina}/${p.staminaMax}`;
-    $('coords').textContent = `${p.x}, ${p.y}`;
-    $('weight').textContent = `${p.weight}/${p.weightMax}`;
-    $('gold').textContent = p.gold;
     $('btnWar').textContent = p.inWarMode ? 'WAR' : 'PEACE';
   }
 
@@ -408,25 +418,18 @@ export class UI {
   }
 
   showStatus() {
-    const p = this.world.player;
-    if (!p) return;
-    const lines = [
-      `<b>${escapeHtml(p.name || 'Unknown')}</b>`,
-      '',
-      `Strength: ${p.strength}`,
-      `Dexterity: ${p.dexterity}`,
-      `Intelligence: ${p.intelligence}`,
-      '',
-      `Hits: ${p.hits}/${p.hitsMax}`,
-      `Mana: ${p.mana}/${p.manaMax}`,
-      `Stamina: ${p.stamina}/${p.staminaMax}`,
-      `Weight: ${p.weight}/${p.weightMax}`,
-      `Gold: ${p.gold}`,
-    ];
-    if (this.world.resist && this.world.resist.physical !== undefined) {
-      lines.push('', `Resists: P ${this.world.resist.physical} F ${this.world.resist.fire} C ${this.world.resist.cold} P ${this.world.resist.poison} E ${this.world.resist.energy}`);
+    if (!this.world.player) return;
+    const entry = this.windows.find((w) => w.kind === 'status');
+    if (entry) {
+      this.windows = this.windows.filter((w) => w !== entry);
+      this.windows.push(entry);
+      return;
     }
-    this.showModal('Character Status', `<div style="font-size:13px;line-height:1.6">${lines.join('<br>')}</div>`, null, false);
+    this.addWindow('status', 'player', new StatusWindow(this.world));
+  }
+
+  closeStatus() {
+    this.removeWindow('status', 'player');
   }
 
   addJournal(text, color = '#e2d6b4', isSystem = false) {
@@ -436,7 +439,17 @@ export class UI {
     const div = document.createElement('div');
     div.className = `msg${isSystem ? ' system' : ''}`;
     div.style.color = color;
-    div.textContent = text;
+    if (hasUoHtmlMarkup(text)) {
+      div.append(uoHtmlFragment(text, { defaultColor: color }));
+      div.addEventListener('click', (event) => {
+        const link = event.target.closest?.('[data-href]');
+        if (!link) return;
+        const href = link.dataset.href || '';
+        if (/^https?:\/\//i.test(href)) window.open(href, '_blank', 'noopener,noreferrer');
+      });
+    } else {
+      div.textContent = text;
+    }
     journal.appendChild(div);
     while (journal.children.length > 500) journal.removeChild(journal.firstChild);
     if (nearBottom) journal.scrollTop = journal.scrollHeight;
@@ -471,7 +484,6 @@ export class UI {
       return;
     }
     this.world.socket.out.unicodeSpeech(text, 0, 3, 0x3b2, 'ENU');
-    this.game.effects.addOverheadText(this.world.player, text, 0x3b2);
   }
 
   historyStep(delta) {
@@ -484,7 +496,14 @@ export class UI {
     const [cmd, ...args] = text.slice(1).split(/\s+/);
     const command = cmd.toLowerCase();
     if (command === 'help') {
-      this.addJournal('Commands: -help -skills -status -where -war -peace -run -walk -resync -logout -open -target', '#b8a06a', true);
+      this.addJournal('Commands: -help -skills -status -where -war -peace -run -walk -resync -logout -open -target -debug', '#b8a06a', true);
+    } else if (command === 'debug') {
+      this.game.debug = !this.game.debug;
+      if (!this.game.debug) {
+        this.gumpDebugWindow?.close();
+        this.gumpDebugWindow = null;
+      }
+      this.addJournal(`Debug mode: ${this.game.debug ? 'enabled' : 'disabled'}`, '#b8a06a', true);
     } else if (command === 'skills') {
       $('skillsPanel').classList.toggle('hidden');
       this.refreshSkills();
@@ -563,6 +582,13 @@ export class UI {
 
   openGump(gump) {
     this.addWindow('gump', gump.id, gump);
+    if (!this.game.debug) return;
+    if (this.gumpDebugWindow) this.gumpDebugWindow.setGump(gump);
+    else {
+      this.gumpDebugWindow = new DebugGumpWindow(this.world, gump, () => {
+        this.gumpDebugWindow = null;
+      });
+    }
   }
 
   closeGumpWindow(id) {
@@ -768,7 +794,7 @@ export class UI {
       const len = r.readU8();
       const label = r.readASCII(len);
       const b = document.createElement('button');
-      b.textContent = `${i + 1}. ${label}`;
+      appendServerText(b, `${i + 1}. ${label}`);
       b.addEventListener('click', () => {
         this.hideModal();
         if (menuId !== 0) this.world.socket.out.menuResponse(serial, id, i + 1, graphic, hue);
@@ -836,7 +862,19 @@ export class UI {
       const lines = r.readU8();
       const text = [];
       for (let i = 0; i < lines; i++) text.push(r.readUTF8());
-      this.showModal(`${subject} — ${poster}`, `<div style="white-space:pre-wrap;font-size:13px">${escapeHtml(text.join('\n'))}</div><div style="margin-top:8px;color:#8f8262;font-size:11px">${escapeHtml(date)}</div>`, null, false);
+      const body = document.createElement('div');
+      body.style.fontSize = '13px';
+      const entry = document.createElement('div');
+      entry.style.whiteSpace = 'pre-wrap';
+      appendServerText(entry, text.join('\n'));
+      body.appendChild(entry);
+      const footer = document.createElement('div');
+      footer.style.marginTop = '8px';
+      footer.style.color = '#8f8262';
+      footer.style.fontSize = '11px';
+      appendServerText(footer, date);
+      body.appendChild(footer);
+      this.showModal(`${subject} — ${poster}`, body, null, false);
     }
   }
 
@@ -860,7 +898,6 @@ export class UI {
       /* ignore malformed custom packet */
     }
   }
-  onMegaCliloc() {}
   onGenericCommand() {}
   onCustomHouse() {}
   onBuffDebuff(r) {
@@ -903,6 +940,7 @@ export class UI {
 
   onMouseMove(e) {
     const { x, y } = this.canvasPos(e);
+    this.mouse = { x, y };
     this.game.renderer.mouse.x = x;
     this.game.renderer.mouse.y = y;
     this.game.renderer.mouse.world = this.game.renderer.screenToTile(x, y);
@@ -913,9 +951,11 @@ export class UI {
     }
     if (hit) hit.obj.onMouseMove?.(x, y);
     this.updateTargetInfo(x, y);
+    this.refreshTooltip();
   }
 
   onMouseDown(e) {
+    this.hideTooltip();
     if (!$('loginScreen').classList.contains('hidden') || !$('modalBackdrop').classList.contains('hidden')) return;
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
     const { x, y } = this.canvasPos(e);
@@ -926,38 +966,61 @@ export class UI {
       if (hit.obj.dragging || hit.obj.onMouseMove) this.dragTarget = hit;
       return;
     }
-    if (this.world.target.type) {
-      this.sendTarget(x, y);
+    if (button === 0) {
+      if (this.world.target.type) {
+        this.sendTarget(x, y);
+        return;
+      }
+      const tile = this.game.renderer.screenToTile(x, y);
+      const entity = this.game.renderer.entityAt?.(x, y) || this.findEntityAt(tile.x, tile.y);
+      if (!entity) return;
+      if (e.shiftKey && entity.isItem) {
+        this.world.held = entity;
+        this.world.socket.out.pickup(entity.serial, entity.amount || 1);
+        return;
+      }
+      this.world.socket.out.singleClick(entity.serial);
       return;
     }
-    if (button === 0) {
-      const now = performance.now();
-      const tile = this.game.renderer.screenToTile(x, y);
-      if (now - this.lastClick.time < 320 && Math.abs(tile.x - this.lastClick.x) <= 1 && Math.abs(tile.y - this.lastClick.y) <= 1) {
-        const entity = this.findEntityAt(tile.x, tile.y);
-        if (entity) {
-          this.world.socket.out.doubleClick(entity.serial);
-          this.lastClick.time = 0;
-          return;
-        }
+    if (button === 2) {
+      if (this.world.target.type) {
+        this.world.clearTarget();
+        this.onTargetChanged();
+        return;
       }
-      this.lastClick = { time: now, x: tile.x, y: tile.y };
-      if (e.shiftKey) {
-        const entity = this.findEntityAt(tile.x, tile.y);
-        if (entity && entity.isItem) {
-          this.world.held = entity;
-          this.world.socket.out.pickup(entity.serial, entity.amount || 1);
-        }
-      } else {
-        this.game.walkTo(tile.x, tile.y);
-      }
-    } else if (button === 2) {
-      this.world.clearTarget();
-      this.onTargetChanged();
+      if (!this.world.held) this.startMouseWalk();
     }
   }
 
+  startMouseWalk() {
+    this.mouseWalk = true;
+    this.game.cancelWalkPath();
+  }
+
+  stopMouseWalk() {
+    this.mouseWalk = false;
+  }
+
+  mouseWalkDirection() {
+    if (!this.mouseWalk || this.world.held) return null;
+    const p = this.world.player;
+    if (!p) return null;
+    const tile = this.game.renderer.screenToTile(this.mouse.x, this.mouse.y);
+    const dx = tile.x - p.x;
+    const dy = tile.y - p.y;
+    if (!dx && !dy) return null;
+    if (dx > 0 && dy > 0) return 3;
+    if (dx > 0 && dy < 0) return 1;
+    if (dx < 0 && dy > 0) return 5;
+    if (dx < 0 && dy < 0) return 7;
+    if (dx > 0) return 2;
+    if (dx < 0) return 6;
+    if (dy > 0) return 4;
+    return 0;
+  }
+
   onMouseUp(e) {
+    if (e.button === 2) this.stopMouseWalk();
     const { x, y } = this.canvasPos(e);
     if (this.dragTarget) {
       this.dragTarget.obj.onMouseUp?.(x, y);
@@ -965,7 +1028,9 @@ export class UI {
     }
     if (this.world.held) {
       const hit = this.hitTest(x, y);
-      if (!hit) {
+      if (hit) {
+        hit.obj.onItemDrop?.(x, y);
+      } else {
         const tile = this.game.renderer.screenToTile(x, y);
         const block = this.world.getBlock(tile.x >> 3, tile.y >> 3);
         let z = 0;
@@ -1003,6 +1068,114 @@ export class UI {
       }
     }
     return bestScore <= 1 ? best : null;
+  }
+
+  onOPLUpdated(serial) {
+    if (this.hoverSerial === (serial >>> 0)) this.refreshTooltip(true);
+  }
+
+  hideTooltipContent() {
+    if (this.tooltipEl) this.tooltipEl.classList.add('hidden');
+  }
+
+  hideTooltip() {
+    this.hoverId = null;
+    this.hoverSerial = 0;
+    this.hoverSince = 0;
+    this.hideTooltipContent();
+  }
+
+  refreshTooltip(force = false) {
+    if (!this.tooltipEl) return;
+    if (
+      !this.world.inGame ||
+      !$('loginScreen').classList.contains('hidden') ||
+      !$('modalBackdrop').classList.contains('hidden') ||
+      this.dragTarget ||
+      this.world.held
+    ) {
+      this.hideTooltip();
+      return;
+    }
+    const { x, y } = this.mouse;
+    if (document.elementFromPoint(x, y) !== this.game.renderer.canvas) {
+      this.hideTooltip();
+      return;
+    }
+    let target = null;
+    const hit = this.hitTest(x, y);
+    if (hit) {
+      target = hit.obj.tooltipAt?.(x, y) || null;
+    } else {
+      const entity = this.game.renderer.entityAt?.(x, y);
+      if (entity && (entity.isMobile || entity.container === 0)) {
+        target = { id: `entity:${entity.serial}`, serial: entity.serial, title: entity.name, entity };
+      }
+    }
+    if (!target) {
+      this.hideTooltip();
+      return;
+    }
+    const id = target.id || target.serial || target.title || '';
+    const now = performance.now();
+    if (this.hoverId !== id) {
+      this.hoverId = id;
+      this.hoverSince = now;
+      this.hideTooltipContent();
+    }
+    this.hoverSerial = target.serial >>> 0;
+    const data = this.buildTooltip(target);
+    if (!data.title && !data.lines.length) {
+      this.hideTooltipContent();
+      return;
+    }
+    if (!force && now - this.hoverSince < 280) return;
+    this.showTooltip(data, x, y);
+  }
+
+  buildTooltip(target) {
+    let title = target.title || target.entity?.name || '';
+    let lines = target.lines ? [...target.lines] : [];
+    if (target.serial) {
+      this.world.opl.request(target.serial);
+      const opl = this.world.opl.resolve(target.serial);
+      if (opl?.lines.length) {
+        title = opl.lines[0] || title;
+        lines = [...opl.lines.slice(1), ...lines];
+      }
+    }
+    if (!title && lines.length) title = lines.shift();
+    return { title, lines, key: `${title}|${lines.join('|')}` };
+  }
+
+  showTooltip(data, mx, my) {
+    const el = this.tooltipEl;
+    if (this.tooltipContentKey !== data.key) {
+      this.tooltipContentKey = data.key;
+      el.replaceChildren();
+      if (data.title) {
+        const title = document.createElement('div');
+        title.className = 'tooltipTitle';
+        appendServerText(title, data.title);
+        el.append(title);
+      }
+      for (const line of data.lines) {
+        const row = document.createElement('div');
+        row.className = 'tooltipLine';
+        appendServerText(row, line);
+        el.append(row);
+      }
+    }
+    el.classList.remove('hidden');
+    const rect = el.getBoundingClientRect();
+    const maxLeft = Math.max(8, window.innerWidth - rect.width - 8);
+    const maxTop = Math.max(8, window.innerHeight - rect.height - 8);
+    let left = mx + 18;
+    let top = my + 18;
+    if (left > maxLeft) left = mx - rect.width - 18;
+    if (top > maxTop) top = my - rect.height - 18;
+    el.style.left = `${Math.max(8, Math.min(maxLeft, left))}px`;
+    el.style.top = `${Math.max(8, Math.min(maxTop, top))}px`;
   }
 
   sendTarget(mx, my) {
@@ -1055,8 +1228,10 @@ export class UI {
     if (!this.world.inGame) return null;
     if (this.isMovementBlocked()) return null;
     const direction = this.computeDirection();
-    if (direction == null) return null;
-    return { direction, run: !!this.shiftDown || !!this.world.alwaysRun };
+    if (direction != null) return { direction, run: !!this.shiftDown || !!this.world.alwaysRun };
+    const mouseDirection = this.mouseWalkDirection();
+    if (mouseDirection != null) return { direction: mouseDirection, run: !!this.shiftDown || !!this.world.alwaysRun };
+    return null;
   }
 
   onKeyDown(e) {
@@ -1136,7 +1311,9 @@ export class UI {
   /* ----------------------------- modal ----------------------------- */
 
   showModal(title, body, onOk, showCancel = true) {
-    $('modalTitle').textContent = title;
+    const titleEl = $('modalTitle');
+    titleEl.textContent = '';
+    appendServerText(titleEl, title);
     const bodyEl = $('modalBody');
     bodyEl.innerHTML = '';
     if (typeof body === 'string') bodyEl.innerHTML = body;
@@ -1178,6 +1355,7 @@ export class UI {
       this.lastStatusRefresh = now;
       this.refreshStatus();
       this.updateTargetInfo(this.game.renderer.mouse.x || 0, this.game.renderer.mouse.y || 0);
+      this.refreshTooltip();
     }
   }
 }

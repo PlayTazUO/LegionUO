@@ -1033,7 +1033,7 @@ export class Handlers {
       const lines = [];
       for (let i = 0; i < lineCount; i++) {
         const len = r.readU16BE();
-        lines.push(len > 0 ? r.readUnicodeBE(len) : '');
+        lines.push(len > 0 ? r.readUnicodeBE(len * 2) : '');
       }
       game.openGump(sender, gumpId, x, y, cmd, lines);
     });
@@ -1089,7 +1089,7 @@ export class Handlers {
       game.disconnect('Logged out');
     });
 
-    this.set(0xd6, (r) => game.ui?.onMegaCliloc?.(r));
+    this.set(0xd6, (r) => this.onMegaCliloc(r));
 
     this.set(0xd7, (r) => game.ui?.onGenericCommand?.(r));
     this.set(0xd8, (r) => game.ui?.onCustomHouse?.(r));
@@ -1098,8 +1098,8 @@ export class Handlers {
     this.set(0xdc, (r) => {
       const serial = r.readU32BE();
       const revision = r.readU32BE();
-      world.oplRevisions = world.oplRevisions || new Map();
-      world.oplRevisions.set(serial, revision);
+      world.opl.setRevision(serial, revision);
+      game.ui?.onOPLUpdated?.(serial);
     });
 
     this.set(0xde, (r) => {
@@ -1197,6 +1197,37 @@ export class Handlers {
       entity.name = entity.name || name;
       this.game.effects.addOverheadText(entity, text, hue);
     }
+  }
+
+  onMegaCliloc(r) {
+    const world = this.world;
+    const game = this.game;
+    const start = r.position;
+    const marker = r.readU16BE();
+    let serial;
+    let revision = 0;
+    if (marker <= 1) {
+      serial = r.readU32BE();
+      if (r.remaining() < 6) return;
+      r.skip(2);
+      revision = r.readU32BE();
+    } else {
+      r.seek(start);
+      serial = r.readU32BE();
+      revision = world.opl.revisions.get(serial >>> 0) ?? 0;
+    }
+    if (!serial) return;
+    const entries = [];
+    while (r.remaining() >= 4) {
+      const cliloc = r.readU32BE();
+      if (!cliloc) break;
+      if (r.remaining() < 2) break;
+      const length = r.readU16BE();
+      const args = length > 0 ? r.readUnicodeLE(length) : '';
+      entries.push({ cliloc, args, text: game.cliloc(cliloc, args) });
+    }
+    world.opl.set(serial, revision, entries);
+    game.ui?.onOPLUpdated?.(serial);
   }
 
   onCliloc(r, hasAffix) {

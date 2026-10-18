@@ -89,7 +89,12 @@ export class Game {
       return null;
     }
     if (args) {
-      const parts = String(args).split('\t');
+      const parts = String(args)
+        .split('\t')
+        .map((part) => {
+          const ref = part.match(/^#(\d+)$/);
+          return ref ? this.cliloc(Number(ref[1])) ?? part : part;
+        });
       text = text.replace(/~(\d+)(?:_[^~]*)?~/g, (match, index) => {
         const i = parseInt(index, 10) - 1;
         return i >= 0 && i < parts.length ? parts[i] : '';
@@ -275,7 +280,7 @@ export class Game {
             continue;
           }
           const len = lr.readU16BE();
-          lines.push(len > 0 ? lr.readUnicodeBE(len) : '');
+          lines.push(len > 0 ? lr.readUnicodeBE(len * 2) : '');
         }
       }
       this.openGump(sender, gumpId, x, y, layout, lines);

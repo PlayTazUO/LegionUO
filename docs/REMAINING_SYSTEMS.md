@@ -13,11 +13,12 @@ Implemented today:
 - Isometric terrain, statics, items, mobiles, basic equipment animation, corpses, multis.
 - Basic effects, names, speech, damage text, lighting, weather, target cursor.
 - Server gump layout parser (`client/js/game/gump.js`) and several simplified windows:
-  containers, paperdoll, shop, book, profile (`client/js/game/windows.js`).
-- Journal is a fixed DOM panel; status is a fixed HUD panel plus a modal popup.
+  containers, paperdoll, shop, book, profile, status (`client/js/game/windows.js`).
+- Journal is a fixed DOM panel; the status window is a draggable canvas window.
 - Movement uses a paced step queue with render interpolation, confirm/deny reconciliation,
-  hold-to-walk keyboard input, and A* click-to-walk. Other mobiles walk tile-by-tile to
-  position updates via a chained motion queue.
+  hold-to-walk keyboard input, right-click mouse-walk, and A* click-to-walk. Other mobiles
+  walk tile-by-tile to position updates via a chained motion queue.
+- Left-click selects world objects (single click); double-click uses them.
 
 The systems below are the main gaps.
 
@@ -72,6 +73,8 @@ The systems below are the main gaps.
 **Input**
 
 - Hold WASD/arrow keys to continue walking; support diagonals.
+- Hold the right mouse button to walk toward the cursor; left-click selects
+  objects (single click) and double-click uses them.
 - Running: Shift or the client's run toggle (match UO behavior).
 - Turn-in-place when the direction changes but movement is blocked.
 - Do not move while dead, frozen, stunned, or while a blocking gump/modal is open.
@@ -155,15 +158,16 @@ The systems below are the main gaps.
 
 ---
 
-## 3. Movable character status window — P0
+## 3. Movable character status window — P0 (movable window implemented)
 
 ### Current state
 
-- `#statusPanel` is a fixed HTML panel in the top-left (`client/index.html`,
-  `client/css/style.css`).
-- `UI.showStatus()` opens a read-only modal; it cannot be moved and is not the
-  classic status gump.
-- HP/MP/SP bars and weight/gold exist; many player stats are parsed but not shown.
+- `StatusWindow` in `client/js/game/windows.js` is a canvas window like the
+  paperdoll: drag with the left mouse button, right-click or Esc to close, and it
+  participates in the normal window z-order.
+- `UI.showStatus()` opens or raises the window; it also opens on entering the
+  world and can be reached from the `ST` button and the `-status` command.
+- The old fixed `#statusPanel` HUD has been removed.
 
 ### Required
 
@@ -223,8 +227,8 @@ Implemented in `client/js/game/gump.js`:
 Missing framework pieces:
 
 - Proper UO text fonts, hue application for text, rich HTML subset, link handling.
-- Tooltips, item properties/OPL, `maparea`, `picinpic`, `itemproperty`,
-  `gumppichued` variants, `mastergump`, `noresize`, `nodispose`, `noclose` semantics.
+- Tooltips/OPL are implemented (see below); `maparea`, `picinpic`, `itemproperty`,
+  `gumppichued` variants, `mastergump`, `noresize`, `nodispose`, `noclose` semantics remain.
 - Keyboard focus/caret/selection/IME, clipboard, tab order.
 - Scrolling panels, clipping, scrollbars.
 - Gump reuse/update by server gump id, position persistence, scaling.
@@ -313,10 +317,14 @@ Missing framework pieces:
 
 - Icons with timers, tooltips, add/remove (`0xDF`), saved position.
 
-**Tooltips / OPL**
+**Tooltips / OPL** *(implemented)*
 
 - Item property list (OPL revision/MegaCliloc), cliloc name/description,
   tooltip on hover for items, mobiles, and gumps.
+- `0xD6` property bodies and `0xDC` revisions are cached per serial; requests are
+  throttled and retried when a revision changes.
+- World entities, container/shop/paperdoll items, and gump controls with tooltip clilocs
+  show a clamped hover tooltip.
 
 **Context menu**
 
@@ -379,6 +387,7 @@ Missing framework pieces:
 | Entities / layers | `client/js/game/entity.js` |
 | Effects / audio | `client/js/game/effects.js`, `client/js/game/audio.js` |
 | Server gump parser | `client/js/game/gump.js` |
+| OPL cache / tooltip data | `client/js/game/opl.js` |
 | Simplified windows | `client/js/game/windows.js` |
 | HUD, journal, modals, input | `client/js/ui/ui.js`, `client/index.html`, `client/css/style.css` |
 | Incoming packets | `client/js/net/handlers.js` |
@@ -388,7 +397,7 @@ Missing framework pieces:
 
 ## 8. Basic-play test checklist
 
-- Walk/run with keyboard, diagonals, and click-to-walk around obstacles.
+- Walk/run with keyboard, diagonals, right-click mouse-walk, and click-to-walk around obstacles.
 - Idle for 2+ minutes without disconnect.
 - Open/close/move status, journal, paperdoll, container, skills, spellbook.
 - Buy/sell an item, trade with a player, read/post a book.

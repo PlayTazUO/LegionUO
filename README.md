@@ -141,9 +141,9 @@ you trust. The asset server itself never stores credentials.
 
 ## Known limitations / next steps
 
-- Server-side pathfinding is not reproduced; click-to-walk sends direct steps.
+- Server-side pathfinding is not reproduced; right-click mouse-walk sends direct steps.
 - Paperdolls, books, shops and trade windows are simplified compared to TazUO.
-- Tooltip/OPL bodies are parsed but not rendered yet.
+- Tooltips/OPL are rendered for world objects, containers, shops, paperdolls, and gump controls.
 - Map patches, UOLive and custom house editing are received but mostly inert.
 - No audio files are served yet (the audio manager is a stub).
 - BWT/UOP paths are implemented from the TazUO formats but have not been tested
@@ -152,8 +152,7 @@ you trust. The asset server itself never stores credentials.
 ## Roadmap
 
 See [`docs/REMAINING_SYSTEMS.md`](docs/REMAINING_SYSTEMS.md) for the remaining
-basic client systems: smooth movement, journal, movable status window, and the
-gumps needed for normal play.
+basic client systems: journal and the gumps needed for normal play.
 
 ## Credits
 

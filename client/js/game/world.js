@@ -1,4 +1,5 @@
 import { Entity, isMobileSerial, Layer } from './entity.js';
+import { OPLManager } from './opl.js';
 
 export class Mobile extends Entity {
   constructor(serial) {
@@ -59,6 +60,7 @@ export class World {
     this.stats = { str: 0, dex: 0, int: 0, weight: 0, weightMax: 0, gold: 0 };
     this.resist = {};
     this.features = {};
+    this.opl = new OPLManager(this);
     this.mapCache = new Map();
     this.mapPending = new Set();
     this.blockPromises = new Map();
@@ -827,6 +829,7 @@ export class World {
 
   resetWorld() {
     this.entities.clear();
+    this.opl?.reset();
     this.player = null;
     this.playerSerial = 0;
     this.inGame = false;

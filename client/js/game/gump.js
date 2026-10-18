@@ -1,3 +1,5 @@
+import { drawUoHtml, color16ToCss, parseUoHtml } from './html.js';
+
 function tokenize(layout) {
   const out = [];
   const re = /\{([^}]*)\}/g;
@@ -30,6 +32,7 @@ export class GumpControl {
     this.disabled = false;
     this.state = false;
     this.text = '';
+    this.tooltip = 0;
   }
 }
 
@@ -98,7 +101,16 @@ export class Gump {
       } else if (c.type === 'checkbox' || c.type === 'radio') {
         w = Math.max(w, c.x + 20);
         h = Math.max(h, c.y + 20);
-      } else if (c.type === 'text' || c.type === 'croppedtext' || c.type === 'htmlgump' || c.type === 'textentry' || c.type === 'textentrylimited') {
+      } else if (
+        c.type === 'text' ||
+        c.type === 'croppedtext' ||
+        c.type === 'htmlgump' ||
+        c.type === 'xmfhtmlgump' ||
+        c.type === 'xmfhtmlgumpcolor' ||
+        c.type === 'xmfhtmltok' ||
+        c.type === 'textentry' ||
+        c.type === 'textentrylimited'
+      ) {
         w = Math.max(w, c.x + (c.width || 140));
         h = Math.max(h, c.y + (c.height || 20));
       }
@@ -129,6 +141,14 @@ export class Gump {
     return null;
   }
 
+  tooltipAt(mx, my) {
+    const c = this.hitControl(mx, my);
+    if (!c || !c.tooltip) return null;
+    const text = this.world.game.cliloc(c.tooltip);
+    if (!text) return null;
+    return { id: `gump:${this.id}:${c.x},${c.y}:${c.tooltip}`, title: text, lines: [] };
+  }
+
   onMouseDown(mx, my, button) {
     const c = this.hitControl(mx, my);
     if (c) {
@@ -156,6 +176,13 @@ export class Gump {
       if (c.type === 'textentry' || c.type === 'textentrylimited') {
         this.world.game.ui.editGumpText(this, c);
         return true;
+      }
+      if (button === 0 && c.linkRects?.length) {
+        const link = c.linkRects.find((rect) => mx >= rect.x && my >= rect.y && mx < rect.x + rect.w && my < rect.y + rect.h);
+        if (link) {
+          if (/^https?:\/\//i.test(link.url)) window.open(link.url, '_blank', 'noopener,noreferrer');
+          return true;
+        }
       }
     }
     if (button === 2) {
@@ -206,7 +233,14 @@ export class Gump {
       else if (c.type === 'tilepic' || c.type === 'tilepichue') this.drawTilePic(ctx, assets, c);
     }
     for (const c of controls) {
-      if (c.type === 'text' || c.type === 'croppedtext' || c.type === 'htmlgump' || c.type === 'xmfhtmlgump' || c.type === 'xmfhtmlgumpcolor') {
+      if (
+        c.type === 'text' ||
+        c.type === 'croppedtext' ||
+        c.type === 'htmlgump' ||
+        c.type === 'xmfhtmlgump' ||
+        c.type === 'xmfhtmlgumpcolor' ||
+        c.type === 'xmfhtmltok'
+      ) {
         this.drawText(ctx, c);
       } else if (c.type === 'button') {
         const img = assets.getGump(c.state ? c.down : c.up);
@@ -277,33 +311,89 @@ export class Gump {
   }
 
   drawText(ctx, c) {
+    if (c.type === 'htmlgump' || c.type === 'xmfhtmlgump' || c.type === 'xmfhtmlgumpcolor' || c.type === 'xmfhtmltok') {
+      this.drawHtmlText(ctx, c);
+      return;
+    }
+
     const game = this.world.game;
-    let text = c.type === 'htmlgump' ? (this.lines[c.textIndex] ?? '') : this.resolveText(c.textIndex);
-    if (c.type === 'croppedtext') {
-      const maxWidth = c.width || 100;
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(this.x + c.x, this.y + c.y, maxWidth, c.height || 20);
-      ctx.clip();
-    }
-    if (c.type === 'htmlgump') text = stripHtml(text);
+    const text = this.resolveText(c.textIndex);
     const hue = c.hue || 0;
-    ctx.fillStyle = game.hueColor(hue);
-    ctx.font = `${c.type === 'htmlgump' ? 13 : 13}px monospace`;
-    ctx.textBaseline = 'top';
-    ctx.textAlign = 'left';
-    let x = this.x + c.x;
-    let y = this.y + c.y;
-    const maxWidth = c.width || this.width;
-    if (c.type === 'htmlgump') {
-      for (const line of wrapText(ctx, text, maxWidth)) {
-        ctx.fillText(line, x, y);
-        y += 16;
-      }
-    } else {
-      ctx.fillText(text, x, y);
+
+    const color = game.hueColor(hue);
+    const key = `${color}\u0000${text}`;
+    if (c.htmlKey !== key) {
+      c.htmlKey = key;
+      c.htmlParsed = parseUoHtml(text, { color, size: 13 });
     }
-    if (c.type === 'croppedtext') ctx.restore();
+    if (!c.linkRects) c.linkRects = [];
+    c.linkRects.length = 0;
+    drawUoHtml(ctx, c.htmlParsed, {
+      x: this.x + c.x,
+      y: this.y + c.y,
+      width: c.type === 'croppedtext' ? c.width || 100 : 0,
+      height: c.type === 'croppedtext' ? c.height || 20 : Infinity,
+      defaultColor: color,
+      fontSize: 13,
+      fontFamily: 'monospace',
+      clip: c.type === 'croppedtext',
+      links: c.linkRects,
+    });
+  }
+
+  drawHtmlText(ctx, c) {
+    const width = c.width || this.width;
+    const height = c.height || this.height;
+    const offset = c.background ? 4 : 0;
+    const innerWidth = Math.max(1, width - offset * 2 - (c.scrollbar ? 14 : 0));
+    const innerHeight = Math.max(1, height - offset * 2);
+    const defaultColor = c.hue
+      ? color16ToCss(c.hue) || '#010101'
+      : !c.background && c.scrollbar
+        ? '#ffffff'
+        : '#010101';
+
+    let text = '';
+    if (c.type === 'htmlgump') {
+      text = this.lines[c.textIndex] ?? '';
+    } else if (c.type === 'xmfhtmltok') {
+      text = this.world.game.cliloc(c.textIndex, c.textArgs || '') ?? '';
+    } else {
+      text = this.world.game.cliloc(c.textIndex) ?? '';
+    }
+
+    const htmlKey = `${defaultColor}\u0000${text}`;
+    if (c.htmlKey !== htmlKey) {
+      c.htmlKey = htmlKey;
+      c.htmlParsed = parseUoHtml(text, { color: defaultColor, size: 13 });
+    }
+
+    if (c.background) {
+      this.drawResizePic(ctx, this.world.assets, {
+        graphic: 0x2486,
+        x: c.x,
+        y: c.y,
+        width: width - (c.scrollbar ? 16 : 0),
+        height,
+      });
+    } else if (c.htmlParsed.background) {
+      ctx.fillStyle = c.htmlParsed.background;
+      ctx.fillRect(this.x + c.x, this.y + c.y, width, height);
+    }
+
+    if (!c.linkRects) c.linkRects = [];
+    c.linkRects.length = 0;
+    const result = drawUoHtml(ctx, c.htmlParsed, {
+      x: this.x + c.x + offset,
+      y: this.y + c.y + offset,
+      width: innerWidth,
+      height: innerHeight,
+      defaultColor,
+      fontSize: 13,
+      fontFamily: 'monospace',
+      links: c.linkRects,
+    });
+    c.textHeight = result.height;
   }
 }
 
@@ -330,11 +420,13 @@ function parse(gump) {
       case 'tilepicasgumppic':
         c.graphic = int(args[3]);
         c.hue = int(args[4], 0);
+        c.tooltip = int(args[5], 0);
         break;
       case 'gumppichued':
       case 'gumppicphued':
         c.graphic = int(args[3]);
         c.hue = int(args[4], 0);
+        c.tooltip = int(args[5], 0);
         break;
       case 'gumppictiled':
         c.width = int(args[3]);
@@ -344,31 +436,43 @@ function parse(gump) {
       case 'tilepic':
         c.graphic = int(args[3]);
         c.hue = int(args[4], 0);
+        c.tooltip = int(args[5], 0);
         break;
       case 'tilepichue':
         c.graphic = int(args[3]);
         c.hue = int(args[4], 0);
+        c.tooltip = int(args[5], 0);
         break;
       case 'text':
         c.hue = int(args[3]);
         c.textIndex = args[4];
+        c.tooltip = int(args[5], 0);
         break;
       case 'croppedtext':
         c.width = int(args[3]);
         c.height = int(args[4]);
         c.hue = int(args[5]);
         c.textIndex = args[6];
+        c.tooltip = int(args[7], 0);
         break;
       case 'htmlgump':
-        c.width = int(args[3]);
-        c.height = int(args[4]);
-        c.textIndex = int(args[5]);
-        break;
       case 'xmfhtmlgump':
       case 'xmfhtmlgumpcolor':
         c.width = int(args[3]);
         c.height = int(args[4]);
         c.textIndex = int(args[5]);
+        c.background = int(args[6], 0) === 1;
+        c.scrollbar = int(args[7], 0) !== 0;
+        if (type === 'xmfhtmlgumpcolor') c.hue = int(args[8], 0);
+        break;
+      case 'xmfhtmltok':
+        c.width = int(args[3]);
+        c.height = int(args[4]);
+        c.background = int(args[5], 0) === 1;
+        c.scrollbar = int(args[6], 0) !== 0;
+        c.hue = int(args[7], 0);
+        c.textIndex = int(args[8]);
+        c.textArgs = args.slice(9).join('\t');
         break;
       case 'button':
         c.up = int(args[3]);
@@ -376,6 +480,7 @@ function parse(gump) {
         c.actionType = int(args[5], 0);
         c.param = int(args[6], 0);
         c.switchId = int(args[7], 0);
+        c.tooltip = int(args[8], 0);
         c.width = 32;
         c.height = 32;
         break;
@@ -385,6 +490,7 @@ function parse(gump) {
         c.down = int(args[4]);
         c.state = int(args[5], 0) !== 0;
         c.switchId = int(args[6], 0);
+        c.tooltip = int(args[7], 0);
         c.width = 20;
         c.height = 20;
         if (c.state) gump.switches.set(c.switchId, true);
@@ -397,6 +503,7 @@ function parse(gump) {
         c.entryId = int(args[6]);
         c.textIndex = int(args[7], -1);
         c.maxLength = int(args[8], 0);
+        c.tooltip = int(args[9], 0);
         if (c.textIndex >= 0 && gump.lines[c.textIndex]) gump.entries.set(c.entryId, gump.lines[c.textIndex]);
         break;
       case 'checkertrans':
@@ -408,33 +515,4 @@ function parse(gump) {
     }
     gump.controls.push(c);
   }
-}
-
-function stripHtml(text) {
-  return String(text || '')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/?[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>');
-}
-
-function wrapText(ctx, text, maxWidth) {
-  const out = [];
-  for (const raw of String(text).split('\n')) {
-    const words = raw.split(/\s+/);
-    let line = '';
-    for (const word of words) {
-      const test = line ? `${line} ${word}` : word;
-      if (ctx.measureText(test).width > maxWidth && line) {
-        out.push(line);
-        line = word;
-      } else {
-        line = test;
-      }
-    }
-    out.push(line);
-  }
-  return out;
 }

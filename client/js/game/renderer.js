@@ -1,4 +1,5 @@
 import { Layer, animDirection } from './entity.js';
+import { hasUoHtmlMarkup, drawServerText, measureUoHtml } from './html.js';
 
 const PEOPLE_LAYERS = [
   Layer.Cloak,
@@ -299,14 +300,34 @@ export class Renderer {
     const pos = this.screenFor(m.renderX, m.renderY, m.renderZ);
     const dist = Math.max(Math.abs(m.x - this.world.player.x), Math.abs(m.y - this.world.player.y));
     if (dist <= 14 && m.name && m !== this.world.player) {
-      ctx.font = '12px monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'bottom';
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-      ctx.fillStyle = notorietyColor(m.notoriety);
-      ctx.strokeText(m.name, pos.sx, pos.sy - 54);
-      ctx.fillText(m.name, pos.sx, pos.sy - 54);
+      if (hasUoHtmlMarkup(m.name)) {
+        const measured = measureUoHtml(ctx, m.name, {
+          width: 220,
+          defaultColor: notorietyColor(m.notoriety),
+          fontSize: 12,
+          fontFamily: 'monospace',
+        });
+        drawServerText(ctx, m.name, {
+          x: pos.sx - 110,
+          y: pos.sy - 54 - Math.max(0, measured.height - 15),
+          width: 220,
+          height: measured.height,
+          align: 'center',
+          defaultColor: notorietyColor(m.notoriety),
+          fontSize: 12,
+          fontFamily: 'monospace',
+          clip: false,
+        });
+      } else {
+        ctx.font = '12px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+        ctx.fillStyle = notorietyColor(m.notoriety);
+        ctx.strokeText(m.name, pos.sx, pos.sy - 54);
+        ctx.fillText(m.name, pos.sx, pos.sy - 54);
+      }
     }
     if (m !== this.world.player && m.hitsMax > 0 && (m.hits < m.hitsMax || m.yellowBar)) {
       const w = 44;
@@ -318,18 +339,38 @@ export class Renderer {
       ctx.fillRect(x, y, (w * Math.max(0, m.hits)) / Math.max(1, m.hitsMax), 5);
     }
     if (m.lastSpeech && Date.now() - m.lastSpeech.time < 7000) {
-      ctx.font = '12px monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'bottom';
-      const lines = wrapText(ctx, m.lastSpeech.text, 220);
-      let y = pos.sy - 66;
-      for (let i = lines.length - 1; i >= 0; i--) {
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-        ctx.fillStyle = '#ffe6a3';
-        ctx.strokeText(lines[i], pos.sx, y);
-        ctx.fillText(lines[i], pos.sx, y);
-        y -= 15;
+      if (hasUoHtmlMarkup(m.lastSpeech.text)) {
+        const measured = measureUoHtml(ctx, m.lastSpeech.text, {
+          width: 220,
+          defaultColor: '#ffe6a3',
+          fontSize: 12,
+          fontFamily: 'monospace',
+        });
+        drawServerText(ctx, m.lastSpeech.text, {
+          x: pos.sx - 110,
+          y: pos.sy - 66 - Math.max(0, measured.height - 15),
+          width: 220,
+          height: measured.height,
+          align: 'center',
+          defaultColor: '#ffe6a3',
+          fontSize: 12,
+          fontFamily: 'monospace',
+          clip: false,
+        });
+      } else {
+        ctx.font = '12px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        const lines = wrapText(ctx, m.lastSpeech.text, 220);
+        let y = pos.sy - 66;
+        for (let i = lines.length - 1; i >= 0; i--) {
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+          ctx.fillStyle = '#ffe6a3';
+          ctx.strokeText(lines[i], pos.sx, y);
+          ctx.fillText(lines[i], pos.sx, y);
+          y -= 15;
+        }
       }
     }
   }
@@ -423,6 +464,72 @@ export class Renderer {
       ctx.stroke();
       ctx.restore();
     }
+  }
+
+  entityAt(mx, my) {
+    let best = null;
+    let bestDepth = -Infinity;
+    for (const entity of this.world.entities.values()) {
+      if (!entity.isMobile && entity.container !== 0) continue;
+      const bounds = this.entityBounds(entity);
+      if (!bounds) continue;
+      if (mx < bounds.x || my < bounds.y || mx >= bounds.x + bounds.w || my >= bounds.y + bounds.h) continue;
+      const depth = (entity.renderX ?? entity.x) + (entity.renderY ?? entity.y);
+      const rank = entity.isMobile ? 1 : 0;
+      const bestRank = best?.isMobile ? 1 : 0;
+      if (depth > bestDepth || (depth === bestDepth && rank > bestRank)) {
+        best = entity;
+        bestDepth = depth;
+      }
+    }
+    return best;
+  }
+
+  entityBounds(entity) {
+    const x = entity.renderX ?? entity.x;
+    const y = entity.renderY ?? entity.y;
+    const z = entity.renderZ ?? entity.z;
+    if (entity.isMobile) {
+      const pos = this.screenFor(x, y, z);
+      const type = this.game.getAnimType(entity.graphic);
+      const group = entity.moving ? (type === 'people' ? (entity.inWarMode ? 15 : 0) : 0) : type === 'people' ? 4 : type === 'low' ? 2 : 1;
+      const { dir, mirror } = animDirection(entity.direction);
+      const animData = this.assets.getAnim(entity.graphic, group, dir, entity.hue || 0);
+      const frame = animData?.meta?.frames?.[0];
+      if (frame) {
+        return {
+          x: mirror ? pos.sx - (frame.w - frame.cx) : pos.sx - frame.cx,
+          y: pos.sy - (frame.h + frame.cy),
+          w: frame.w,
+          h: frame.h,
+        };
+      }
+      return { x: pos.sx - 22, y: pos.sy - 66, w: 44, h: 66 };
+    }
+    if (entity.isMulti) {
+      const parts = this.assets.getMulti(entity.graphic);
+      if (!parts?.length) return null;
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const part of parts) {
+        if (!part.visible) continue;
+        const img = this.assets.getStatic(part.graphic, 0);
+        if (!img) continue;
+        const p = this.screenFor(x + part.x, y + part.y, z + part.z);
+        minX = Math.min(minX, p.sx - img.width);
+        minY = Math.min(minY, p.sy - img.height);
+        maxX = Math.max(maxX, p.sx);
+        maxY = Math.max(maxY, p.sy);
+      }
+      if (minX === Infinity) return null;
+      return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+    }
+    const img = this.assets.getStatic(entity.graphic, entity.hue);
+    if (!img) return null;
+    const pos = this.screenFor(x, y, z);
+    return { x: pos.sx - img.width, y: pos.sy - img.height, w: img.width, h: img.height };
   }
 
   drawHeld(ctx) {

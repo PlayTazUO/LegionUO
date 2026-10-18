@@ -36,15 +36,8 @@
     </div>
 
     <div id="hud" class="hidden">
-      <div id="statusPanel" class="panel">
-        <div id="playerName" class="playerName">Unknown</div>
-        <div class="statRow"><span>HP</span><div class="bar"><div id="hpBar" class="fill hp"></div></div><span id="hpText">0/0</span></div>
-        <div class="statRow"><span>MP</span><div class="bar"><div id="manaBar" class="fill mana"></div></div><span id="manaText">0/0</span></div>
-        <div class="statRow"><span>SP</span><div class="bar"><div id="stamBar" class="fill stam"></div></div><span id="stamText">0/0</span></div>
-        <div class="smallInfo"><span id="coords">0,0</span> · <span id="weight">0/0</span> st · <span id="gold">0</span> gp</div>
-      </div>
-
       <div id="topButtons" class="panel">
+        <button id="btnBackpack" title="Backpack">BP</button>
         <button id="btnPaperdoll" title="Paperdoll">PD</button>
         <button id="btnSkills" title="Skills">SK</button>
         <button id="btnWar" title="War/Peace">PEACE</button>
@@ -64,6 +57,8 @@
       <div id="targetInfo" class="panel hidden"></div>
       <div id="cursorHint" class="hidden">Select a target — right click to cancel</div>
     </div>
+
+    <div id="tooltip" class="hidden"></div>
 
     <div id="modalBackdrop" class="screen hidden">
       <div class="modal">
