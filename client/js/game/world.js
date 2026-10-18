@@ -756,7 +756,7 @@ export class World {
 
     const next = this.nextTile(fromX, fromY, dir);
     const info = this.tileInfo(next.x, next.y);
-    if (info && !info.walkable) {
+    if (!this.game?.debug && info && !info.walkable) {
       return false;
     }
 

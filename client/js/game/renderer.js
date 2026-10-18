@@ -52,7 +52,7 @@ export class Renderer {
   playerScreen() {
     const p = this.world.player;
     if (!p) return { x: 0, y: 0 };
-    return { x: (p.renderX - p.renderY) * 22 - 22, y: (p.renderX + p.renderY) * 22 - p.renderZ * 4 - 22 };
+    return { x: (p.renderX - p.renderY) * 22, y: (p.renderX + p.renderY) * 22 - p.renderZ * 4 };
   }
 
   updateCamera() {
@@ -85,8 +85,8 @@ export class Renderer {
   }
 
   screenToTile(mx, my) {
-    const wx = mx + this.camera.x + 22;
-    const wy = my + this.camera.y + 22;
+    const wx = mx + this.camera.x;
+    const wy = my + this.camera.y;
     const x = (wx / 22 + wy / 22) / 2;
     const y = (wy / 22 - wx / 22) / 2;
     return { x: Math.round(x), y: Math.round(y) };
@@ -133,7 +133,10 @@ export class Renderer {
       }
     }
 
-    this.effects.draw(ctx, this.camera, (x, y, z) => this.screenFor(x, y, z));
+    this.effects.draw(ctx, this.camera, (x, y, z) => {
+      const p = this.screenFor(x, y, z);
+      return { sx: p.sx + 22, sy: p.sy + 22 };
+    });
     this.drawWeather(ctx, now);
     this.drawLighting(ctx);
     this.drawQuestArrow(ctx);
@@ -352,7 +355,7 @@ export class Renderer {
     const frames = animData.meta.frames;
     const f = frames[frames.length - 1];
     const p = this.screenFor(item.x, item.y, item.z);
-    this.drawAnimFrame(ctx, animData, f, p.sx, p.sy, mirror, 1);
+    this.drawAnimFrame(ctx, animData, f, p.sx + 22, p.sy + 22, mirror, 1);
   }
 
   motionProgress(mobile, now) {
@@ -385,6 +388,8 @@ export class Renderer {
     const { dir, mirror } = animDirection(mobile.direction);
     const animData = this.assets.getAnim(mobile.graphic, group, dir, mobile.hue || 0);
     const pos = this.screenFor(mobile.renderX, mobile.renderY, mobile.renderZ);
+    pos.sx += 22;
+    pos.sy += 22;
 
     if (animData && animData.meta.frames.length) {
       const frames = animData.meta.frames;
@@ -442,6 +447,8 @@ export class Renderer {
 
   drawMobileText(ctx, m) {
     const pos = this.screenFor(m.renderX, m.renderY, m.renderZ);
+    pos.sx += 22;
+    pos.sy += 22;
     const dist = Math.max(Math.abs(m.x - this.world.player.x), Math.abs(m.y - this.world.player.y));
     const showNames = settings.get('showNames');
     const showBars = settings.get('showHealthBars');
@@ -573,9 +580,9 @@ export class Renderer {
     if (!arrow) return null;
     const p = this.screenFor(arrow.x, arrow.y, 0);
     const margin = 26;
-    const cx = Math.max(margin, Math.min(this.width - margin, p.sx));
-    const cy = Math.max(margin, Math.min(this.height - margin, p.sy));
-    return { x: cx, y: cy, sx: p.sx, sy: p.sy, margin };
+    const cx = Math.max(margin, Math.min(this.width - margin, p.sx + 22));
+    const cy = Math.max(margin, Math.min(this.height - margin, p.sy + 22));
+    return { x: cx, y: cy, sx: p.sx + 22, sy: p.sy + 22, margin };
   }
 
   drawQuestArrow(ctx) {
@@ -611,6 +618,8 @@ export class Renderer {
     for (const w of waypoints) {
       if (w.map !== undefined && w.map !== this.world.mapIndex) continue;
       const p = this.screenFor(w.x, w.y, 0);
+      p.sx += 22;
+      p.sy += 22;
       if (p.sx < 0 || p.sx > this.width || p.sy < 0 || p.sy > this.height) continue;
       ctx.save();
       ctx.strokeStyle = '#7fc7ff';
@@ -691,6 +700,8 @@ export class Renderer {
     const z = entity.renderZ ?? entity.z;
     if (entity.isMobile) {
       const pos = this.screenFor(x, y, z);
+      pos.sx += 22;
+      pos.sy += 22;
       const type = this.game.getAnimType(entity.graphic);
       const group = entity.moving ? (type === 'people' ? (entity.inWarMode ? 15 : 0) : 0) : type === 'people' ? 4 : type === 'low' ? 2 : 1;
       const { dir, mirror } = animDirection(entity.direction);

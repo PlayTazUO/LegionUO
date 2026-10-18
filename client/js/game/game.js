@@ -323,6 +323,13 @@ export class Game {
     this.walkIndex = 0;
     this.walkTarget = { x, y };
     const player = this.world.player;
+    if (this.debug) {
+      this.walkPath = [{ x, y }];
+      this.walkIndex = 0;
+      this.pathRun = Math.abs(x - player.x) + Math.abs(y - player.y) > 4;
+      this.pathLastProgress = performance.now();
+      return;
+    }
     const path = await findPath(this.world, player.x, player.y, x, y);
     if (requestId !== this.walkRequestId || !this.world.player) return;
     if (!path) {
@@ -393,7 +400,7 @@ export class Game {
     const node = this.walkPath[this.walkIndex];
     const dx = node.x - p.x;
     const dy = node.y - p.y;
-    if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+    if (!this.debug && (Math.abs(dx) > 1 || Math.abs(dy) > 1)) {
       const target = this.walkTarget;
       if (target) this.walkTo(target.x, target.y);
       else this.cancelWalkPath();
