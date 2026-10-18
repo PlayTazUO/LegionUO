@@ -659,3 +659,595 @@ export class MapGumpWindow {
     }
   }
 }
+
+const WORLD_MAP_STORAGE_BASE = 'legionuo.worldmap.v1';
+const WORLD_MAP_FACETS = ['Felucca', 'Trammel', 'Ilshenar', 'Malas', 'Tokuno', 'Ter Mur'];
+const WORLD_MAP_MIN_WIDTH = 640;
+const WORLD_MAP_MIN_HEIGHT = 420;
+const WORLD_MAP_TABS_HEIGHT = 28;
+const WORLD_MAP_FOOTER_HEIGHT = 32;
+const WORLD_MAP_MAX_ZOOM = 8;
+
+function facetName(index) {
+  return WORLD_MAP_FACETS[index] || `Map ${index}`;
+}
+
+function clampNumber(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+export class WorldMapWindow {
+  constructor(world) {
+    this.world = world;
+    this.saved = loadSaved(world, WORLD_MAP_STORAGE_BASE);
+    const defaultWidth = Math.min(1120, Math.max(WORLD_MAP_MIN_WIDTH, window.innerWidth - 80));
+    const defaultHeight = Math.min(800, Math.max(WORLD_MAP_MIN_HEIGHT, window.innerHeight - 120));
+    this.width = Math.round(Number(this.saved.width) || defaultWidth);
+    this.height = Math.round(Number(this.saved.height) || defaultHeight);
+    this.facet = clampNumber(Math.floor(Number(this.saved.facet) || 0), 0, this.facetCount - 1);
+    this.zoom = clampNumber(Number(this.saved.zoom) || 1, 1, WORLD_MAP_MAX_ZOOM);
+    const savedX = Number(this.saved.x);
+    const savedY = Number(this.saved.y);
+    this.x = Number.isFinite(savedX) ? savedX : Math.max(20, (window.innerWidth - this.width) / 2);
+    this.y = Number.isFinite(savedY) ? savedY : Math.max(20, (window.innerHeight - this.height) / 2);
+    this.centerX = null;
+    this.centerY = null;
+    this.image = null;
+    this.loadToken = 0;
+    this.loading = false;
+    this.failed = false;
+    this.dragging = false;
+    this.moving = false;
+    this.resizing = false;
+    this.dragMoved = false;
+    this.dragStart = null;
+    this.hoverTile = null;
+    this.cursorTile = null;
+    this.hoverButton = null;
+    this.clampSize();
+    this.clampPosition();
+    this.loadFacet(this.facet, true, true);
+  }
+
+  get facetCount() {
+    const count = Number(this.world.config?.mapCount) || this.world.config?.maps?.length || 6;
+    return Math.max(1, count);
+  }
+
+  facetSize(facet) {
+    const sizes = this.world.config?.maps;
+    const size = Array.isArray(sizes) ? sizes[facet] : null;
+    if (Array.isArray(size) && size[0] > 0 && size[1] > 0) return size;
+    return [7168, 4096];
+  }
+
+  get canCloseWithEsc() {
+    return true;
+  }
+
+  get mapRect() {
+    return {
+      x: this.x + MAP_MARGIN,
+      y: this.y + TITLE_HEIGHT + WORLD_MAP_TABS_HEIGHT + 4,
+      w: Math.max(1, this.width - MAP_MARGIN * 2),
+      h: Math.max(1, this.height - TITLE_HEIGHT - WORLD_MAP_TABS_HEIGHT - WORLD_MAP_FOOTER_HEIGHT - MAP_MARGIN - 4),
+    };
+  }
+
+  get footerY() {
+    return this.y + this.height - WORLD_MAP_FOOTER_HEIGHT;
+  }
+
+  get closeRect() {
+    return { x: this.x + this.width - 22, y: this.y + 3, w: 18, h: 16 };
+  }
+
+  get resizeRect() {
+    return { x: this.x + this.width - 14, y: this.y + this.height - 14, w: 12, h: 12 };
+  }
+
+  get tabButtons() {
+    const count = this.facetCount;
+    const gap = 4;
+    const available = this.width - MAP_MARGIN * 2 - gap * (count - 1);
+    const width = Math.max(34, Math.min(96, Math.floor(available / count)));
+    const buttons = [];
+    let x = this.x + MAP_MARGIN;
+    for (let i = 0; i < count; i++) {
+      const label = width >= 62 ? facetName(i) : facetName(i).slice(0, 3);
+      buttons.push({
+        id: `facet:${i}`,
+        facet: i,
+        label,
+        x,
+        y: this.y + TITLE_HEIGHT + 2,
+        w: width,
+        h: WORLD_MAP_TABS_HEIGHT - 6,
+      });
+      x += width + gap;
+    }
+    return buttons;
+  }
+
+  get footerButtons() {
+    const height = 20;
+    const y = this.y + this.height - WORLD_MAP_FOOTER_HEIGHT + 6;
+    const specs = [
+      { id: 'zoomOut', label: '-', w: 24 },
+      { id: 'zoomIn', label: '+', w: 24 },
+      { id: 'center', label: 'Center', w: 52 },
+      { id: 'fit', label: 'Fit', w: 34 },
+    ];
+    let x = this.x + this.width - MAP_MARGIN;
+    const buttons = [];
+    for (const spec of specs) {
+      x -= spec.w;
+      buttons.push({ ...spec, x, y, h: height });
+      x -= 4;
+    }
+    return buttons;
+  }
+
+  buttonAt(mx, my) {
+    for (const button of this.tabButtons) {
+      if (inside(button, mx, my)) return button;
+    }
+    for (const button of this.footerButtons) {
+      if (inside(button, mx, my)) return button;
+    }
+    return null;
+  }
+
+  contains(mx, my) {
+    return mx >= this.x && my >= this.y && mx < this.x + this.width && my < this.y + this.height;
+  }
+
+  clampSize() {
+    const maxW = Math.max(240, window.innerWidth - 20);
+    const maxH = Math.max(180, window.innerHeight - 20);
+    this.width = Math.round(clampNumber(this.width, Math.min(WORLD_MAP_MIN_WIDTH, maxW), maxW));
+    this.height = Math.round(clampNumber(this.height, Math.min(WORLD_MAP_MIN_HEIGHT, maxH), maxH));
+  }
+
+  clampPosition() {
+    const pos = clampPosition(this.x, this.y, this.width, this.height);
+    this.x = pos.x;
+    this.y = pos.y;
+  }
+
+  saveState() {
+    saveSaved(this.world, WORLD_MAP_STORAGE_BASE, {
+      x: Math.round(this.x),
+      y: Math.round(this.y),
+      width: Math.round(this.width),
+      height: Math.round(this.height),
+      facet: this.facet,
+      zoom: Number(this.zoom.toFixed(2)),
+    });
+  }
+
+  loadFacet(facet, resetView, keepZoom = false) {
+    this.facet = facet;
+    this.image = null;
+    this.loading = true;
+    this.failed = false;
+    this.cursorTile = null;
+    this.hoverTile = null;
+    if (resetView) {
+      this.centerX = null;
+      this.centerY = null;
+      if (!keepZoom) this.zoom = 1;
+    }
+    const token = ++this.loadToken;
+    const [mapW, mapH] = this.facetSize(facet);
+    const max = 1024;
+    let outW = max;
+    let outH = max;
+    if (mapW >= mapH) outH = Math.max(1, Math.round((max * mapH) / mapW));
+    else outW = Math.max(1, Math.round((max * mapW) / mapH));
+    const params = new URLSearchParams({
+      facet: String(facet),
+      x0: '0',
+      y0: '0',
+      x1: String(mapW),
+      y1: String(mapH),
+      w: String(outW),
+      h: String(outH),
+    });
+    const image = new Image();
+    image.onload = () => {
+      if (token !== this.loadToken) return;
+      this.image = image;
+      this.loading = false;
+      if (this.centerX == null || this.centerY == null) this.centerOnPlayer();
+      this.clampView();
+    };
+    image.onerror = () => {
+      if (token !== this.loadToken) return;
+      this.loading = false;
+      this.failed = true;
+    };
+    image.src = `/api/mapimage?${params}`;
+  }
+
+  centerOnPlayer() {
+    const [mapW, mapH] = this.facetSize(this.facet);
+    const player = this.world.player;
+    if (player && this.facet === this.world.mapIndex) {
+      this.centerX = player.renderX ?? player.x;
+      this.centerY = player.renderY ?? player.y;
+    } else {
+      this.centerX = mapW / 2;
+      this.centerY = mapH / 2;
+    }
+  }
+
+  viewMetrics() {
+    const area = this.mapRect;
+    if (!this.image || !this.image.width || !this.image.height) return null;
+    if (this.centerX == null || this.centerY == null) this.centerOnPlayer();
+    const [mapW, mapH] = this.facetSize(this.facet);
+    const fit = Math.min(area.w / this.image.width, area.h / this.image.height);
+    const scale = fit * this.zoom;
+    const dw = this.image.width * scale;
+    const dh = this.image.height * scale;
+    const pxPerTileX = dw / mapW;
+    const pxPerTileY = dh / mapH;
+    return {
+      area,
+      mapW,
+      mapH,
+      dw,
+      dh,
+      pxPerTileX,
+      pxPerTileY,
+      originX: area.x + area.w / 2 - this.centerX * pxPerTileX,
+      originY: area.y + area.h / 2 - this.centerY * pxPerTileY,
+    };
+  }
+
+  clampView() {
+    const m = this.viewMetrics();
+    if (!m) return;
+    if (this.centerX == null || this.centerY == null) this.centerOnPlayer();
+    if (m.dw <= m.area.w) {
+      this.centerX = m.mapW / 2;
+    } else {
+      const margin = m.area.w / 2 / m.pxPerTileX;
+      this.centerX = clampNumber(this.centerX, margin, m.mapW - margin);
+    }
+    if (m.dh <= m.area.h) {
+      this.centerY = m.mapH / 2;
+    } else {
+      const margin = m.area.h / 2 / m.pxPerTileY;
+      this.centerY = clampNumber(this.centerY, margin, m.mapH - margin);
+    }
+  }
+
+  tileAt(mx, my) {
+    const m = this.viewMetrics();
+    if (!m) return null;
+    return {
+      x: (mx - m.originX) / m.pxPerTileX,
+      y: (my - m.originY) / m.pxPerTileY,
+    };
+  }
+
+  tileToScreen(x, y) {
+    const m = this.viewMetrics();
+    if (!m) return null;
+    return {
+      x: m.originX + x * m.pxPerTileX,
+      y: m.originY + y * m.pxPerTileY,
+    };
+  }
+
+  invokeButton(id) {
+    if (id.startsWith('facet:')) {
+      this.selectFacet(Number(id.slice(6)));
+    } else if (id === 'zoomIn') {
+      this.setZoom(this.zoom * 1.25);
+    } else if (id === 'zoomOut') {
+      this.setZoom(this.zoom / 1.25);
+    } else if (id === 'center') {
+      this.centerOnPlayer();
+      this.zoom = Math.max(this.zoom, 2);
+      this.clampView();
+      this.saveState();
+    } else if (id === 'fit') {
+      this.zoom = 1;
+      this.clampView();
+      this.saveState();
+    }
+  }
+
+  setZoom(zoom) {
+    const area = this.mapRect;
+    const cx = area.x + area.w / 2;
+    const cy = area.y + area.h / 2;
+    const before = this.tileAt(cx, cy);
+    this.zoom = clampNumber(zoom, 1, WORLD_MAP_MAX_ZOOM);
+    const after = this.tileAt(cx, cy);
+    if (before && after) {
+      this.centerX += before.x - after.x;
+      this.centerY += before.y - after.y;
+    }
+    this.clampView();
+    this.saveState();
+  }
+
+  selectFacet(facet) {
+    if (!Number.isFinite(facet) || facet < 0 || facet >= this.facetCount || facet === this.facet) return;
+    this.loadFacet(facet, true);
+    this.saveState();
+  }
+
+  onMouseDown(mx, my, button) {
+    if (button === 2) {
+      this.close();
+      return true;
+    }
+    if (inside(this.closeRect, mx, my)) {
+      this.close();
+      return true;
+    }
+    if (inside(this.resizeRect, mx, my)) {
+      this.resizing = true;
+      this.dragStart = { mx, my, width: this.width, height: this.height };
+      return true;
+    }
+    const control = this.buttonAt(mx, my);
+    if (control) {
+      this.invokeButton(control.id);
+      return true;
+    }
+    if (inside(this.mapRect, mx, my)) {
+      const m = this.viewMetrics();
+      if (!m) return true;
+      this.dragging = true;
+      this.dragMoved = false;
+      this.dragStart = {
+        mx,
+        my,
+        centerX: this.centerX,
+        centerY: this.centerY,
+        px: m.pxPerTileX,
+        py: m.pxPerTileY,
+      };
+      return true;
+    }
+    if (my < this.y + TITLE_HEIGHT) {
+      this.moving = true;
+      this.dragMoved = false;
+      this.dragStart = { mx, my, x: this.x, y: this.y };
+      return true;
+    }
+    return false;
+  }
+
+  onMouseMove(mx, my) {
+    this.hoverButton = this.buttonAt(mx, my)?.id || null;
+    if (this.resizing && this.dragStart) {
+      this.width = this.dragStart.width + (mx - this.dragStart.mx);
+      this.height = this.dragStart.height + (my - this.dragStart.my);
+      this.dragMoved = true;
+      this.clampSize();
+      this.clampPosition();
+      this.clampView();
+      return;
+    }
+    if (this.moving && this.dragStart) {
+      this.x = this.dragStart.x + (mx - this.dragStart.mx);
+      this.y = this.dragStart.y + (my - this.dragStart.my);
+      this.dragMoved = true;
+      this.clampPosition();
+      return;
+    }
+    if (this.dragging && this.dragStart) {
+      const dx = mx - this.dragStart.mx;
+      const dy = my - this.dragStart.my;
+      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) this.dragMoved = true;
+      this.centerX = this.dragStart.centerX - dx / this.dragStart.px;
+      this.centerY = this.dragStart.centerY - dy / this.dragStart.py;
+      this.clampView();
+      return;
+    }
+    this.hoverTile = inside(this.mapRect, mx, my) ? this.tileAt(mx, my) : null;
+  }
+
+  onMouseUp(mx, my) {
+    const wasDragging = this.dragging;
+    if ((this.dragging || this.moving || this.resizing) && this.dragMoved) this.saveState();
+    if (wasDragging && !this.dragMoved) {
+      const tile = this.tileAt(mx, my);
+      if (tile && inside(this.mapRect, mx, my)) {
+        this.cursorTile = { x: Math.round(tile.x), y: Math.round(tile.y) };
+      }
+    }
+    this.dragging = false;
+    this.moving = false;
+    this.resizing = false;
+    this.dragStart = null;
+    this.dragMoved = false;
+  }
+
+  onWheel(mx, my, deltaY) {
+    if (!inside(this.mapRect, mx, my)) return false;
+    const before = this.tileAt(mx, my);
+    const factor = deltaY > 0 ? 1 / 1.25 : 1.25;
+    this.zoom = clampNumber(this.zoom * factor, 1, WORLD_MAP_MAX_ZOOM);
+    const after = this.tileAt(mx, my);
+    if (before && after) {
+      this.centerX += before.x - after.x;
+      this.centerY += before.y - after.y;
+    }
+    this.clampView();
+    this.saveState();
+    return true;
+  }
+
+  onDoubleClick(mx, my) {
+    if (this.buttonAt(mx, my) || !inside(this.mapRect, mx, my)) return;
+    const tile = this.tileAt(mx, my);
+    if (!tile || !this.world.player) return;
+    if (this.facet !== this.world.mapIndex) {
+      this.world.game.ui?.addJournal?.(`You are not on ${facetName(this.facet)}.`, '#c56a4a', true);
+      return;
+    }
+    const [mapW, mapH] = this.facetSize(this.facet);
+    const x = Math.round(clampNumber(tile.x, 0, mapW - 1));
+    const y = Math.round(clampNumber(tile.y, 0, mapH - 1));
+    this.cursorTile = { x, y };
+    this.world.game.walkTo(x, y);
+    this.world.game.ui?.addJournal?.(`Walking to ${x}, ${y}.`, '#b8a06a', true);
+  }
+
+  close() {
+    this.saveState();
+    this.world.game.ui?.closeWorldMap?.();
+  }
+
+  drawMarker(ctx, x, y, color, kind) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+    ctx.lineWidth = 1;
+    if (kind === 'waypoint' || kind === 'quest') {
+      ctx.beginPath();
+      ctx.moveTo(x, y - 4);
+      ctx.lineTo(x + 4, y);
+      ctx.lineTo(x, y + 4);
+      ctx.lineTo(x - 4, y);
+      ctx.closePath();
+    } else {
+      ctx.beginPath();
+      ctx.arc(x, y, kind === 'player' ? 3.5 : 2.5, 0, Math.PI * 2);
+    }
+    ctx.fill();
+    ctx.stroke();
+    if (kind === 'player') {
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      ctx.arc(x, y, 6, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  drawMarkers(ctx) {
+    const world = this.world;
+    const player = world.player;
+    if (player && this.facet === world.mapIndex) {
+      const point = this.tileToScreen(player.renderX ?? player.x, player.renderY ?? player.y);
+      if (point) this.drawMarker(ctx, point.x, point.y, '#ffffff', 'player');
+    }
+    if (this.facet === world.mapIndex && world.party?.members?.length) {
+      for (const serial of world.party.members) {
+        if (serial === world.playerSerial) continue;
+        const entity = world.entities.get(serial);
+        if (!entity || !entity.hasPosition) continue;
+        const point = this.tileToScreen(entity.renderX ?? entity.x, entity.renderY ?? entity.y);
+        if (point) this.drawMarker(ctx, point.x, point.y, '#7ee08a', 'party');
+      }
+    }
+    for (const waypoint of world.waypoints || []) {
+      if (waypoint.map !== this.facet) continue;
+      const point = this.tileToScreen(waypoint.x, waypoint.y);
+      if (point) this.drawMarker(ctx, point.x, point.y, '#7fc7ff', 'waypoint');
+    }
+    const arrow = world.questArrow;
+    if (arrow && this.facet === world.mapIndex) {
+      const point = this.tileToScreen(arrow.x, arrow.y);
+      if (point) this.drawMarker(ctx, point.x, point.y, '#ffd34a', 'quest');
+    }
+    if (this.cursorTile) {
+      const point = this.tileToScreen(this.cursorTile.x, this.cursorTile.y);
+      if (point) {
+        ctx.save();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(point.x - 5, point.y);
+        ctx.lineTo(point.x + 5, point.y);
+        ctx.moveTo(point.x, point.y - 5);
+        ctx.lineTo(point.x, point.y + 5);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+  }
+
+  drawResizeGrip(ctx) {
+    const rect = this.resizeRect;
+    ctx.strokeStyle = '#5f5133';
+    ctx.beginPath();
+    for (let i = 0; i < 3; i++) {
+      const offset = i * 4;
+      ctx.moveTo(rect.x + rect.w - 2 - offset, rect.y + rect.h - 2);
+      ctx.lineTo(rect.x + rect.w - 2, rect.y + rect.h - 2 - offset);
+    }
+    ctx.stroke();
+  }
+
+  draw(ctx) {
+    drawWindowFrame(ctx, this.x, this.y, this.width, this.height, 'World Map', this.closeRect);
+
+    for (const button of this.tabButtons) {
+      drawButton(ctx, button, button.label, button.facet === this.facet);
+    }
+
+    const area = this.mapRect;
+    ctx.fillStyle = '#080705';
+    ctx.fillRect(area.x, area.y, area.w, area.h);
+
+    const m = this.viewMetrics();
+    if (this.image && m) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(area.x, area.y, area.w, area.h);
+      ctx.clip();
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(this.image, m.originX, m.originY, m.dw, m.dh);
+      this.drawMarkers(ctx);
+      ctx.restore();
+    } else {
+      ctx.fillStyle = '#8d7a52';
+      ctx.font = '11px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(
+        this.failed ? 'No world map art available.' : 'Loading world map...',
+        area.x + area.w / 2,
+        area.y + area.h / 2
+      );
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+    }
+
+    ctx.strokeStyle = '#4d4228';
+    ctx.strokeRect(area.x + 0.5, area.y + 0.5, area.w - 1, area.h - 1);
+
+    const footerY = this.footerY;
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    ctx.fillRect(this.x + 1, footerY, this.width - 2, WORLD_MAP_FOOTER_HEIGHT - 1);
+    const player = this.world.player;
+    let coords = '--';
+    if (this.hoverTile) coords = `${Math.round(this.hoverTile.x)}, ${Math.round(this.hoverTile.y)}`;
+    else if (player && this.facet === this.world.mapIndex) coords = `${player.x}, ${player.y}`;
+    ctx.fillStyle = '#9e8e65';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(
+      `${facetName(this.facet)} · ${coords} · ${this.zoom.toFixed(2)}x`,
+      this.x + MAP_MARGIN,
+      footerY + WORLD_MAP_FOOTER_HEIGHT / 2
+    );
+
+    for (const button of this.footerButtons) {
+      drawButton(ctx, button, button.label, false);
+    }
+    this.drawResizeGrip(ctx);
+  }
+}

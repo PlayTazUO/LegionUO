@@ -59,6 +59,10 @@ Implemented today:
   colours, mobile/waypoint dots, a small/large toggle, and saved position.
 - Map item gumps (`0x90`/`0xF5`) render `facetXX.mul` crops, accept `0x56` pins and
   clear commands, support plot mode, draw numbered routes, and save their position.
+- Full-screen world map (`WorldMapWindow`, `WM` button or `-worldmap`) loads whole
+  facets through `/api/mapimage`, with facet tabs, wheel zoom around the cursor, drag
+  panning, center/fit controls, window drag/resize, saved state, player/party/
+  waypoint/quest markers, hover coordinates, and double-click click-to-walk.
 - Paperdolls use the real gump art (`0x07D0`/`0x07D1`), draw equipped layers on the
   animated doll, show per-layer equipment slots with tooltips, support drag/drop
   pickup and equip, provide help/journal/skills/war/status/profile/party/logout
@@ -506,7 +510,7 @@ Current status at a glance:
 
 #### P2
 
-- Full-screen world map browser; map-gump pins and the radar are implemented.
+- Full-screen world map browser *(implemented)*; map-gump pins and the radar are implemented.
 - Options/settings window (video, sound, input, gumps, journal, movement).
 - Hotbar/desktop, spell/ability shortcuts.
 - Quest arrow and waypoint list UI.
@@ -561,8 +565,8 @@ Current status at a glance:
 6. Shop, trade, book, profile, menus, prompts, dye. *(shop, trade, book, profile,
    bulletin board, menus/gray menus, prompts, and the dye hue picker are done)*
 7. Party, buffs, tooltips/OPL, context menu. *(party, tooltips/OPL, buff bar, and context menu done)*
-8. Map/radar, options, hotbar, audio. *(radar and map item gumps done; options window
-   done; world map, hotbar, and real audio samples remain)*
+8. Map/radar, options, hotbar, audio. *(radar, map item gumps, the full-screen world
+   map, and the options window are done; hotbar and real audio samples remain)*
 
 ## 7. Current file map
 
@@ -574,7 +578,7 @@ Current status at a glance:
 | Entities / layers | `client/js/game/entity.js` |
 | Effects / audio | `client/js/game/effects.js`, `client/js/game/audio.js` |
 | Buff bar / buff graphics | `client/js/game/buffs.js` |
-| Radar / map gumps | `client/js/game/maps.js` |
+| Radar / map gumps / world map | `client/js/game/maps.js` |
 | Server gump parser | `client/js/game/gump.js` |
 | Spell data / schools | `client/js/game/spells.js` |
 | HTML/gump text rendering | `client/js/game/html.js` |
@@ -602,6 +606,7 @@ Current status at a glance:
 - Hover an item and see name/properties.
 - Right-click an item/mobile, open the context menu, and choose an action.
 - Open the radar and a map item; add a pin, plot/clear the route, and move the window.
+- Open the world map, switch facets, zoom/pan, and double-click a reachable tile to walk.
 - Open options, toggle display/audio settings, and confirm they persist after reload.
 - Use a skill and cast a spell.
 - Die and resurrect.

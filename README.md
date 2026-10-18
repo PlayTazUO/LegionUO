@@ -109,6 +109,9 @@ Then open <http://127.0.0.1:8080>.
 - Radar/minimap with `radarcol.mul` terrain colours, mobile/waypoint dots and a
   saved position; map item gumps (`0x90`/`0xF5`) render facet crops with numbered
   `0x56` pins, plot mode and saved position.
+- Full-screen world map (`WM` / `-worldmap`) with facet tabs, smooth wheel zoom,
+  drag panning, center/fit, saved window state, player/party/waypoint/quest markers,
+  hover coordinates and double-click click-to-walk.
 - Movable/resizable journal with per-account message history, tabs/filters,
   timestamps, opacity/font/line settings, ignore list and chat speech modes.
 - Login/server/character selection, character creation, optional remembered

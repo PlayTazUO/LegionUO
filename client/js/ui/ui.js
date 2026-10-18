@@ -20,7 +20,7 @@ import {
 import { Layer } from '../game/entity.js';
 import { settings } from '../game/settings.js';
 import { BuffBarWindow, buffGraphic } from '../game/buffs.js';
-import { MapGumpWindow, MinimapWindow } from '../game/maps.js';
+import { MapGumpWindow, MinimapWindow, WorldMapWindow } from '../game/maps.js';
 import { Reader } from '../util/binary.js';
 import { Journal } from './journal.js';
 
@@ -102,6 +102,7 @@ export class UI {
     $('btnSkills').addEventListener('click', () => this.toggleSkills());
     $('btnParty')?.addEventListener('click', () => this.toggleParty());
     $('btnMap')?.addEventListener('click', () => this.toggleRadar());
+    $('btnWorldMap')?.addEventListener('click', () => this.toggleWorldMap());
     $('btnWar').addEventListener('click', () => this.toggleWarMode());
     $('btnStatus').addEventListener('click', () => this.showStatus());
     $('btnOptions')?.addEventListener('click', () => this.showOptions());
@@ -561,6 +562,25 @@ export class UI {
     this.removeWindow('radar', 'player');
   }
 
+  showWorldMap() {
+    if (!this.world.player) return;
+    const existing = this.getWindow('worldmap', 'player');
+    if (existing) {
+      this.raiseWindow(existing);
+      return;
+    }
+    this.addWindow('worldmap', 'player', new WorldMapWindow(this.world));
+  }
+
+  toggleWorldMap() {
+    if (this.getWindow('worldmap', 'player')) this.closeWorldMap();
+    else this.showWorldMap();
+  }
+
+  closeWorldMap() {
+    this.removeWindow('worldmap', 'player');
+  }
+
   showMapGump(window) {
     if (!window) return;
     this.addWindow('map', window.serial, window);
@@ -661,7 +681,7 @@ export class UI {
     const command = cmd.toLowerCase();
     if (command === 'help') {
       this.addJournal(
-        'Commands: -help -skills -status -options -buffs -partywindow -radar -profile -where -war -peace -run -walk -resync -logout -open -target -lasttarget -debug -journal -clear -say -whisper -yell -emote -party -guild -alliance -ignore -unignore -ignorelist -timestamps',
+        'Commands: -help -skills -status -options -buffs -partywindow -radar -worldmap -profile -where -war -peace -run -walk -resync -logout -open -target -lasttarget -debug -journal -clear -say -whisper -yell -emote -party -guild -alliance -ignore -unignore -ignorelist -timestamps',
         '#b8a06a',
         true
       );
@@ -718,6 +738,8 @@ export class UI {
       this.toggleParty();
     } else if (command === 'radar' || command === 'minimap') {
       this.toggleRadar();
+    } else if (command === 'worldmap' || command === 'map') {
+      this.toggleWorldMap();
     } else if (command === 'profile') {
       if (this.world.player) this.world.socket.out.profileRequest(this.world.playerSerial);
     } else if (command === 'where') {
@@ -741,6 +763,10 @@ export class UI {
       if (alias === 'backpack') {
         const backpack = this.world.player.getItem(Layer.Backpack);
         if (backpack) this.world.socket.out.doubleClick(backpack.serial);
+      } else if (alias === 'worldmap' || alias === 'map') {
+        this.toggleWorldMap();
+      } else if (alias === 'radar' || alias === 'minimap') {
+        this.toggleRadar();
       }
     } else if (command === 'target') {
       this.world.setTarget(1, 0, 0);
