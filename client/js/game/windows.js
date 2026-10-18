@@ -7,6 +7,12 @@ const CONTAINER_STORAGE_BASE = 'legionuo.container.v1';
 const CONTAINER_MARGIN = 6;
 const GRID_CELL = 46;
 const GRID_INSET = 12;
+const STACK_ART_OFFSET = 3;
+const LIST_HEADER_HEIGHT = 20;
+const LIST_ROW_HEIGHT = 24;
+const LIST_MAX_ROWS = 8;
+const LIST_MIN_WIDTH = 280;
+const LIST_ICON_SIZE = 20;
 
 function containerStorageKey(world) {
   const account = (world.game?.loginCredentials?.account || '').trim().toLowerCase();
@@ -22,10 +28,10 @@ function loadContainerPositions(world) {
   }
 }
 
-function saveContainerPosition(world, serial, x, y) {
+function saveContainerPosition(world, serial, x, y, listCollapsed) {
   try {
     const all = loadContainerPositions(world);
-    all[String(serial)] = { x: Math.round(x), y: Math.round(y) };
+    all[String(serial)] = { x: Math.round(x), y: Math.round(y), listCollapsed: !!listCollapsed };
     localStorage.setItem(containerStorageKey(world), JSON.stringify(all));
   } catch {
     /* ignore quota errors */
@@ -50,6 +56,11 @@ export class ContainerWindow {
     this.scroll = 0;
     this.press = null;
     this.scrollDrag = false;
+    this.listCollapsed = saved?.listCollapsed === true;
+    this.listScroll = 0;
+    this.listPress = null;
+    this.listHover = -1;
+    this.listScrollDrag = false;
   }
 
   get item() {
@@ -75,7 +86,9 @@ export class ContainerWindow {
   }
 
   contains(mx, my) {
-    return mx >= this.x && my >= this.y && mx < this.x + this.width && my < this.y + this.height;
+    if (mx >= this.x && my >= this.y && mx < this.x + this.width && my < this.y + this.height) return true;
+    const list = this.listRect;
+    return mx >= list.x && my >= list.y && mx < list.x + list.w && my < list.y + list.h;
   }
 
   // Containers normally place items with the server-provided item.x/item.y.
@@ -127,6 +140,116 @@ export class ContainerWindow {
     return Math.max(0, content - this.viewHeight + CONTAINER_MARGIN);
   }
 
+  get listWidth() {
+    return Math.max(this.width, LIST_MIN_WIDTH);
+  }
+
+  get listVisibleRows() {
+    return Math.min(LIST_MAX_ROWS, this.items.length);
+  }
+
+  get listBodyHeight() {
+    return this.listCollapsed ? 0 : this.listVisibleRows * LIST_ROW_HEIGHT;
+  }
+
+  get listHeight() {
+    return LIST_HEADER_HEIGHT + this.listBodyHeight;
+  }
+
+  get listTop() {
+    return this.y + this.height;
+  }
+
+  get listRect() {
+    return { x: this.x, y: this.listTop, w: this.listWidth, h: this.listHeight };
+  }
+
+  get listHeaderRect() {
+    return { x: this.x, y: this.listTop, w: this.listWidth, h: LIST_HEADER_HEIGHT };
+  }
+
+  get listBodyRect() {
+    return { x: this.x, y: this.listTop + LIST_HEADER_HEIGHT, w: this.listWidth, h: this.listBodyHeight };
+  }
+
+  get listToggleRect() {
+    return { x: this.x + this.listWidth - 20, y: this.listTop + 3, w: 14, h: 14 };
+  }
+
+  get listSortedItems() {
+    return [...this.items].sort((a, b) => {
+      const an = String(a.name || `0x${a.graphic.toString(16)}`).toLowerCase();
+      const bn = String(b.name || `0x${b.graphic.toString(16)}`).toLowerCase();
+      return an.localeCompare(bn) || (a.serial >>> 0) - (b.serial >>> 0);
+    });
+  }
+
+  get listScrollMax() {
+    if (this.listCollapsed) return 0;
+    return Math.max(0, this.items.length * LIST_ROW_HEIGHT - this.listBodyHeight);
+  }
+
+  get listScrollbarRect() {
+    return {
+      x: this.x + this.listWidth - 7,
+      y: this.listTop + LIST_HEADER_HEIGHT + 2,
+      w: 4,
+      h: Math.max(0, this.listBodyHeight - 4),
+    };
+  }
+
+  listScrollbarThumb() {
+    const track = this.listScrollbarRect;
+    if (this.listScrollMax <= 0 || track.h <= 0) return null;
+    const ratio = this.listBodyHeight / (this.items.length * LIST_ROW_HEIGHT);
+    const h = Math.max(16, track.h * ratio);
+    const top = track.y + (this.listScroll / this.listScrollMax) * (track.h - h);
+    return { x: track.x, y: top, w: track.w, h };
+  }
+
+  setListScrollFromMouse(my) {
+    const track = this.listScrollbarRect;
+    const thumb = this.listScrollbarThumb();
+    if (!thumb) return;
+    const travel = track.h - thumb.h;
+    if (travel <= 0) return;
+    const ratio = Math.max(0, Math.min(1, (my - track.y - thumb.h / 2) / travel));
+    this.listScroll = ratio * this.listScrollMax;
+  }
+
+  listRowRect(index) {
+    const body = this.listBodyRect;
+    return {
+      x: body.x + 2,
+      y: body.y + index * LIST_ROW_HEIGHT - this.listScroll,
+      w: body.w - 4,
+      h: LIST_ROW_HEIGHT - 1,
+    };
+  }
+
+  listRowIndexAt(mx, my) {
+    if (this.listCollapsed) return -1;
+    const body = this.listBodyRect;
+    if (mx < body.x || mx >= body.x + body.w || my < body.y || my >= body.y + body.h) return -1;
+    const index = Math.floor((my - body.y + this.listScroll) / LIST_ROW_HEIGHT);
+    return index >= 0 && index < this.items.length ? index : -1;
+  }
+
+  listItemAt(mx, my) {
+    const index = this.listRowIndexAt(mx, my);
+    if (index < 0) return null;
+    return this.listSortedItems[index] || null;
+  }
+
+  pointInList(mx, my) {
+    const rect = this.listRect;
+    return mx >= rect.x && my >= rect.y && mx < rect.x + rect.w && my < rect.y + rect.h;
+  }
+
+  hitRect(rect, mx, my) {
+    return mx >= rect.x && my >= rect.y && mx < rect.x + rect.w && my < rect.y + rect.h;
+  }
+
   localPoint(mx, my) {
     return { x: mx - this.x, y: my - this.y + this.scroll };
   }
@@ -143,11 +266,11 @@ export class ContainerWindow {
 
   targetAt(mx, my) {
     if (!this.contains(mx, my)) return null;
-    return this.itemAt(mx, my);
+    return this.listItemAt(mx, my) || this.itemAt(mx, my);
   }
 
   tooltipAt(mx, my) {
-    const item = this.itemAt(mx, my);
+    const item = this.listItemAt(mx, my) || this.itemAt(mx, my);
     if (!item) return null;
     return { id: `container:${this.serial}:${item.serial}`, serial: item.serial, title: item.name };
   }
@@ -175,11 +298,51 @@ export class ContainerWindow {
     this.scroll = ratio * this.scrollMax;
   }
 
-  onMouseDown(mx, my, button) {
+  onMouseDown(mx, my, button, event) {
+    this.listPress = null;
+    this.press = null;
     if (button === 2) {
-      const item = this.itemAt(mx, my);
-      if (item) this.world.game.ui.openContextMenu(item.serial, mx, my);
-      else this.close();
+      const item = this.listItemAt(mx, my) || this.itemAt(mx, my);
+      if (item) {
+        this.world.game.ui.openContextMenu(item.serial, mx, my);
+      } else if (!this.pointInList(mx, my)) {
+        this.close();
+      }
+      return true;
+    }
+    if (button === 0 && this.listScrollMax > 0) {
+      const thumb = this.listScrollbarThumb();
+      if (
+        thumb &&
+        mx >= thumb.x - 2 &&
+        mx < thumb.x + thumb.w + 2 &&
+        my >= this.listScrollbarRect.y &&
+        my < this.listScrollbarRect.y + this.listScrollbarRect.h
+      ) {
+        this.listScrollDrag = true;
+        this.listPress = null;
+        this.setListScrollFromMouse(my);
+        return true;
+      }
+    }
+    if (button === 0 && this.hitRect(this.listToggleRect, mx, my)) {
+      this.toggleList();
+      return true;
+    }
+    const listItem = this.listItemAt(mx, my);
+    if (listItem) {
+      if (!this.world.held) {
+        this.listPress = { item: listItem, x: mx, y: my, moved: false, split: !!event?.shiftKey };
+      }
+      return true;
+    }
+    if (this.pointInList(mx, my)) {
+      this.listPress = null;
+      if (this.hitRect(this.listHeaderRect, mx, my)) {
+        this.dragging = true;
+        this.dragOffset.x = mx - this.x;
+        this.dragOffset.y = my - this.y;
+      }
       return true;
     }
     if (button === 0 && this.scrollMax > 0) {
@@ -193,7 +356,9 @@ export class ContainerWindow {
     }
     const item = this.itemAt(mx, my);
     if (item) {
-      if (button === 0 && !this.world.held) this.press = { item, x: mx, y: my, moved: false };
+      if (button === 0 && !this.world.held) {
+        this.press = { item, x: mx, y: my, moved: false, split: !!event?.shiftKey };
+      }
       return true;
     }
     this.press = null;
@@ -205,9 +370,18 @@ export class ContainerWindow {
 
   onMouseUp(mx, my) {
     this.scrollDrag = false;
+    this.listScrollDrag = false;
     if (this.dragging) this.savePosition();
     this.dragging = false;
-    if (this.press && !this.press.moved) this.world.socket.out.singleClick(this.press.item.serial);
+    if (this.listPress && !this.listPress.moved) {
+      if (this.listPress.split && this.listPress.item.amount > 1) this.promptSplit(this.listPress.item);
+      else this.world.socket.out.singleClick(this.listPress.item.serial);
+    }
+    this.listPress = null;
+    if (this.press && !this.press.moved) {
+      if (this.press.split && this.press.item.amount > 1) this.promptSplit(this.press.item);
+      else this.world.socket.out.singleClick(this.press.item.serial);
+    }
     this.press = null;
     if (this.world.held && this.contains(mx, my)) this.dropHeld(mx, my);
   }
@@ -223,22 +397,80 @@ export class ContainerWindow {
     if (!item) return;
     this.world.held = null;
     const p = this.localPoint(mx, my);
-    const x = Math.max(0, Math.min(0xffff, Math.round(p.x)));
-    const y = Math.max(0, Math.min(0xffff, Math.round(p.y)));
+    const img = this.world.assets.getStatic(item.graphic, item.hue);
+    const w = img?.width || 0;
+    const h = img?.height || 0;
+    const maxX = Math.max(0, this.width - w);
+    const maxY = Math.max(0, this.height - h);
+    const x = Math.max(0, Math.min(maxX, Math.round(p.x - w / 2)));
+    const y = Math.max(0, Math.min(maxY, Math.round(p.y - h / 2)));
     this.world.socket.out.drop(item.serial, x, y, 0, 0, this.serial);
   }
 
+  pickupItem(item, amount = item.amount || 1) {
+    if (!item || this.world.held) return;
+    const total = Math.max(1, item.amount || 1);
+    const count = Math.max(1, Math.min(total, Math.round(Number(amount) || 1)));
+    this.world.heldAmount = count;
+    this.world.held = item;
+    this.world.socket.out.pickup(item.serial, count);
+  }
+
+  promptSplit(item) {
+    const total = item.amount || 1;
+    if (total <= 1) {
+      this.world.socket.out.singleClick(item.serial);
+      return;
+    }
+    const ui = this.world.game.ui;
+    if (!ui?.showModalInput) return;
+    ui.dragTarget = null;
+    this.press = null;
+    this.listPress = null;
+    ui.showModalInput(`Split ${item.name || 'stack'} (1-${total})`, '1', 6, (value) => {
+      const parsed = parseInt(String(value).replace(/[^0-9]/g, ''), 10);
+      if (!Number.isFinite(parsed) || parsed <= 0) return;
+      this.pickupItem(item, parsed);
+    });
+  }
+
   onWheel(mx, my, deltaY) {
+    if (this.pointInList(mx, my)) {
+      if (this.listCollapsed || this.listScrollMax <= 0) return true;
+      const step = deltaY > 0 ? LIST_ROW_HEIGHT : -LIST_ROW_HEIGHT;
+      this.listScroll = Math.max(0, Math.min(this.listScroll + step, this.listScrollMax));
+      return true;
+    }
     if (!this.contains(mx, my)) return false;
     const step = deltaY > 0 ? GRID_CELL : -GRID_CELL;
     this.scroll = Math.max(0, Math.min(this.scroll + step, this.scrollMax));
     return true;
   }
 
-  onMouseMove(mx, my) {
+  onMouseMove(mx, my, event) {
+    this.listHover = this.listRowIndexAt(mx, my);
     if (this.scrollDrag) {
       this.setScrollFromMouse(my);
       return;
+    }
+    if (this.listScrollDrag) {
+      this.setListScrollFromMouse(my);
+      return;
+    }
+    if (this.listPress && !this.listPress.moved) {
+      const dx = mx - this.listPress.x;
+      const dy = my - this.listPress.y;
+      if (dx * dx + dy * dy >= 16) {
+        this.listPress.moved = true;
+        if (!this.world.held) {
+          const item = this.listPress.item;
+          if ((this.listPress.split || event?.shiftKey) && item.amount > 1) {
+            this.promptSplit(item);
+            return;
+          }
+          this.pickupItem(item);
+        }
+      }
     }
     if (this.press && !this.press.moved) {
       const dx = mx - this.press.x;
@@ -247,8 +479,11 @@ export class ContainerWindow {
         this.press.moved = true;
         if (!this.world.held) {
           const item = this.press.item;
-          this.world.held = item;
-          this.world.socket.out.pickup(item.serial, item.amount || 1);
+          if ((this.press.split || event?.shiftKey) && item.amount > 1) {
+            this.promptSplit(item);
+            return;
+          }
+          this.pickupItem(item);
         }
       }
     }
@@ -259,15 +494,23 @@ export class ContainerWindow {
   }
 
   onDoubleClick(mx, my) {
-    const item = this.itemAt(mx, my);
+    const item = this.listItemAt(mx, my) || this.itemAt(mx, my);
     if (item) this.world.socket.out.doubleClick(item.serial);
+  }
+
+  toggleList() {
+    this.listCollapsed = !this.listCollapsed;
+    this.listScroll = 0;
+    this.listPress = null;
+    this.listHover = -1;
+    this.savePosition();
   }
 
   savePosition() {
     const pos = clampWindowPosition(this.x, this.y, 240, 220);
     this.x = pos.x;
     this.y = pos.y;
-    saveContainerPosition(this.world, this.serial, this.x, this.y);
+    saveContainerPosition(this.world, this.serial, this.x, this.y, this.listCollapsed);
   }
 
   close() {
@@ -299,25 +542,22 @@ export class ContainerWindow {
       const iy = this.y + e.y - this.scroll;
       const img = e.img;
       if (img) {
-        if (positioned) {
-          ctx.drawImage(img, ix, iy);
-        } else {
-          const scale = Math.min(1, 40 / Math.max(img.width, img.height));
-          ctx.drawImage(
-            img,
-            ix + ((GRID_CELL - 2) - img.width * scale) / 2,
-            iy + ((GRID_CELL - 2) - img.height * scale) / 2,
-            img.width * scale,
-            img.height * scale
-          );
-        }
-      }
-      if (e.item.amount > 1) {
-        ctx.fillStyle = '#ffe08a';
-        ctx.font = '11px monospace';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'alphabetic';
-        ctx.fillText(String(e.item.amount), ix + e.w - 12, iy + e.h - 3);
+        const drawArt = (x, y) => {
+          if (positioned) {
+            ctx.drawImage(img, x, y);
+          } else {
+            const scale = Math.min(1, 40 / Math.max(img.width, img.height));
+            ctx.drawImage(
+              img,
+              x + ((GRID_CELL - 2) - img.width * scale) / 2,
+              y + ((GRID_CELL - 2) - img.height * scale) / 2,
+              img.width * scale,
+              img.height * scale
+            );
+          }
+        };
+        drawArt(ix, iy);
+        if (e.item.amount > 1) drawArt(ix + STACK_ART_OFFSET, iy + STACK_ART_OFFSET);
       }
       if (!positioned) ctx.strokeRect(ix + 0.5, iy + 0.5, e.w - 1, e.h - 1);
     }
@@ -331,6 +571,107 @@ export class ContainerWindow {
       ctx.fillStyle = 'rgba(206,184,126,0.72)';
       ctx.fillRect(thumb.x, thumb.y, thumb.w, thumb.h);
     }
+    this.drawList(ctx);
+  }
+
+  drawList(ctx) {
+    this.listScroll = Math.max(0, Math.min(this.listScroll, this.listScrollMax));
+    const rect = this.listRect;
+    const header = this.listHeaderRect;
+
+    ctx.fillStyle = 'rgba(16,14,10,0.97)';
+    ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+    ctx.strokeStyle = '#5f5133';
+    ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
+    ctx.fillStyle = 'rgba(201,176,108,0.10)';
+    ctx.fillRect(header.x + 1, header.y + 1, header.w - 2, header.h - 1);
+    ctx.fillStyle = '#5f5133';
+    ctx.fillRect(header.x + 1, header.y + header.h - 1, header.w - 2, 1);
+
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#d9c58d';
+    ctx.fillText(`Items (${this.items.length})`, header.x + 8, header.y + header.h / 2 + 1);
+
+    const toggle = this.listToggleRect;
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.fillRect(toggle.x, toggle.y, toggle.w, toggle.h);
+    ctx.strokeStyle = '#8d7a52';
+    ctx.strokeRect(toggle.x + 0.5, toggle.y + 0.5, toggle.w - 1, toggle.h - 1);
+    ctx.fillStyle = '#e2d6b4';
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(this.listCollapsed ? '+' : '-', toggle.x + toggle.w / 2, toggle.y + toggle.h / 2 + 1);
+
+    const body = this.listBodyRect;
+    if (!this.listCollapsed && body.h > 0) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(body.x + 1, body.y, body.w - 2, body.h);
+      ctx.clip();
+      const items = this.listSortedItems;
+      const first = Math.max(0, Math.floor(this.listScroll / LIST_ROW_HEIGHT));
+      const last = Math.min(items.length, Math.ceil((this.listScroll + body.h) / LIST_ROW_HEIGHT) + 1);
+      for (let i = first; i < last; i++) {
+        const item = items[i];
+        const row = this.listRowRect(i);
+        if (i === this.listHover) ctx.fillStyle = 'rgba(201,176,108,0.16)';
+        else ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.08)';
+        ctx.fillRect(row.x, row.y, row.w, row.h);
+
+        const img = this.world.assets.getStatic(item.graphic, item.hue);
+        if (img) {
+          const scale = Math.min(1, LIST_ICON_SIZE / Math.max(img.width, img.height));
+          const iw = img.width * scale;
+          const ih = img.height * scale;
+          ctx.drawImage(img, row.x + 4 + (LIST_ICON_SIZE - iw) / 2, row.y + (row.h - ih) / 2, iw, ih);
+        }
+
+        const name = item.name || `0x${item.graphic.toString(16)}`;
+        const countText = `x${item.amount || 1}`;
+        ctx.font = '11px monospace';
+        const countWidth = ctx.measureText(countText).width;
+        const nameX = row.x + 4 + LIST_ICON_SIZE + 6;
+        const nameWidth = Math.max(0, row.x + row.w - 8 - countWidth - 6 - nameX);
+        if (
+          !drawServerText(ctx, name, {
+            x: nameX,
+            y: row.y + 5,
+            width: nameWidth,
+            height: row.h - 8,
+            defaultColor: '#e8d7a8',
+            fontSize: 11,
+            fontFamily: 'monospace',
+            clip: true,
+          })
+        ) {
+          ctx.fillStyle = '#e8d7a8';
+          ctx.font = '11px monospace';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(fitText(ctx, name, nameWidth), nameX, row.y + row.h / 2 + 1);
+        }
+
+        ctx.fillStyle = item.amount > 1 ? '#ffe08a' : '#9e8e65';
+        ctx.font = '11px monospace';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(countText, row.x + row.w - 8, row.y + row.h / 2 + 1);
+      }
+      ctx.restore();
+
+      const listThumb = this.listScrollbarThumb();
+      if (listThumb) {
+        const track = this.listScrollbarRect;
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.fillRect(track.x, track.y, track.w, track.h);
+        ctx.fillStyle = 'rgba(206,184,126,0.65)';
+        ctx.fillRect(listThumb.x, listThumb.y, listThumb.w, listThumb.h);
+      }
+    }
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
   }
 }
 

@@ -578,7 +578,20 @@ export class Renderer {
     const img = this.assets.getStatic(held.graphic, held.hue);
     if (!img) return;
     ctx.globalAlpha = 0.85;
-    ctx.drawImage(img, this.mouse.x - img.width / 2, this.mouse.y - img.height / 2);
+    const dx = this.mouse.x - img.width / 2;
+    const dy = this.mouse.y - img.height / 2;
+    ctx.drawImage(img, dx, dy);
+    const amount = this.game.world.heldAmount || (held.amount > 1 ? held.amount : 0);
+    if (amount > 1) {
+      ctx.globalAlpha = 1;
+      ctx.font = 'bold 12px monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = '#000';
+      ctx.fillText(String(amount), dx + img.width - 12, dy + img.height - 2);
+      ctx.fillStyle = '#ffe08a';
+      ctx.fillText(String(amount), dx + img.width - 13, dy + img.height - 3);
+    }
     ctx.globalAlpha = 1;
   }
 }

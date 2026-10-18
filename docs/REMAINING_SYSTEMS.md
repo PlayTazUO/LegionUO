@@ -36,6 +36,11 @@ Implemented today:
   Shift-click picks up immediately.
 - Buff/debuff bar (`client/js/game/buffs.js`) shows active effects as draggable icons
   with duration countdowns, hover tooltips, expiry filtering, and saved position.
+- Containers support wheel/scrollbar paging, server and grid item layouts, stacked
+  item art (a second icon offset right/down), and a shift-click/shift-drag split
+  prompt with a clamped amount; dropping a stack onto another stack is sent to the
+  server for merging. A collapsible list view under each container shows item art,
+  name, and count with the same click/double-click/drag/context-menu interactions.
 - Secure trade (`client/js/game/windows.js`) has both offer lists, gold/platinum entry,
   accept/cancel state, live updates, item drag/drop, tooltips, and saved position.
 - Party (`0xBF 0x06`) has a manifest window with leader/member slots, HP bars, invite,
@@ -322,7 +327,7 @@ Current status at a glance:
 | Gump | Status | Notes |
 | --- | --- | --- |
 | Paperdoll | Implemented | Real gump art, animated doll with equipment layers, per-layer sidebar slots, tooltips, drag/drop equip, action buttons, title/name, and saved position; durability/virtue/paperdoll books and lifting other mobiles' equipment remain. |
-| Container | Partial | Gump background, server `item.x/y` layout with grid fallback, item art and amounts, wheel/scrollbar scrolling, use, drag/drop with container-local coordinates, tooltips/context menu, right-click close, and saved position; no split/stack UI. |
+| Container | Implemented | Gump background, server `item.x/y` layout with grid fallback, stacked item art, wheel/scrollbar scrolling, use, drag/drop with container-local coordinates, shift-click/drag stack splitting, stack merging on drop, a collapsible item list view under the container, tooltips/context menu, right-click close, and saved position. |
 | Skills | Implemented | Canvas window with value/base/cap, lock cycling (`0x3A`), sort/filter, use button, wheel scrolling, and saved position; stat locks remain. |
 | Spellbook | Implemented | Canvas spellbook with circle/page tabs, icons, mana/power-word tooltips, wheel paging, saved position, and double-click casting. Supports magery, necromancy, chivalry, bushido, ninjitsu, spellweaving, mysticism, and mastery books. |
 | Shop | Implemented | Buy/sell lists with per-item quantities, unit/line totals, gold check, Clear/All, confirm, tooltips, context menus, scrolling, and saved position. |
@@ -351,13 +356,20 @@ Current status at a glance:
 - Remaining: durability/virtue/paperdoll-book buttons and lifting equipment from
   other mobiles.
 
-**Container**
+**Container** *(implemented)*
 
 - Correct container gump art and size; item positions using `item.x/y`.
-- Amount overlays and stacking; scroll when items overflow.
+- Stacked items draw a second icon offset right/down; scroll when items overflow.
 - Double-click use, drag pickup/drop, drop into container/world.
 - Close, context menu, corpse loot behavior.
 - Grid/legacy layout options (at least one usable layout).
+- Shift-click or shift-drag a stack to open the split prompt; the amount is clamped
+  to the stack size and the held-item overlay shows the selected count.
+- Dropping a stack onto a matching stack lets the server merge them.
+- The list view below the container shows a scaled item icon, name, and count; rows
+  support single click, double-click use, drag pickup, shift-split, right-click
+  context menus, OPL tooltips, and wheel/scrollbar scrolling. Its minimize button
+  collapses the list and the state persists per container.
 
 **Skills** *(implemented)*
 
@@ -545,7 +557,7 @@ Current status at a glance:
 2. Movable status window using the existing entity/status packets. *(done)*
 3. Journal model + filters + chat input polish. *(done)*
 4. Gump framework hardening (text/fonts/tooltips/scroll/focus/persistence). *(core done; bitmap fonts/maparea/scaling remain)*
-5. Paperdoll, container, skills, spellbook. *(paperdoll, skills, and spellbook done; container split/stack UI remains)*
+5. Paperdoll, container, skills, spellbook. *(paperdoll, container split/stack UI, skills, and spellbook done)*
 6. Shop, trade, book, profile, menus, prompts, dye. *(shop, trade, book, profile,
    bulletin board, menus/gray menus, prompts, and the dye hue picker are done)*
 7. Party, buffs, tooltips/OPL, context menu. *(party, tooltips/OPL, buff bar, and context menu done)*

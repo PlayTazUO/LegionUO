@@ -1718,10 +1718,10 @@ export class UI {
     }
     const hit = this.hitTest(x, y);
     if (this.dragTarget) {
-      this.dragTarget.obj.onMouseMove?.(x, y);
+      this.dragTarget.obj.onMouseMove?.(x, y, e);
       return;
     }
-    if (hit) hit.obj.onMouseMove?.(x, y);
+    if (hit) hit.obj.onMouseMove?.(x, y, e);
     this.updateTargetInfo(x, y);
     this.refreshTooltip();
   }
@@ -1744,7 +1744,7 @@ export class UI {
         }
       }
       this.raiseWindow(hit.obj);
-      hit.obj.onMouseDown?.(x, y, button);
+      hit.obj.onMouseDown?.(x, y, button, e);
       if (hit.obj.dragging || hit.obj.onMouseMove) this.dragTarget = hit;
       return;
     }

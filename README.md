@@ -95,7 +95,8 @@ Then open <http://127.0.0.1:8080>.
   `tilepic`, `text`, `croppedtext`, `htmlgump`, `button`, `checkbox`, `radio`,
   `textentry`, `page`, `group`), with tooltip/item-property commands, inline text
   editing, scrolling HTML panels, server update/close semantics and gump reuse.
-- Containers with server item positions, scrolling and saved positions; paperdolls
+- Containers with server item positions, scrolling, stacked item art, shift-click/drag
+  splitting, a collapsible item list view and saved positions; paperdolls
   with real gump art, equipped layers on the doll, equipment slots, drag/drop equip,
   action buttons and saved position; editable books, editable own profiles,
   spellbooks, prompts and modals, plus shop buy/sell windows with quantities,

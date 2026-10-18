@@ -84,7 +84,18 @@ export class World {
     this.questArrow = null;
     this.waypoints = [];
     this.corpses = new Map();
+    this.held = null;
+    this.heldAmount = 0;
     this.login = { step: 'connecting', servers: [], characters: [], cities: [], error: null, characterListFlags: 0 };
+  }
+
+  get held() {
+    return this._held || null;
+  }
+
+  set held(value) {
+    this._held = value || null;
+    if (!this._held) this.heldAmount = 0;
   }
 
   getTileData() {
