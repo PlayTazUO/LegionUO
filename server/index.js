@@ -345,6 +345,32 @@ const server = http.createServer((req, res) => {
       return;
     }
 
+    if (pathname === '/api/radarcol') {
+      const buf = assets.radarColors();
+      if (!buf) sendJSON(res, 404, { error: 'radarcol.mul not found' });
+      else sendBuffer(res, 200, buf, 'application/octet-stream', 'public, max-age=86400');
+      return;
+    }
+
+    if (pathname === '/api/mapimage') {
+      const number = (name) => Number(url.searchParams.get(name));
+      const facet = number('facet');
+      const x0 = number('x0');
+      const y0 = number('y0');
+      const x1 = number('x1');
+      const y1 = number('y1');
+      const width = number('w');
+      const height = number('h');
+      if (![facet, x0, y0, x1, y1].every(Number.isFinite) || x1 <= x0 || y1 <= y0 || x1 < 0 || y1 < 0) {
+        sendJSON(res, 400, { error: 'invalid map bounds' });
+        return;
+      }
+      const png = assets.mapImage(facet, x0, y0, x1, y1, width, height);
+      if (!png) sendJSON(res, 404, { error: 'facet map not found' });
+      else sendBuffer(res, 200, png, 'image/png', 'public, max-age=3600');
+      return;
+    }
+
     if (pathname === '/api/health') {
       sendJSON(res, 200, { ok: true, uoDir: config.uoDir });
       return;

@@ -26,6 +26,17 @@ function chunk(type, data) {
 }
 
 /**
+ * UO sprites/gumps use pure black (0x000000) as their transparency key.
+ * Applies to 0xAABBGGRR pixels in place.
+ */
+export function applyBlackTransparency(pixels) {
+  for (let i = 0; i < pixels.length; i++) {
+    if ((pixels[i] & 0x00ffffff) === 0) pixels[i] = 0;
+  }
+  return pixels;
+}
+
+/**
  * Encode an RGBA pixel array to PNG. Pixels may be a Uint8Array (already RGBA)
  * or a Uint32Array in 0xAABBGGRR little-endian layout (the layout used by UO art).
  */

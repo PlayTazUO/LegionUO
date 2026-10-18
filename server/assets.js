@@ -1,4 +1,5 @@
-import { encodePNG } from './lib/png.js';
+import fs from 'node:fs';
+import { applyBlackTransparency, encodePNG } from './lib/png.js';
 import { UOFileManager } from './uo/files.js';
 import { HueManager } from './uo/hues.js';
 import { ArtManager } from './uo/art.js';
@@ -10,6 +11,7 @@ import { ClilocManager } from './uo/cliloc.js';
 import { SkillsManager } from './uo/skills.js';
 import { MultiManager } from './uo/multi.js';
 import { color16ToRgb } from './uo/colors.js';
+import { renderFacetCrop } from './uo/multimap.js';
 
 class LRU {
   constructor(limitBytes) {
@@ -64,6 +66,7 @@ export class AssetService {
     this.skills = new SkillsManager(this.files);
     this.multis = new MultiManager(this.files, config.clientVersion);
     this.cache = new LRU((config.cacheMb || 256) * 1024 * 1024);
+    this.radarBuffer = undefined;
 
     for (let i = 0; i < this.maps.mapCount; i++) {
       const [w, h] = MAP_SIZES[i] || MAP_SIZES[0];
@@ -83,6 +86,7 @@ export class AssetService {
     this.skills = new SkillsManager(this.files);
     this.multis = new MultiManager(this.files, this.config.clientVersion);
     this.cache = new LRU((this.config.cacheMb || 256) * 1024 * 1024);
+    this.radarBuffer = undefined;
   }
 
   info() {
@@ -114,6 +118,8 @@ export class AssetService {
         staidx0: has('staidx0.mul'),
         multi: has('multi.mul') || has('MultiCollection.uop'),
         skills: has('skills.mul') || has('Skills.mul'),
+        radar: has('radarcol.mul'),
+        facets: has('facet00.mul') || has('facet0.mul'),
       },
       paths: {
         art: this.files.find('artLegacyMUL.uop') || this.files.find('art.mul'),
@@ -125,6 +131,8 @@ export class AssetService {
         map0: this.files.find('map0LegacyMUL.uop') || this.files.find('map0.mul'),
         multi: this.files.find('MultiCollection.uop') || this.files.find('multi.mul'),
         skills: this.files.find('skills.mul') || this.files.find('Skills.mul'),
+        radar: this.files.find('radarcol.mul'),
+        facet0: this.files.find('facet00.mul') || this.files.find('facet0.mul'),
       },
       hues: (() => {
         try {
@@ -156,7 +164,7 @@ export class AssetService {
     return this.pngCache(`static|${id}|${hue}`, () => {
       const img = this.art.getStatic(id, hue);
       if (!img || !img.width) return TRANSPARENT_PNG;
-      return encodePNG(img.width, img.height, img.pixels);
+      return encodePNG(img.width, img.height, applyBlackTransparency(img.pixels));
     });
   }
 
@@ -164,7 +172,7 @@ export class AssetService {
     return this.pngCache(`gump|${id}|${hue}`, () => {
       const img = this.gumps.get(id, hue);
       if (!img || !img.width) return TRANSPARENT_PNG;
-      return encodePNG(img.width, img.height, img.pixels);
+      return encodePNG(img.width, img.height, applyBlackTransparency(img.pixels));
     });
   }
 
@@ -198,7 +206,7 @@ export class AssetService {
     }
     const result = {
       meta: { frames: meta, sheet: { width: sheetWidth, height: sheetHeight } },
-      png: encodePNG(sheetWidth, sheetHeight, sheet),
+      png: encodePNG(sheetWidth, sheetHeight, applyBlackTransparency(sheet)),
     };
     this.cache.set(key, result);
     return result;
@@ -206,6 +214,23 @@ export class AssetService {
 
   mapBlock(map, bx, by) {
     return this.maps.getBlock(map, bx, by);
+  }
+
+  radarColors() {
+    if (this.radarBuffer !== undefined) return this.radarBuffer;
+    const file = this.files.find('radarcol.mul');
+    this.radarBuffer = file ? fs.readFileSync(file) : null;
+    return this.radarBuffer;
+  }
+
+  mapImage(facet, x0, y0, x1, y1, width, height) {
+    if (!Number.isFinite(facet) || facet < 0) return null;
+    const key = `mapimage|${facet}|${x0}|${y0}|${x1}|${y1}|${width}|${height}`;
+    const cached = this.cache.get(key);
+    if (cached) return cached;
+    const png = renderFacetCrop(this.files, Math.floor(facet), x0, y0, x1, y1, width, height);
+    if (png) this.cache.set(key, png);
+    return png;
   }
 
   tiledataJSON(withNames = false) {

@@ -1,4 +1,4 @@
-import { Entity, isMobileSerial, Layer } from './entity.js';
+import { Entity, isGhostGraphic, isMobileSerial, Layer } from './entity.js';
 import { OPLManager } from './opl.js';
 
 export class Mobile extends Entity {
@@ -30,12 +30,19 @@ export class World {
     this.messages = [];
     this.messageListeners = [];
     this.gumps = new Map();
+    this.gumpPositions = new Map();
     this.gumpListeners = [];
-    this.target = { type: 0, cursorId: 0, cursorType: 0, multi: null };
+    this.target = { active: false, type: 0, cursorId: 0, cursorType: 0, multi: null };
     this.skills = new Map();
     this.skillList = [];
-    this.party = new Map();
+    this.party = {
+      members: [],
+      leader: 0,
+      inviter: 0,
+      canLoot: false,
+    };
     this.buffs = [];
+    this.trade = null;
     this.containers = new Map();
     this.walkSeq = 0;
     this.steps = [];
@@ -56,6 +63,7 @@ export class World {
       mountedWalk: Number(config.mountedWalkDelay) || 200,
       mountedRun: Number(config.mountedRunDelay) || 100,
     };
+    this.turnDelay = Number(config.turnDelay) || 80;
     this.serverTime = 0;
     this.stats = { str: 0, dex: 0, int: 0, weight: 0, weightMax: 0, gold: 0 };
     this.resist = {};
@@ -72,7 +80,6 @@ export class World {
     this.lastAttack = 0;
     this.openContainers = new Map();
     this.board = null;
-    this.partyInvite = null;
     this.profile = { serial: 0, text: '' };
     this.questArrow = null;
     this.waypoints = [];
@@ -196,6 +203,7 @@ export class World {
     entity.graphic = graphic + graphicInc;
     if (hue) entity.hue = hue;
     if (flags) entity.flags = flags;
+    this.refreshGhostState(entity);
     if (!mobile) {
       entity.x = x;
       entity.y = y;
@@ -228,6 +236,45 @@ export class World {
     entity.motion = null;
     entity.motionQueue = [];
     entity.hasPosition = true;
+  }
+
+  refreshGhostState(entity) {
+    if (!entity?.isMobile) return;
+    const wasGhost = entity.isGhost;
+    const ghost = isGhostGraphic(entity.graphic);
+    entity.isGhost = ghost;
+    if (ghost) {
+      entity.isDead = true;
+    } else if (wasGhost || entity === this.player) {
+      entity.isDead = false;
+      entity.livingGraphic = 0;
+    }
+  }
+
+  setPlayerGhost() {
+    const player = this.player;
+    if (!player) return;
+    if (!player.isGhost) player.livingGraphic = player.graphic;
+    const female = player.isFemale || (player.flags & 0x02) !== 0;
+    player.graphic = player.race === 3 ? 0x02b6 + (female ? 1 : 0) : 0x0192 + (female ? 1 : 0);
+    player.isDead = true;
+    player.isGhost = true;
+    player.moving = false;
+    player.motion = null;
+    player.walkQueue = [];
+    player.renderX = player.x;
+    player.renderY = player.y;
+    player.renderZ = player.z;
+    this.cancelPendingSteps();
+  }
+
+  clearPlayerGhost() {
+    const player = this.player;
+    if (!player) return;
+    if (player.livingGraphic) player.graphic = player.livingGraphic;
+    player.livingGraphic = 0;
+    player.isDead = false;
+    player.isGhost = false;
   }
 
   buildMotionSegments(entity, fromX, fromY, fromZ, toX, toY, toZ, running) {
@@ -510,8 +557,8 @@ export class World {
     return { walkable: !blocked, z, tile: cell.tile, noDiagonal };
   }
 
-  addMessage(text, hue = 0x3b2, type = 0, name = '', font = 3) {
-    const msg = { text, hue, type, name, font, time: Date.now() };
+  addMessage(text, hue = 0x3b2, type = 0, name = '', font = 3, extra = {}) {
+    const msg = { text, hue, type, name, font, time: Date.now(), ...extra };
     this.messages.push(msg);
     if (this.messages.length > 500) this.messages.shift();
     for (const cb of this.messageListeners) cb(msg);
@@ -535,8 +582,19 @@ export class World {
     for (const cb of this.gumpListeners) cb(gump);
   }
 
+  getGumpPosition(id) {
+    return this.gumpPositions.get(id >>> 0) || null;
+  }
+
+  rememberGumpPosition(id, x, y) {
+    this.gumpPositions.set(id >>> 0, { x, y });
+  }
+
   removeGump(id) {
-    this.gumps.delete(id);
+    const key = id >>> 0;
+    const gump = this.gumps.get(key);
+    if (gump) this.rememberGumpPosition(key, gump.x, gump.y);
+    this.gumps.delete(key);
   }
 
   getBlock(bx, by) {
@@ -604,7 +662,7 @@ export class World {
 
   isMovementBlocked() {
     if (!this.player || !this.inGame) return true;
-    if (this.player.isDead) return true;
+    if (this.player.isDead && !this.player.isGhost) return true;
     if ((this.player.flags & 0x01) !== 0) return true;
     if (this.game?.ui?.isMovementBlocked?.()) return true;
     return false;
@@ -646,6 +704,13 @@ export class World {
     if (this.player) this.player.moving = false;
   }
 
+  resetSteps() {
+    this.cancelPendingSteps();
+    this.walkSeq = 0;
+    this.lastStepTime = 0;
+    this.lastWalkSent = 0;
+  }
+
   snapPlayer(x, y, z, direction) {
     const player = this.player;
     if (!player) return;
@@ -663,24 +728,23 @@ export class World {
 
     const dir = direction & 7;
     const player = this.player;
-    player.direction = dir;
 
     const lastStep = this.steps[this.steps.length - 1];
     const fromX = lastStep ? lastStep.toX : player.x;
     const fromY = lastStep ? lastStep.toY : player.y;
     const fromZ = lastStep ? lastStep.toZ : player.z;
+
+    if (dir !== (player.direction & 7)) {
+      player.direction = dir;
+      this.socket.out.walkRequest(dir, this.walkSeq & 0xff, run);
+      this.advanceWalkSeq();
+      this.nextStepTime = Math.max(this.nextStepTime, now + this.turnDelay + this.stepLead);
+      return false;
+    }
+
     const next = this.nextTile(fromX, fromY, dir);
     const info = this.tileInfo(next.x, next.y);
     if (info && !info.walkable) {
-      // Turn in place. The server only learns facing from a walk request,
-      // so send one at a throttled rate and let the deny confirm the turn.
-      if (dir !== this.lastBlockedDirection || now - this.lastBlockedTurn > 500) {
-        this.socket.out.walkRequest(dir, this.walkSeq & 0xff, false);
-        this.advanceWalkSeq();
-        this.lastBlockedDirection = dir;
-        this.lastBlockedTurn = now;
-      }
-      this.denyCooldownUntil = now + 180;
       return false;
     }
 
@@ -775,15 +839,15 @@ export class World {
 
   denyWalk(seq, x, y, z, direction) {
     if (!this.player) return;
-    this.walkSeq = 0;
-    this.cancelPendingSteps();
+    this.resetSteps();
     this.snapPlayer(x, y, z, direction);
     this.denyCooldownUntil = performance.now() + (this.player.mount ? 150 : 300);
     this.ensureMapAround(x, y);
+    this.game?.cancelWalkPath?.();
     this.game?.onMovementDenied?.();
   }
 
-  reconcilePlayerPosition(x, y, z, direction, { resetSequence = false, force = false } = {}) {
+  reconcilePlayerPosition(x, y, z, direction, { force = false } = {}) {
     const player = this.player;
     if (!player) return false;
     const dist = Math.abs(player.x - x) + Math.abs(player.y - y);
@@ -792,8 +856,7 @@ export class World {
       if (direction !== undefined && direction !== null) player.direction = direction & 7;
       return false;
     }
-    this.cancelPendingSteps();
-    if (resetSequence) this.walkSeq = 0;
+    this.resetSteps();
     this.snapPlayer(x, y, z, direction);
     this.denyCooldownUntil = performance.now() + 100;
     this.ensureMapAround(x, y);
@@ -802,12 +865,12 @@ export class World {
   }
 
   setTarget(type, cursorId, cursorType, multi = null) {
-    this.target = { type, cursorId, cursorType, multi };
+    this.target = { active: true, type, cursorId, cursorType, multi };
     this.targetEntity = null;
   }
 
   clearTarget() {
-    this.target = { type: 0, cursorId: 0, cursorType: 0, multi: null };
+    this.target = { active: false, type: 0, cursorId: 0, cursorType: 0, multi: null };
     this.targetEntity = null;
   }
 
@@ -846,12 +909,13 @@ export class World {
     this.lastBlockedDirection = -1;
     this.lastBlockedTurn = 0;
     this.alwaysRun = false;
-    this.target = { type: 0, cursorId: 0, cursorType: 0, multi: null };
+    this.target = { active: false, type: 0, cursorId: 0, cursorType: 0, multi: null };
     this.gumps.clear();
     this.containers.clear();
     this.openContainers.clear();
     this.buffs = [];
-    this.party.clear();
+    this.trade = null;
+    this.party = { members: [], leader: 0, inviter: 0, canLoot: false };
     this.skills.clear();
     this.skillList = [];
     this.messages = [];

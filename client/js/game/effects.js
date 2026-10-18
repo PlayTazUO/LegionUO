@@ -21,18 +21,6 @@ export class EffectsManager {
     this.add({ ...effect, type: 0, moving: true });
   }
 
-  addOverheadText(entity, text, hue = 0x35) {
-    this.texts.push({
-      entity,
-      text,
-      hue,
-      start: performance.now(),
-      life: 5000,
-      offset: 0,
-    });
-    if (this.texts.length > 100) this.texts.shift();
-  }
-
   addDamage(entity, damage) {
     if (!entity) return;
     this.texts.push({
@@ -44,6 +32,7 @@ export class EffectsManager {
       offset: 0,
       damage: true,
     });
+    this.world.game?.ui?.journal?.addDamage(entity, damage);
   }
 
   update(dt) {

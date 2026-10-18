@@ -1,3 +1,13 @@
+let rawTextEnabled = false;
+
+export function setRawText(enabled) {
+  rawTextEnabled = !!enabled;
+}
+
+export function isRawText() {
+  return rawTextEnabled;
+}
+
 const FIVE_BIT = [
   0x00, 0x08, 0x10, 0x18, 0x20, 0x29, 0x31, 0x39, 0x41, 0x4a, 0x52, 0x5a, 0x62, 0x6a, 0x73, 0x7b,
   0x83, 0x8b, 0x94, 0x9c, 0xa4, 0xac, 0xb4, 0xbd, 0xc5, 0xcd, 0xd5, 0xde, 0xe6, 0xee, 0xf6, 0xff,
@@ -99,6 +109,7 @@ function fontFor(style, family) {
 }
 
 export function hasUoHtmlMarkup(text) {
+  if (rawTextEnabled) return false;
   return MARKUP_RE.test(String(text || ''));
 }
 
@@ -231,6 +242,12 @@ function parseTag(raw) {
 export function parseUoHtml(html, base = {}) {
   const input = String(html ?? '').replace(/\r\n?/g, '\n');
   const defaults = makeStyle(base);
+  if (rawTextEnabled) {
+    return {
+      items: input ? [{ type: 'text', text: input, style: defaults }] : [],
+      background: null,
+    };
+  }
   let style = cloneStyle(defaults);
   let linkColor = base.linkColor || NAMED_COLORS.red;
   let background = null;
@@ -705,11 +722,23 @@ export function drawServerText(ctx, text, options = {}) {
 }
 
 export function appendServerText(element, text, options = {}) {
+  if (rawTextEnabled) {
+    element.append(String(text ?? ''));
+    return true;
+  }
   element.append(uoHtmlFragment(text, options));
   return true;
 }
 
 export function uoHtmlFragment(html, options = {}) {
+  if (rawTextEnabled) {
+    const fragment = document.createDocumentFragment();
+    const line = document.createElement('div');
+    line.style.whiteSpace = 'pre-wrap';
+    line.textContent = String(html ?? '');
+    fragment.appendChild(line);
+    return fragment;
+  }
   const parsed = parseUoHtml(html, {
     color: options.defaultColor || null,
     size: options.fontSize || 13,

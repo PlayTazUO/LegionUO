@@ -11,11 +11,13 @@ import { Gump } from './gump.js';
 import { findPath } from './pathfinding.js';
 import { UI } from '../ui/ui.js';
 import { Reader } from '../util/binary.js';
+import { setRawText } from './html.js';
 
 export class Game {
   constructor(config) {
     this.config = config;
     this.debug = new URLSearchParams(location.search).has('debug');
+    setRawText(this.debug);
     this.assets = new AssetManager(config);
     this.socket = new UOSocket({ clientVersion: config.clientVersion });
     this.world = new World(config, this.assets, this.socket);
@@ -26,6 +28,10 @@ export class Game {
     this.socket.out = this.outgoing;
     this.handlers = new Handlers(this);
     this.renderer = new Renderer(document.getElementById('game'), this.world, this.assets, this.effects, this);
+    this.heldCanvas = document.getElementById('heldLayer');
+    this.heldCtx = this.heldCanvas?.getContext('2d') || null;
+    this.resizeHeldLayer();
+    window.addEventListener('resize', () => this.resizeHeldLayer());
     this.ui = new UI(this);
     this.held = null;
     this.clilocs = new Map();
@@ -54,6 +60,11 @@ export class Game {
 
   set held(value) {
     this.world.held = value;
+  }
+
+  setDebug(enabled) {
+    this.debug = !!enabled;
+    setRawText(this.debug);
   }
 
   async start() {
@@ -123,6 +134,7 @@ export class Game {
     this.world.resetWorld();
     this.world.resetLogin();
     this.ui.windows = [];
+    this.ui.closeContextMenu();
     this.pendingRelay = null;
     this.lastPingSent = 0;
     this.pingSeq = 0;
@@ -232,6 +244,8 @@ export class Game {
     this.ui._enteredWorld = false;
     this.world.resetWorld();
     this.ui.windows = [];
+    this.ui.closeContextMenu();
+    this.ui.clearGumpFocus();
     this.held = null;
     this.cancelWalkPath();
     document.getElementById('hud').classList.add('hidden');
@@ -247,7 +261,20 @@ export class Game {
 
   openGump(sender, gumpId, x, y, layout, lines) {
     if (!layout) return;
-    const gump = new Gump(gumpId, sender, x || 100, y || 100, layout, lines, this.world);
+    const key = gumpId >>> 0;
+    const existing = this.world.gumps.get(key);
+    if (existing && existing.sender === (sender >>> 0)) {
+      this.ui.clearGumpFocus(existing);
+      existing.setLayout(layout, lines);
+      this.world.addGump(existing);
+      this.ui.openGump(existing);
+      return;
+    }
+    const saved = this.world.getGumpPosition(gumpId);
+    const gx = saved ? saved.x : x || 100;
+    const gy = saved ? saved.y : y || 100;
+    const gump = new Gump(gumpId, sender, gx, gy, layout, lines, this.world);
+    if (!saved) this.world.rememberGumpPosition(gumpId, gx, gy);
     this.world.addGump(gump);
     this.ui.openGump(gump);
   }
@@ -402,8 +429,28 @@ export class Game {
     this.renderer.draw(now);
     this.ui.draw(this.renderer.ctx, now);
     this.ui.update(now);
-    if (this.world.target.type) this.drawTargetCursor();
+    if (this.world.target.active) this.drawTargetCursor();
+    this.drawHeldOverlay();
     requestAnimationFrame((t) => this.loop(t));
+  }
+
+  resizeHeldLayer() {
+    if (!this.heldCanvas || !this.heldCtx) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    this.heldCanvas.width = Math.floor(window.innerWidth * dpr);
+    this.heldCanvas.height = Math.floor(window.innerHeight * dpr);
+    this.heldCanvas.style.width = `${window.innerWidth}px`;
+    this.heldCanvas.style.height = `${window.innerHeight}px`;
+    this.heldDpr = dpr;
+    this.heldWidth = window.innerWidth;
+    this.heldHeight = window.innerHeight;
+  }
+
+  drawHeldOverlay() {
+    if (!this.heldCtx) return;
+    this.heldCtx.setTransform(this.heldDpr, 0, 0, this.heldDpr, 0, 0);
+    this.heldCtx.clearRect(0, 0, this.heldWidth, this.heldHeight);
+    this.renderer.drawHeld(this.heldCtx);
   }
 
   drawTargetCursor() {

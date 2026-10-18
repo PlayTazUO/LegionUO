@@ -1,8 +1,17 @@
+import { settings } from './settings.js';
+
+function volumeGain(base) {
+  return Math.max(0.0001, base * (settings.get('audioVolume') / 100));
+}
+
 export class AudioManager {
   constructor() {
-    this.enabled = new URLSearchParams(location.search).has('audio');
     this.ctx = null;
     this.music = null;
+  }
+
+  get enabled() {
+    return !!settings.get('audioEnabled');
   }
 
   ensure() {
@@ -14,6 +23,7 @@ export class AudioManager {
         return null;
       }
     }
+    if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
     return this.ctx;
   }
 
@@ -24,7 +34,7 @@ export class AudioManager {
     const gain = ctx.createGain();
     osc.type = 'square';
     osc.frequency.value = 180 + (id % 40) * 18;
-    gain.gain.value = 0.02;
+    gain.gain.value = volumeGain(0.02);
     osc.connect(gain).connect(ctx.destination);
     osc.start();
     gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.09);
@@ -32,7 +42,7 @@ export class AudioManager {
   }
 
   footstep({ run = false, mounted = false, tile = 0 } = {}) {
-    if (!this.enabled) return;
+    if (!this.enabled || !settings.get('footsteps')) return;
     const ctx = this.ensure();
     if (!ctx) return;
     const now = ctx.currentTime;
@@ -42,7 +52,7 @@ export class AudioManager {
     osc.type = mounted ? 'triangle' : 'square';
     osc.frequency.setValueAtTime(base, now);
     osc.frequency.exponentialRampToValueAtTime(Math.max(55, base * 0.72), now + (run ? 0.05 : 0.07));
-    gain.gain.setValueAtTime(run ? 0.012 : 0.016, now);
+    gain.gain.setValueAtTime(volumeGain(run ? 0.012 : 0.016), now);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + (run ? 0.06 : 0.085));
     osc.connect(gain).connect(ctx.destination);
     osc.start(now);

@@ -107,7 +107,9 @@ export class Reader {
     if (length === undefined) {
       const start = this.position;
       while (this.position < this.length && this.data[this.position] !== 0) this.position++;
-      return asciiDecode(this.data.subarray(start, this.position));
+      const value = asciiDecode(this.data.subarray(start, this.position));
+      if (this.position < this.length) this.position++;
+      return value;
     }
     const end = Math.min(this.position + length, this.length);
     const bytes = this.data.subarray(this.position, end);

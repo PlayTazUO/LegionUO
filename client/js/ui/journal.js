@@ -1,0 +1,466 @@
+import { hasUoHtmlMarkup, uoHtmlFragment } from '../game/html.js';
+
+const $ = (id) => document.getElementById(id);
+
+const FILTERS = ['all', 'system', 'speech', 'party', 'guild', 'spells', 'damage'];
+
+const DEFAULTS = {
+  x: 10,
+  y: null,
+  width: 560,
+  height: 176,
+  timestamps: false,
+  opacity: 0.9,
+  fontSize: 12,
+  maxLines: 500,
+  filter: 'all',
+  mode: 'say',
+  ignore: [],
+};
+
+const STORAGE_BASE = 'legionuo.journal.v1';
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function pad(value) {
+  return String(value).padStart(2, '0');
+}
+
+function timeLabel(timestamp) {
+  const d = new Date(timestamp);
+  return `[${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}]`;
+}
+
+export class Journal {
+  constructor(ui) {
+    this.ui = ui;
+    this.game = ui.game;
+    this.world = ui.world;
+    this.entries = [];
+    this.nodes = new Map();
+    this.nextId = 0;
+    this.account = '';
+    this.drag = null;
+    this.resize = null;
+
+    this.root = $('journalPanel');
+    this.log = $('journal');
+    this.tabs = $('journalTabs');
+    this.options = $('journalOptions');
+    this.title = $('journalTitle');
+    this.modeSelect = $('chatMode');
+
+    this.settings = this.loadSettings(STORAGE_BASE);
+    this.applySettings();
+    this.bind();
+  }
+
+  /* ----------------------------- storage ----------------------------- */
+
+  storageKey() {
+    return this.account ? `${STORAGE_BASE}.${this.account.toLowerCase()}` : STORAGE_BASE;
+  }
+
+  loadSettings(key) {
+    const settings = { ...DEFAULTS, ignore: [] };
+    try {
+      const saved = JSON.parse(localStorage.getItem(key) || 'null');
+      if (saved && typeof saved === 'object') Object.assign(settings, saved);
+    } catch {
+      /* ignore corrupt settings */
+    }
+    if (!Array.isArray(settings.ignore)) settings.ignore = [];
+    if (!FILTERS.includes(settings.filter)) settings.filter = 'all';
+    if (settings.y == null) settings.y = Math.max(10, window.innerHeight - settings.height - 14);
+    const num = (value, fallback) => (Number.isFinite(Number(value)) ? Number(value) : fallback);
+    settings.width = clamp(num(settings.width, DEFAULTS.width), 280, window.innerWidth - 8);
+    settings.height = clamp(num(settings.height, DEFAULTS.height), 120, window.innerHeight - 8);
+    settings.x = clamp(num(settings.x, DEFAULTS.x), 0, Math.max(0, window.innerWidth - 80));
+    settings.y = clamp(num(settings.y, DEFAULTS.y ?? 10), 0, Math.max(0, window.innerHeight - 40));
+    settings.opacity = clamp(Number(settings.opacity) || DEFAULTS.opacity, 0.2, 1);
+    settings.fontSize = clamp(Number(settings.fontSize) || DEFAULTS.fontSize, 9, 20);
+    settings.maxLines = clamp(Number(settings.maxLines) || DEFAULTS.maxLines, 50, 5000);
+    if (!['say', 'whisper', 'yell', 'emote', 'party', 'guild', 'alliance'].includes(settings.mode)) {
+      settings.mode = 'say';
+    }
+    return settings;
+  }
+
+  save() {
+    try {
+      localStorage.setItem(this.storageKey(), JSON.stringify(this.settings));
+    } catch {
+      /* ignore quota errors */
+    }
+  }
+
+  setAccount(account) {
+    const next = (account || '').trim();
+    if (next === this.account) return;
+    this.account = next;
+    this.settings = this.loadSettings(this.storageKey());
+    this.applySettings();
+  }
+
+  /* ----------------------------- entries ----------------------------- */
+
+  classify(msg) {
+    if (msg.damage) return 'damage';
+    if (msg.textType === 'party') return 'party';
+    if (msg.textType === 'guild') return 'guild';
+    if (msg.textType === 'spell') return 'spells';
+    if (msg.type === 10) return 'spells';
+    if (msg.type === 13 || msg.type === 14) return 'guild';
+    if (msg.type === 1 || msg.textType === 'system') return 'system';
+    if ((msg.name || '').toLowerCase() === 'system') return 'system';
+    return 'speech';
+  }
+
+  isIgnored(name) {
+    const key = (name || '').trim().toLowerCase();
+    return !!key && this.settings.ignore.includes(key);
+  }
+
+  addMessage(msg) {
+    const kind = this.classify(msg);
+    const color = msg.color || (kind === 'speech' && msg.hue ? this.ui.hueColor(msg.hue) : '');
+    return this.addEntry({
+      timestamp: msg.time || Date.now(),
+      text: msg.text || '',
+      name: msg.name || '',
+      serial: msg.serial || 0,
+      hue: msg.hue || 0,
+      font: msg.font || 3,
+      type: msg.type ?? 0,
+      kind,
+      color,
+      cliloc: msg.cliloc || 0,
+      affix: msg.affix || '',
+      overhead: !!msg.overhead,
+      translated: !!msg.translated,
+      damage: !!msg.damage,
+    });
+  }
+
+  addSystem(text, color = '#d6b45d') {
+    return this.addEntry({
+      timestamp: Date.now(),
+      text,
+      kind: 'system',
+      color,
+    });
+  }
+
+  addDamage(entity, damage) {
+    if (!entity || entity !== this.world.player) return;
+    const amount = Math.max(0, Math.round(damage));
+    if (!amount) return;
+    this.addEntry({
+      timestamp: Date.now(),
+      text: `You take ${amount} damage.`,
+      kind: 'damage',
+      damage: true,
+      color: '#e06050',
+    });
+  }
+
+  addEntry(entry) {
+    const item = {
+      id: ++this.nextId,
+      timestamp: entry.timestamp || Date.now(),
+      text: entry.text || '',
+      name: entry.name || '',
+      serial: entry.serial >>> 0,
+      hue: entry.hue || 0,
+      font: entry.font || 3,
+      type: entry.type ?? 0,
+      kind: entry.kind || 'system',
+      color: entry.color || '',
+      cliloc: entry.cliloc || 0,
+      affix: entry.affix || '',
+      overhead: !!entry.overhead,
+      translated: !!entry.translated,
+      damage: !!entry.damage,
+    };
+    item.ignored = this.isIgnored(item.name);
+    this.entries.push(item);
+    const nearBottom = this.isNearBottom();
+    const node = this.renderEntry(item);
+    this.nodes.set(item.id, node);
+    this.log.appendChild(node);
+    this.trim();
+    if (nearBottom) this.log.scrollTop = this.log.scrollHeight;
+    return item;
+  }
+
+  renderEntry(item) {
+    const div = document.createElement('div');
+    div.className = `msg ${item.kind}${item.ignored ? ' ignored' : ''}`;
+    div.dataset.id = String(item.id);
+    if (item.color) div.style.color = item.color;
+
+    const time = document.createElement('span');
+    time.className = 'time';
+    time.textContent = `${timeLabel(item.timestamp)} `;
+    div.appendChild(time);
+
+    if (item.name && item.name.toLowerCase() !== 'system') {
+      const who = document.createElement('span');
+      who.className = 'who';
+      who.textContent = `${item.name}: `;
+      div.appendChild(who);
+    }
+
+    if (hasUoHtmlMarkup(item.text)) {
+      div.append(uoHtmlFragment(item.text, { defaultColor: item.color || undefined }));
+      div.addEventListener('click', (event) => {
+        const link = event.target.closest?.('[data-href]');
+        if (!link) return;
+        const href = link.dataset.href || '';
+        if (/^https?:\/\//i.test(href)) window.open(href, '_blank', 'noopener,noreferrer');
+      });
+    } else {
+      div.appendChild(document.createTextNode(item.text));
+    }
+
+    this.applyVisibility(div, item);
+    return div;
+  }
+
+  isVisible(item) {
+    if (item.ignored) return false;
+    return this.settings.filter === 'all' || item.kind === this.settings.filter;
+  }
+
+  applyVisibility(node, item) {
+    node.classList.toggle('hidden', !this.isVisible(item));
+  }
+
+  isNearBottom() {
+    return this.log.scrollHeight - this.log.scrollTop - this.log.clientHeight < 40;
+  }
+
+  trim() {
+    while (this.entries.length > this.settings.maxLines) {
+      const removed = this.entries.shift();
+      const node = this.nodes.get(removed.id);
+      node?.remove();
+      this.nodes.delete(removed.id);
+    }
+  }
+
+  clear() {
+    this.entries = [];
+    this.nodes.clear();
+    this.log.replaceChildren();
+  }
+
+  rerender() {
+    const scroll = this.log.scrollTop;
+    const nearBottom = this.isNearBottom();
+    this.nodes.clear();
+    this.log.replaceChildren();
+    for (const entry of this.entries) {
+      const node = this.renderEntry(entry);
+      this.nodes.set(entry.id, node);
+      this.log.appendChild(node);
+    }
+    this.log.scrollTop = nearBottom ? this.log.scrollHeight : scroll;
+  }
+
+  setFilter(filter) {
+    if (!FILTERS.includes(filter)) return;
+    this.settings.filter = filter;
+    for (const tab of this.tabs?.querySelectorAll('[data-filter]') || []) {
+      tab.classList.toggle('active', tab.dataset.filter === filter);
+    }
+    for (const entry of this.entries) {
+      const node = this.nodes.get(entry.id);
+      if (node) this.applyVisibility(node, entry);
+    }
+    this.save();
+  }
+
+  refreshIgnored() {
+    for (const entry of this.entries) {
+      entry.ignored = this.isIgnored(entry.name);
+      const node = this.nodes.get(entry.id);
+      if (!node) continue;
+      node.classList.toggle('ignored', entry.ignored);
+      this.applyVisibility(node, entry);
+    }
+  }
+
+  addIgnore(name) {
+    const key = (name || '').trim().toLowerCase();
+    if (!key) return false;
+    if (!this.settings.ignore.includes(key)) this.settings.ignore.push(key);
+    this.save();
+    this.refreshIgnored();
+    return true;
+  }
+
+  removeIgnore(name) {
+    const key = (name || '').trim().toLowerCase();
+    const before = this.settings.ignore.length;
+    this.settings.ignore = this.settings.ignore.filter((n) => n !== key);
+    if (this.settings.ignore.length === before) return false;
+    this.save();
+    this.refreshIgnored();
+    return true;
+  }
+
+  /* ----------------------------- window ----------------------------- */
+
+  show() {
+    this.root?.classList.remove('hidden');
+  }
+
+  showSettings() {
+    this.show();
+    this.options?.classList.remove('hidden');
+  }
+
+  hide() {
+    this.root?.classList.add('hidden');
+  }
+
+  toggle() {
+    if (!this.root) return;
+    this.root.classList.toggle('hidden');
+  }
+
+  applySettings() {
+    if (!this.root) return;
+    this.root.style.left = `${this.settings.x}px`;
+    this.root.style.top = `${this.settings.y}px`;
+    this.root.style.width = `${this.settings.width}px`;
+    this.root.style.height = `${this.settings.height}px`;
+    this.root.style.setProperty('--journal-opacity', String(this.settings.opacity));
+    this.root.style.setProperty('--journal-font-size', `${this.settings.fontSize}px`);
+    this.root.classList.toggle('show-times', !!this.settings.timestamps);
+    this.setFilter(this.settings.filter);
+
+    const timestamps = $('journalTimestamps');
+    if (timestamps) timestamps.checked = !!this.settings.timestamps;
+    const fontSize = $('journalFontSize');
+    if (fontSize) fontSize.value = String(this.settings.fontSize);
+    const opacity = $('journalOpacity');
+    if (opacity) opacity.value = String(this.settings.opacity);
+    const maxLines = $('journalMaxLines');
+    if (maxLines) maxLines.value = String(this.settings.maxLines);
+    if (this.modeSelect) this.modeSelect.value = this.settings.mode;
+  }
+
+  bind() {
+    if (!this.root) return;
+
+    this.title?.addEventListener('mousedown', (event) => {
+      if (event.button !== 0 || event.target.closest('button')) return;
+      event.preventDefault();
+      this.startDrag(event);
+    });
+
+    $('journalResize')?.addEventListener('mousedown', (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      this.startResize(event);
+    });
+
+    $('journalSettingsBtn')?.addEventListener('click', () => {
+      this.options?.classList.toggle('hidden');
+    });
+    $('journalCloseBtn')?.addEventListener('click', () => this.hide());
+    $('journalClearBtn')?.addEventListener('click', () => this.clear());
+
+    this.tabs?.addEventListener('click', (event) => {
+      const tab = event.target.closest('[data-filter]');
+      if (tab) this.setFilter(tab.dataset.filter);
+    });
+
+    $('journalTimestamps')?.addEventListener('change', (event) => {
+      this.settings.timestamps = event.target.checked;
+      this.root.classList.toggle('show-times', !!this.settings.timestamps);
+      this.save();
+    });
+    $('journalFontSize')?.addEventListener('change', (event) => {
+      this.settings.fontSize = clamp(parseInt(event.target.value, 10) || DEFAULTS.fontSize, 9, 20);
+      this.root.style.setProperty('--journal-font-size', `${this.settings.fontSize}px`);
+      this.save();
+    });
+    $('journalOpacity')?.addEventListener('input', (event) => {
+      this.settings.opacity = clamp(parseFloat(event.target.value) || DEFAULTS.opacity, 0.2, 1);
+      this.root.style.setProperty('--journal-opacity', String(this.settings.opacity));
+      this.save();
+    });
+    $('journalMaxLines')?.addEventListener('change', (event) => {
+      this.settings.maxLines = clamp(parseInt(event.target.value, 10) || DEFAULTS.maxLines, 50, 5000);
+      this.trim();
+      this.save();
+    });
+
+    this.modeSelect?.addEventListener('change', () => {
+      this.settings.mode = this.modeSelect.value;
+      this.save();
+    });
+  }
+
+  startDrag(event) {
+    const rect = this.root.getBoundingClientRect();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const originX = rect.left;
+    const originY = rect.top;
+    this.drag = { startX, startY, originX, originY };
+    this.root.classList.add('dragging');
+    const move = (ev) => {
+      const x = clamp(originX + ev.clientX - startX, 0, Math.max(0, window.innerWidth - 80));
+      const y = clamp(originY + ev.clientY - startY, 0, Math.max(0, window.innerHeight - 32));
+      this.root.style.left = `${x}px`;
+      this.root.style.top = `${y}px`;
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      this.drag = null;
+      this.root.classList.remove('dragging');
+      const r = this.root.getBoundingClientRect();
+      this.settings.x = Math.round(r.left);
+      this.settings.y = Math.round(r.top);
+      this.save();
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  }
+
+  startResize(event) {
+    const rect = this.root.getBoundingClientRect();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const originW = rect.width;
+    const originH = rect.height;
+    this.resize = { startX, startY, originW, originH };
+    this.root.classList.add('resizing');
+    const move = (ev) => {
+      const w = clamp(originW + ev.clientX - startX, 280, Math.max(280, window.innerWidth - rect.left - 4));
+      const h = clamp(originH + ev.clientY - startY, 120, Math.max(120, window.innerHeight - rect.top - 4));
+      this.root.style.width = `${w}px`;
+      this.root.style.height = `${h}px`;
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      this.resize = null;
+      this.root.classList.remove('resizing');
+      const r = this.root.getBoundingClientRect();
+      this.settings.width = Math.round(r.width);
+      this.settings.height = Math.round(r.height);
+      this.save();
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  }
+}

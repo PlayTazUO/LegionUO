@@ -42,6 +42,7 @@ function u16(v){const b=Buffer.alloc(2);b.writeUInt16BE(v);return b;}
 function u32(v){const b=Buffer.alloc(4);b.writeUInt32BE(v>>>0);return b;}
 function u32le(v){const b=Buffer.alloc(4);b.writeUInt32LE(v>>>0);return b;}
 function ascii(str,len){const b=Buffer.alloc(len||str.length);b.write(str,0,'latin1');return b;}
+function unicodeBE(str){const b=Buffer.alloc(str.length*2+2);for(let i=0;i<str.length;i++)b.writeUInt16BE(str.charCodeAt(i),i*2);return b;}
 function concat(...parts){return Buffer.concat(parts);}
 
 const loginServer = net.createServer((socket) => {
@@ -116,15 +117,54 @@ const gameServer = net.createServer((socket) => {
     const anim = packet(0x6e, animBody, 14);
     const light = packet(0x4f, u8(10), 2);
     const season = packet(0xbc, concat(u8(0), u8(0)), 3);
-    // Equip a backpack on the player and open a container with two items.
+    // Equip a backpack on the player and open a container with two items and a spellbook.
     const equip = packet(0x2e, concat(u32(0x40000002), u16(0x0e75), u8(0), u8(21), u32(1), u16(0)), 15);
     const open = packet(0x24, concat(u32(0x40000002), u16(0x0048)), 9);
     const contents = [];
-    contents.push(u32(0x40000003), u16(0x0eed), u8(0), u16(10), u16(1), u16(1), u8(0), u32(0x40000002), u16(0));
-    contents.push(u32(0x40000004), u16(0x0cd3), u8(0), u16(2), u16(1), u16(2), u8(0), u32(0x40000002), u16(0));
-    const cont = packet(0x3c, concat(u16(2), ...contents), -1);
-    sendGame(concat(updateMob, updateItem, speech, anim, light, season, equip, open, cont));
-    console.log('[mock] sent world objects');
+    contents.push(u32(0x40000003), u16(0x0eed), u8(0), u16(10), u16(40), u16(44), u8(0), u32(0x40000002), u16(0));
+    contents.push(u32(0x40000004), u16(0x0cd3), u8(0), u16(2), u16(96), u16(44), u8(0), u32(0x40000002), u16(0));
+    contents.push(u32(0x40000006), u16(0x0efa), u8(0), u16(1), u16(40), u16(96), u8(0), u32(0x40000002), u16(0));
+    const cont = packet(0x3c, concat(u16(3), ...contents), -1);
+    const spellContent = packet(0xbf, concat(u16(0x1b), u8(0), u8(0), u32(0x40000006), u16(0x0efa), u16(0), u32(0x000000ff), u32(0)), -1);
+    const openBook = packet(0x24, concat(u32(0x40000006), u16(0xffff)), 9);
+    const buff = packet(
+      0xdf,
+      concat(
+        u32(1),
+        u16(0x3ed),
+        u16(1),
+        u16(1),
+        u16(0),
+        u16(0x3ed),
+        u16(0),
+        u32(0),
+        u16(120),
+        u8(0),
+        u8(0),
+        u8(0),
+        u32(1051000),
+        u32(0),
+        u32(0),
+        u16(0),
+        u16(0),
+        u16(0),
+        u16(0),
+        u16(0),
+        u16(0)
+      ),
+      -1
+    );
+    const partyManifest = packet(0xbf, concat(u16(0x06), u8(0x01), u8(2), u32(1), u32(2)), -1);
+    const partyMessage = packet(0xbf, concat(u16(0x06), u8(0x04), u32(2), unicodeBE('Party chat works.')), -1);
+    // A treasure-map style map gump (0x90) and its first pin (0x56 Add).
+    const mapGump = packet(
+      0x90,
+      concat(u32(0x40000008), u16(0x139d), u16(960), u16(960), u16(1088), u16(1088), u16(300), u16(300)),
+      19
+    );
+    const mapPin = packet(0x56, concat(u32(0x40000008), u8(1), u8(0), u16(150), u16(150)), 11);
+    sendGame(concat(updateMob, updateItem, speech, anim, light, season, equip, open, cont, spellContent, openBook, buff, partyManifest, partyMessage, mapGump, mapPin));
+    console.log('[mock] sent world objects, party manifest, and map gump');
   }, 8500);
 
   setTimeout(() => {

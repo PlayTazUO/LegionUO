@@ -1,6 +1,6 @@
 import { Reader } from '../util/binary.js';
 import { versionValue } from './packet-length.js';
-import { Layer, animDirection } from '../game/entity.js';
+import { Layer, animDirection, isGhostGraphic } from '../game/entity.js';
 
 const MessageType = {
   Regular: 0,
@@ -419,6 +419,7 @@ export class Handlers {
         entity.graphic = graphic;
         entity.hue = hue;
         entity.flags = flags;
+        world.refreshGhostState(entity);
         if (entity === world.player) {
           world.reconcilePlayerPosition(x, y, z, direction, { force: true });
         } else {
@@ -427,6 +428,7 @@ export class Handlers {
       } else if (serial === world.playerSerial) {
         const p = world.createPlayer(serial);
         p.graphic = graphic;
+        world.refreshGhostState(p);
         world.setEntityPosition(p, x, y, z);
       }
       world.ensureMapAround(x, y, 3);
@@ -540,11 +542,18 @@ export class Handlers {
       game.ui?.onHeldChanged?.();
     });
 
-    this.set(0x2c, () => {
-      if (world.player) {
-        world.player.isDead = true;
-        world.addMessage('You are dead.', 0x22, 1, 'System');
+    this.set(0x2c, (r) => {
+      const state = r.remaining() ? r.readU8() : 0;
+      if (!world.player) return;
+      if (state === 0) {
+        world.setPlayerGhost();
+        world.addMessage('You are dead. Walk to a healer or shrine to be resurrected.', 0x22, 1, 'System');
+      } else {
+        world.clearPlayerGhost();
+        world.addMessage('You have been resurrected.', 0x35, 1, 'System');
+        world.socket.out.statusRequest(world.playerSerial);
       }
+      game.ui?.refreshStatus?.();
     });
 
     this.set(0xaf, (r) => {
@@ -554,6 +563,7 @@ export class Handlers {
       const mobile = world.getMobile(serial);
       if (mobile) {
         mobile.isDead = true;
+        mobile.isGhost = isGhostGraphic(mobile.graphic);
         world.corpses.set(corpseSerial || serial, {
           graphic: mobile.graphic,
           direction: mobile.direction,
@@ -670,15 +680,7 @@ export class Handlers {
       game.audio?.play(index);
     });
 
-    this.set(0x56, (r) => {
-      r.readU32BE();
-      const type = r.readU8();
-      if (type === 0) {
-        r.skip(1);
-        r.readU16BE();
-        r.readU16BE();
-      }
-    });
+    this.set(0x56, (r) => game.ui?.onMapData?.(r));
 
     this.set(0x5b, () => {});
 
@@ -698,7 +700,12 @@ export class Handlers {
       const type = r.readU8();
       const cursorId = r.readU32BE();
       const cursorType = r.readU8();
-      world.setTarget(type, cursorId, cursorType);
+      if (cursorType >= 3) {
+        if (world.target.active) world.socket.out.targetCancel(type, cursorId, cursorType);
+        world.clearTarget();
+      } else {
+        world.setTarget(type, cursorId, cursorType);
+      }
       game.ui?.onTargetChanged?.();
     });
 
@@ -801,25 +808,61 @@ export class Handlers {
     this.set(0x6f, (r) => {
       const type = r.readU8();
       const serial = r.readU32BE();
+      const clearTradeItems = (trade) => {
+        if (!trade) return;
+        for (const [itemSerial, entity] of world.entities) {
+          if (
+            entity.isItem &&
+            (entity.container === trade.myContainer || entity.container === trade.hisContainer)
+          ) {
+            world.entities.delete(itemSerial);
+          }
+        }
+      };
       if (type === 0) {
-        const id1 = r.readU32BE();
-        const id2 = r.readU32BE();
+        clearTradeItems(world.trade);
+        const myContainer = r.readU32BE();
+        const hisContainer = r.readU32BE();
         const hasName = r.readBool();
         const name = hasName ? r.readASCII() : '';
-        world.trade = { serial, id1, id2, name, accepted: false };
+        world.trade = {
+          serial: serial >>> 0,
+          myContainer: myContainer >>> 0,
+          hisContainer: hisContainer >>> 0,
+          id1: myContainer >>> 0,
+          id2: hisContainer >>> 0,
+          name,
+          myAccepted: false,
+          hisAccepted: false,
+          myGold: 0,
+          myPlatinum: 0,
+          hisGold: 0,
+          hisPlatinum: 0,
+        };
         game.ui?.onTradeChanged?.();
       } else if (type === 1) {
+        clearTradeItems(world.trade);
         world.trade = null;
         game.ui?.onTradeChanged?.();
       } else if (type === 2) {
-        if (world.trade) {
-          world.trade.id1 = r.readU32BE();
-          world.trade.id2 = r.readU32BE();
+        if (world.trade && world.trade.serial === serial >>> 0) {
+          world.trade.myAccepted = r.readU32BE() !== 0;
+          world.trade.hisAccepted = r.readU32BE() !== 0;
+          game.ui?.onTradeChanged?.();
         }
       } else if (type === 3 || type === 4) {
         const gold = r.readU32BE();
         const platinum = r.readU32BE();
-        if (world.trade) world.trade[type === 3 ? 'myGold' : 'hisGold'] = gold;
+        if (world.trade && world.trade.serial === serial >>> 0) {
+          if (type === 3) {
+            world.trade.hisGold = gold;
+            world.trade.hisPlatinum = platinum;
+          } else {
+            world.trade.myGold = gold;
+            world.trade.myPlatinum = platinum;
+          }
+          game.ui?.onTradeChanged?.();
+        }
       }
     });
 
@@ -935,8 +978,8 @@ export class Handlers {
       }
     });
 
-    this.set(0x90, (r) => game.ui?.onMapGump?.(r));
-    this.set(0xf5, (r) => game.ui?.onMapGump?.(r));
+    this.set(0x90, (r) => game.ui?.onMapGump?.(r, 0x90));
+    this.set(0xf5, (r) => game.ui?.onMapGump?.(r, 0xf5));
     this.set(0x93, (r) => game.ui?.onBook?.(r));
     this.set(0xd4, (r) => game.ui?.onBook?.(r));
 
@@ -969,7 +1012,7 @@ export class Handlers {
       const yOff = r.readU16BE();
       const zOff = r.readU16BE();
       const hue = r.readU16BE();
-      world.setTarget(1, targId, 0, { multiId, xOff, yOff, zOff, hue, allowGround });
+      world.setTarget(2, targId, 0, { multiId, xOff, yOff, zOff, hue, allowGround });
       game.ui?.onTargetChanged?.();
     });
 
@@ -1190,12 +1233,15 @@ export class Handlers {
     }
     let textType = 'system';
     if (type === MessageType.Guild || type === MessageType.Alliance) textType = 'guild';
-    else if (entity && serial !== 0 && serial !== 0xffffffff) textType = 'object';
-    world.addMessage(text, hue, type, name || entity?.name || '', font);
+    else if (entity && serial !== 0 && serial !== 0xffffffff) textType = 'speech';
+    world.addMessage(text, hue, type, name || entity?.name || '', font, {
+      serial,
+      textType,
+      overhead: true,
+    });
     if (entity && entity.isMobile) {
       entity.lastSpeech = { text, hue, time: Date.now() };
       entity.name = entity.name || name;
-      this.game.effects.addOverheadText(entity, text, hue);
     }
   }
 
@@ -1254,11 +1300,19 @@ export class Handlers {
     if (affix) text = flags & 1 ? affix + text : text + affix;
     if (flags & 2) type = MessageType.System;
     let textType = 'system';
-    if (serial !== 0 && serial !== 0xffffffff && entity) textType = 'object';
-    world.addMessage(text, hue, type, name || entity?.name || '', font);
+    if (type === MessageType.Guild || type === MessageType.Alliance) textType = 'guild';
+    else if (serial !== 0 && serial !== 0xffffffff && entity) textType = 'speech';
+    world.addMessage(text, hue, type, name || entity?.name || '', font, {
+      serial,
+      textType,
+      cliloc,
+      affix,
+      overhead: true,
+      translated: true,
+    });
     if (entity && entity.isMobile) {
       entity.name = entity.name || name;
-      this.game.effects.addOverheadText(entity, text, hue);
+      if (type !== MessageType.System) entity.lastSpeech = { text, hue, time: Date.now() };
     }
   }
 }

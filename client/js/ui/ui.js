@@ -1,16 +1,28 @@
 import { Gump } from '../game/gump.js';
-import { hasUoHtmlMarkup, uoHtmlFragment, appendServerText } from '../game/html.js';
+import { appendServerText } from '../game/html.js';
 import {
+  BoardWindow,
   ContainerWindow,
+  ContextMenuWindow,
   PaperdollWindow,
   ShopWindow,
   BookWindow,
   ProfileWindow,
   StatusWindow,
+  OptionsWindow,
+  SkillsWindow,
+  SpellbookWindow,
+  TradeWindow,
+  PartyWindow,
+  PartyInviteWindow,
   DebugGumpWindow,
 } from '../game/windows.js';
 import { Layer } from '../game/entity.js';
+import { settings } from '../game/settings.js';
+import { BuffBarWindow, buffGraphic } from '../game/buffs.js';
+import { MapGumpWindow, MinimapWindow } from '../game/maps.js';
 import { Reader } from '../util/binary.js';
+import { Journal } from './journal.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -20,12 +32,15 @@ export class UI {
     this.world = game.world;
     this.windows = [];
     this.mouseWalk = false;
+    this.worldItemPress = null;
+    this.lastTarget = null;
     this.promptMode = false;
     this.chatHistory = [];
     this.chatIndex = -1;
     this.hues = null;
     this.skillInfo = null;
     this.lastStatusRefresh = 0;
+    this.statusRequestTime = 0;
     this.mouse = { x: 0, y: 0 };
     this.tooltipEl = $('tooltip');
     this.hoverId = null;
@@ -33,6 +48,12 @@ export class UI {
     this.hoverSince = 0;
     this.tooltipContentKey = '';
     this.gumpDebugWindow = null;
+    this.contextMenu = null;
+    this.contextMenuRequest = null;
+    this.focusedGumpEntry = null;
+    this.modalOk = null;
+    this.modalCancel = null;
+    this.journal = new Journal(this);
     this.bind();
   }
 
@@ -48,6 +69,7 @@ export class UI {
       if (e.key === 'Enter') this.connect();
     });
     $('sendBtn').addEventListener('click', () => this.sendChat());
+    $('chatInput').addEventListener('focus', () => this.clearGumpFocus());
     $('chatInput').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -77,31 +99,23 @@ export class UI {
     $('btnPaperdoll').addEventListener('click', () => {
       if (this.world.player) this.world.socket.out.doubleClick(this.world.playerSerial);
     });
-    $('btnSkills').addEventListener('click', () => {
-      $('skillsPanel').classList.toggle('hidden');
-      this.refreshSkills();
-    });
-    $('btnWar').addEventListener('click', () => {
-      if (!this.world.player) return;
-      const state = !this.world.player.inWarMode;
-      this.world.player.inWarMode = state;
-      this.world.socket.out.warMode(state);
-      $('btnWar').textContent = state ? 'WAR' : 'PEACE';
-    });
+    $('btnSkills').addEventListener('click', () => this.toggleSkills());
+    $('btnParty')?.addEventListener('click', () => this.toggleParty());
+    $('btnMap')?.addEventListener('click', () => this.toggleRadar());
+    $('btnWar').addEventListener('click', () => this.toggleWarMode());
     $('btnStatus').addEventListener('click', () => this.showStatus());
-    $('btnLogout').addEventListener('click', () => {
-      this.world.socket.out.logoutNotification();
-      setTimeout(() => this.game.disconnect('Logged out'), 250);
-    });
+    $('btnOptions')?.addEventListener('click', () => this.showOptions());
+    $('btnJournal').addEventListener('click', () => this.journal.toggle());
+    $('btnLogout').addEventListener('click', () => this.logout());
 
-    $('modalCancel').addEventListener('click', () => this.hideModal());
+    $('modalCancel').addEventListener('click', () => this.cancelModal());
     $('modalOk').addEventListener('click', () => {
       const cb = this.modalOk;
       this.hideModal();
       cb?.();
     });
     $('modalBackdrop').addEventListener('mousedown', (e) => {
-      if (e.target === $('modalBackdrop')) this.hideModal();
+      if (e.target === $('modalBackdrop')) this.cancelModal();
     });
 
     const canvas = $('game');
@@ -109,12 +123,14 @@ export class UI {
     canvas.addEventListener('mousedown', (e) => this.onMouseDown(e));
     canvas.addEventListener('mouseup', (e) => this.onMouseUp(e));
     canvas.addEventListener('dblclick', (e) => this.onDoubleClick(e));
-    canvas.addEventListener('mouseleave', () => this.hideTooltip());
+    canvas.addEventListener('mouseleave', () => {
+      this.worldItemPress = null;
+      this.hideTooltip();
+    });
     canvas.addEventListener('contextmenu', (e) => {
       e.preventDefault();
-      if (this.world.target.type) {
-        this.world.clearTarget();
-        this.onTargetChanged();
+      if (this.world.target.active) {
+        this.cancelTarget();
         return;
       }
     });
@@ -122,7 +138,9 @@ export class UI {
       'wheel',
       (e) => {
         const hit = this.hitTest(e.clientX, e.clientY);
-        if (hit?.obj.scroll !== undefined) {
+        if (hit?.obj.onWheel?.(e.clientX, e.clientY, e.deltaY)) {
+          e.preventDefault();
+        } else if (hit?.obj.scroll !== undefined) {
           hit.obj.scroll = Math.max(0, hit.obj.scroll + (e.deltaY > 0 ? 46 : -46));
           e.preventDefault();
         }
@@ -138,7 +156,9 @@ export class UI {
     window.addEventListener('blur', () => {
       this.keyDir = {};
       this.shiftDown = false;
+      this.worldItemPress = null;
       this.stopMouseWalk();
+      this.clearGumpFocus();
     });
   }
 
@@ -380,10 +400,14 @@ export class UI {
     $('hud').classList.remove('hidden');
     if (!this._enteredWorld) {
       this._enteredWorld = true;
+      this.journal.setAccount(this.game.loginCredentials?.account || '');
+      this.journal.clear();
+      this.journal.show();
       this.addJournal('Welcome to LegionUO.', '#d6b45d', true);
     }
     this.refreshStatus();
     this.refreshSkills();
+    this.world.alwaysRun = !!settings.get('alwaysRun');
     this.showStatus();
     if (document.activeElement && typeof document.activeElement.blur === 'function') document.activeElement.blur();
     $('btnWar').textContent = this.world.player?.inWarMode ? 'WAR' : 'PEACE';
@@ -398,23 +422,21 @@ export class UI {
   }
 
   refreshSkills() {
-    const panel = $('skillsPanel');
-    if (panel.classList.contains('hidden')) return;
-    const list = this.skillInfo?.length ? this.skillInfo : this.world.skillList;
-    if (!list) return;
-    panel.innerHTML = '<div class="skillRow"><b>Skill</b><b>Value</b></div>';
-    for (const skill of list) {
-      const current = this.world.skills.get(skill.index) || {};
-      const row = document.createElement('div');
-      row.className = 'skillRow';
-      const name = document.createElement('span');
-      name.textContent = skill.name;
-      const value = document.createElement('span');
-      value.className = current.lock === 1 ? 'locked' : '';
-      value.textContent = ((current.value || 0) / 10).toFixed(1);
-      row.append(name, value);
-      panel.appendChild(row);
-    }
+    this.getWindow('skills', 'player')?.clampScroll();
+  }
+
+  toggleWarMode() {
+    const player = this.world.player;
+    if (!player) return;
+    const state = !player.inWarMode;
+    player.inWarMode = state;
+    this.world.socket.out.warMode(state);
+    $('btnWar').textContent = state ? 'WAR' : 'PEACE';
+  }
+
+  logout() {
+    this.world.socket.out.logoutNotification();
+    setTimeout(() => this.game.disconnect('Logged out'), 250);
   }
 
   showStatus() {
@@ -423,41 +445,173 @@ export class UI {
     if (entry) {
       this.windows = this.windows.filter((w) => w !== entry);
       this.windows.push(entry);
+      entry.obj.requestStatus?.();
       return;
     }
-    this.addWindow('status', 'player', new StatusWindow(this.world));
+    const window = new StatusWindow(this.world);
+    this.addWindow('status', 'player', window);
+    window.requestStatus();
   }
 
   closeStatus() {
     this.removeWindow('status', 'player');
   }
 
-  addJournal(text, color = '#e2d6b4', isSystem = false) {
-    const journal = $('journal');
-    if (!journal) return;
-    const nearBottom = journal.scrollHeight - journal.scrollTop - journal.clientHeight < 40;
-    const div = document.createElement('div');
-    div.className = `msg${isSystem ? ' system' : ''}`;
-    div.style.color = color;
-    if (hasUoHtmlMarkup(text)) {
-      div.append(uoHtmlFragment(text, { defaultColor: color }));
-      div.addEventListener('click', (event) => {
-        const link = event.target.closest?.('[data-href]');
-        if (!link) return;
-        const href = link.dataset.href || '';
-        if (/^https?:\/\//i.test(href)) window.open(href, '_blank', 'noopener,noreferrer');
-      });
-    } else {
-      div.textContent = text;
+  showOptions() {
+    if (!this.world.player) return;
+    const existing = this.getWindow('options', 'player');
+    if (existing) {
+      this.raiseWindow(existing);
+      return;
     }
-    journal.appendChild(div);
-    while (journal.children.length > 500) journal.removeChild(journal.firstChild);
-    if (nearBottom) journal.scrollTop = journal.scrollHeight;
+    this.addWindow('options', 'player', new OptionsWindow(this.world));
+  }
+
+  toggleOptions() {
+    if (this.getWindow('options', 'player')) this.closeOptions();
+    else this.showOptions();
+  }
+
+  closeOptions() {
+    this.removeWindow('options', 'player');
+  }
+
+  requestStatus(force = false) {
+    if (!this.world.player) return;
+    const now = performance.now();
+    if (!force && now - this.statusRequestTime < 750) return;
+    this.statusRequestTime = now;
+    this.world.socket.out.statusRequest(this.world.playerSerial);
+  }
+
+  showSkills() {
+    if (!this.world.player) return;
+    const existing = this.getWindow('skills', 'player');
+    if (existing) {
+      this.raiseWindow(existing);
+      existing.requestSkills();
+      return;
+    }
+    this.addWindow('skills', 'player', new SkillsWindow(this.world));
+  }
+
+  toggleSkills() {
+    if (this.getWindow('skills', 'player')) this.closeSkills();
+    else this.showSkills();
+  }
+
+  closeSkills() {
+    this.removeWindow('skills', 'player');
+  }
+
+  showBuffs() {
+    if (!this.world.player) return;
+    const existing = this.getWindow('buffs', 'player');
+    if (existing) {
+      this.raiseWindow(existing);
+      return;
+    }
+    this.addWindow('buffs', 'player', new BuffBarWindow(this.world));
+  }
+
+  toggleBuffs() {
+    if (this.getWindow('buffs', 'player')) this.closeBuffs();
+    else this.showBuffs();
+  }
+
+  closeBuffs() {
+    this.removeWindow('buffs', 'player');
+  }
+
+  showParty() {
+    if (!this.world.player) return;
+    const existing = this.getWindow('party', 'player');
+    if (existing) {
+      this.raiseWindow(existing);
+      return;
+    }
+    this.addWindow('party', 'player', new PartyWindow(this.world));
+  }
+
+  toggleParty() {
+    if (this.getWindow('party', 'player')) this.closeParty();
+    else this.showParty();
+  }
+
+  closeParty() {
+    this.removeWindow('party', 'player');
+  }
+
+  showRadar() {
+    if (!this.world.player) return;
+    const existing = this.getWindow('radar', 'player');
+    if (existing) {
+      this.raiseWindow(existing);
+      return;
+    }
+    this.addWindow('radar', 'player', new MinimapWindow(this.world));
+  }
+
+  toggleRadar() {
+    if (this.getWindow('radar', 'player')) this.closeRadar();
+    else this.showRadar();
+  }
+
+  closeRadar() {
+    this.removeWindow('radar', 'player');
+  }
+
+  showMapGump(window) {
+    if (!window) return;
+    this.addWindow('map', window.serial, window);
+    this.raiseWindow(window);
+  }
+
+  closeMapGump(serial) {
+    this.removeWindow('map', serial);
+  }
+
+  showPartyInvite(inviter) {
+    if (!inviter) return;
+    const existing = this.getWindow('partyinvite', 'invite');
+    if (existing) {
+      existing.inviter = inviter >>> 0;
+      this.raiseWindow(existing);
+      return;
+    }
+    this.addWindow('partyinvite', 'invite', new PartyInviteWindow(this.world, inviter));
+  }
+
+  closePartyInvite() {
+    this.removeWindow('partyinvite', 'invite');
+  }
+
+  onPartyChanged(joined = false, left = false) {
+    if (joined) {
+      this.addJournal('You have joined a party.', '#c9b06c', true);
+      this.showParty();
+    }
+    if (left) {
+      this.addJournal('You have left the party.', '#c9b06c', true);
+      this.closePartyInvite();
+    }
+  }
+
+  openPartyChat() {
+    this.journal.show();
+    this.journal.settings.mode = 'party';
+    this.journal.save();
+    this.journal.applySettings();
+    const input = $('chatInput');
+    input?.focus();
+  }
+
+  addJournal(text, color = '#e2d6b4', isSystem = true) {
+    this.journal.addSystem(text, color);
   }
 
   onMessage(msg) {
-    const name = msg.name && msg.name.toLowerCase() !== 'system' ? `${msg.name}: ` : '';
-    this.addJournal(`${name}${msg.text}`, this.hueColor(msg.hue), msg.type === 1);
+    this.journal.addMessage(msg);
   }
 
   sendChat() {
@@ -483,7 +637,17 @@ export class UI {
       this.command(text);
       return;
     }
-    this.world.socket.out.unicodeSpeech(text, 0, 3, 0x3b2, 'ENU');
+    this.sendSpeech(text);
+  }
+
+  sendSpeech(text) {
+    const mode = this.journal.settings.mode || 'say';
+    if (mode === 'party') {
+      this.world.socket.out.partyMessage(text);
+      return;
+    }
+    const types = { say: 0, emote: 2, whisper: 8, yell: 9, guild: 13, alliance: 14 };
+    this.world.socket.out.unicodeSpeech(text, types[mode] ?? 0, 3, 0x3b2, 'ENU');
   }
 
   historyStep(delta) {
@@ -496,19 +660,66 @@ export class UI {
     const [cmd, ...args] = text.slice(1).split(/\s+/);
     const command = cmd.toLowerCase();
     if (command === 'help') {
-      this.addJournal('Commands: -help -skills -status -where -war -peace -run -walk -resync -logout -open -target -debug', '#b8a06a', true);
+      this.addJournal(
+        'Commands: -help -skills -status -options -buffs -partywindow -radar -profile -where -war -peace -run -walk -resync -logout -open -target -lasttarget -debug -journal -clear -say -whisper -yell -emote -party -guild -alliance -ignore -unignore -ignorelist -timestamps',
+        '#b8a06a',
+        true
+      );
+    } else if (['say', 'whisper', 'yell', 'emote', 'party', 'guild', 'alliance'].includes(command)) {
+      this.journal.settings.mode = command;
+      this.journal.save();
+      this.journal.applySettings();
+      this.addJournal(`Speech mode: ${command}`, '#b8a06a', true);
+    } else if (command === 'journal') {
+      this.journal.toggle();
+    } else if (command === 'clear') {
+      this.journal.clear();
+    } else if (command === 'ignore') {
+      const name = args.join(' ').trim();
+      if (!name) {
+        this.command('-ignorelist');
+      } else if (this.journal.addIgnore(name)) {
+        this.addJournal(`Ignoring ${name}.`, '#b8a06a', true);
+      }
+    } else if (command === 'unignore') {
+      const name = args.join(' ').trim();
+      if (this.journal.removeIgnore(name)) this.addJournal(`No longer ignoring ${name}.`, '#b8a06a', true);
+    } else if (command === 'ignorelist') {
+      const list = this.journal.settings.ignore;
+      this.addJournal(list.length ? `Ignored: ${list.join(', ')}` : 'Ignore list is empty.', '#b8a06a', true);
+    } else if (command === 'timestamps') {
+      this.journal.settings.timestamps = !this.journal.settings.timestamps;
+      this.journal.save();
+      this.journal.applySettings();
     } else if (command === 'debug') {
-      this.game.debug = !this.game.debug;
+      this.game.setDebug(!this.game.debug);
       if (!this.game.debug) {
         this.gumpDebugWindow?.close();
         this.gumpDebugWindow = null;
       }
+      for (const gump of this.world.gumps.values()) {
+        for (const control of gump.controls) {
+          control.htmlKey = null;
+          control.htmlParsed = null;
+        }
+      }
+      this.tooltipContentKey = '';
+      this.journal.rerender();
       this.addJournal(`Debug mode: ${this.game.debug ? 'enabled' : 'disabled'}`, '#b8a06a', true);
     } else if (command === 'skills') {
-      $('skillsPanel').classList.toggle('hidden');
-      this.refreshSkills();
+      this.toggleSkills();
     } else if (command === 'status') {
       this.showStatus();
+    } else if (command === 'options' || command === 'settings') {
+      this.showOptions();
+    } else if (command === 'buffs') {
+      this.toggleBuffs();
+    } else if (command === 'partywindow') {
+      this.toggleParty();
+    } else if (command === 'radar' || command === 'minimap') {
+      this.toggleRadar();
+    } else if (command === 'profile') {
+      if (this.world.player) this.world.socket.out.profileRequest(this.world.playerSerial);
     } else if (command === 'where') {
       this.addJournal(`Position: ${this.world.player.x}, ${this.world.player.y}, ${this.world.player.z}`, '#b8a06a', true);
     } else if (command === 'war') {
@@ -519,12 +730,12 @@ export class UI {
       this.world.socket.out.warMode(false);
     } else if (command === 'run' || command === 'walk') {
       this.world.alwaysRun = command === 'run';
+      settings.set('alwaysRun', this.world.alwaysRun);
       this.addJournal(`Movement: ${command === 'run' ? 'run' : 'walk'}`, '#b8a06a', true);
     } else if (command === 'resync') {
       this.world.socket.out.resync();
     } else if (command === 'logout') {
-      this.world.socket.out.logoutNotification();
-      setTimeout(() => this.game.disconnect('Logged out'), 250);
+      this.logout();
     } else if (command === 'open') {
       const alias = args[0] || '';
       if (alias === 'backpack') {
@@ -534,6 +745,8 @@ export class UI {
     } else if (command === 'target') {
       this.world.setTarget(1, 0, 0);
       this.onTargetChanged();
+    } else if (command === 'lasttarget' || command === 'last') {
+      this.useLastTarget();
     } else {
       this.addJournal(`Unknown command: -${cmd}`, '#c56a4a', true);
     }
@@ -551,6 +764,7 @@ export class UI {
 
   showPrompt(prompt) {
     this.promptMode = true;
+    this.journal.show();
     this.updatePrompt();
   }
 
@@ -560,13 +774,40 @@ export class UI {
     const existing = this.windows.findIndex((w) => w.kind === kind && w.key === key);
     if (existing >= 0) {
       this.windows[existing].obj = obj;
+      this.raiseWindow(obj);
       return;
     }
     this.windows.push({ kind, key, obj });
   }
 
   removeWindow(kind, key) {
+    const removed = this.windows.filter((w) => w.kind === kind && String(w.key) === String(key));
     this.windows = this.windows.filter((w) => !(w.kind === kind && String(w.key) === String(key)));
+    if (this.focusedGumpEntry && removed.some((w) => w.obj === this.focusedGumpEntry.gump)) {
+      this.clearGumpFocus();
+    }
+  }
+
+  raiseWindow(obj) {
+    const index = this.windows.findIndex((w) => w.obj === obj);
+    if (index < 0 || index === this.windows.length - 1) return;
+    const [entry] = this.windows.splice(index, 1);
+    this.windows.push(entry);
+  }
+
+  setGumpFocus(gump, control) {
+    const previous = this.focusedGumpEntry;
+    if (previous && previous.gump !== gump) previous.gump.onBlur?.();
+    this.focusedGumpEntry = { gump, control };
+    this.raiseWindow(gump);
+  }
+
+  clearGumpFocus(gump = null) {
+    const focused = this.focusedGumpEntry;
+    if (!focused || (gump && focused.gump !== gump)) return false;
+    focused.gump.onBlur?.();
+    this.focusedGumpEntry = null;
+    return true;
   }
 
   getWindow(kind, key) {
@@ -582,6 +823,7 @@ export class UI {
 
   openGump(gump) {
     this.addWindow('gump', gump.id, gump);
+    this.raiseWindow(gump);
     if (!this.game.debug) return;
     if (this.gumpDebugWindow) this.gumpDebugWindow.setGump(gump);
     else {
@@ -595,9 +837,56 @@ export class UI {
     this.removeWindow('gump', id);
   }
 
+  closeServerGump(serial, button = 0) {
+    const gumps = [...this.world.gumps.values()].filter((gump) => gump.id === (serial >>> 0));
+    for (const gump of gumps) {
+      if (button) gump.sendResponse(button);
+      else this.closeGumpAndDependents(gump);
+    }
+  }
+
+  closeGumpAndDependents(gump) {
+    this.clearGumpFocus(gump);
+    this.world.removeGump(gump.id);
+    this.closeGumpWindow(gump.id);
+    for (const other of [...this.world.gumps.values()]) {
+      if (other.masterGump === gump.id) this.closeGumpAndDependents(other);
+    }
+  }
+
+  closeUserInterfaceWindow(id, serial) {
+    switch (id) {
+      case 1:
+        this.closePaperdoll(serial);
+        break;
+      case 2:
+        if (serial === this.world.playerSerial) this.closeStatus();
+        break;
+      case 8:
+        this.closeProfile(serial);
+        break;
+      case 0x0c:
+        this.closeContainer(serial);
+        break;
+      default:
+        break;
+    }
+  }
+
   openContainer(serial, graphic) {
+    if (graphic === 0xffff) {
+      this.openSpellbook(serial);
+      return;
+    }
     if (graphic === 0x30) {
-      this.openShop(serial, true, 'Vendor');
+      const existing = this.getWindow('shop', serial);
+      if (existing) {
+        if (!existing.items.length) this.fillShopFromVendorLayers(existing, serial);
+        this.raiseWindow(existing);
+        return;
+      }
+      const shop = this.openShop(serial, true, 'Vendor');
+      this.fillShopFromVendorLayers(shop, serial);
       return;
     }
     const existing = this.getWindow('container', serial);
@@ -612,6 +901,44 @@ export class UI {
     this.removeWindow('container', serial);
   }
 
+  openSpellbook(serial) {
+    const item = this.world.getItem(serial) || this.world.getOrCreateItem(serial);
+    const existing = this.getWindow('spellbook', serial);
+    if (existing) {
+      existing.item = item;
+      this.raiseWindow(existing);
+      return existing;
+    }
+    const window = new SpellbookWindow(this.world, item);
+    this.addWindow('spellbook', serial, window);
+    return window;
+  }
+
+  closeSpellbook(serial) {
+    this.removeWindow('spellbook', serial);
+  }
+
+  onSpellbookContent(r) {
+    r.skip(2);
+    const serial = r.readU32BE();
+    const graphic = r.readU16BE();
+    const type = r.readU16BE();
+    const item = this.world.getOrCreateItem(serial);
+    item.graphic = graphic;
+    if (type) item.spellbookType = type;
+    item.spells = new Set();
+    const low = r.readU32BE();
+    const high = r.readU32BE();
+    for (let i = 0; i < 32; i++) if (low & (1 << i)) item.spells.add(i + 1);
+    for (let i = 0; i < 32; i++) if (high & (1 << i)) item.spells.add(i + 33);
+    const window = this.getWindow('spellbook', serial);
+    if (window) {
+      window.item = item;
+      window.clampPage();
+    }
+    return item;
+  }
+
   onContainerItem(serial) {
     // Container window reads live entity data; nothing else is needed.
   }
@@ -623,8 +950,8 @@ export class UI {
       this.addWindow('shop', serial, shop);
     } else {
       shop.isBuy = isBuy;
-      shop.title = title || shop.title;
-      shop.items = [];
+      if (title) shop.title = title;
+      this.raiseWindow(shop);
     }
     return shop;
   }
@@ -633,26 +960,37 @@ export class UI {
     this.removeWindow('shop', serial);
   }
 
+  fillShopFromVendorLayers(shop, serial) {
+    const vendor = this.world.getMobile(serial);
+    if (!vendor) return;
+    for (let layer = Layer.ShopBuyRestock; layer <= Layer.ShopBuy; layer++) {
+      const box = vendor.getItem(layer);
+      if (!box) continue;
+      const items = [...box.items.values()];
+      if (box.graphic !== 0x2af8) items.reverse();
+      for (const item of items) shop.addItem(item);
+    }
+  }
+
   onBuyList(r) {
     const containerSerial = r.readU32BE();
     const container = this.world.getItem(containerSerial);
     if (!container) return;
     const vendor = this.world.getMobile(container.container);
     if (!vendor) return;
-    const shop = this.openShop(container.container, true, `Buy from ${vendor.name || 'vendor'}`);
+    const shop = this.openShop(vendor.serial, true, `Buy from ${vendor.name || 'vendor'}`);
+    shop.reset();
     const count = r.readU8();
-    let items = [];
-    for (let layer = Layer.ShopBuyRestock; layer <= Layer.ShopBuy; layer++) {
-      const box = vendor.getItem(layer);
-      if (!box) continue;
-      items.push(...box.items.values());
-    }
-    if (container.graphic !== 0x2af8) items.reverse();
-    for (let i = 0; i < count && i < items.length; i++) {
-      const item = items[i];
-      item.price = r.readU32BE();
+    const items = [...container.items.values()];
+    if (container.graphic === 0x2af8) items.sort((a, b) => a.x - b.x);
+    else items.reverse();
+    for (let i = 0; i < count; i++) {
+      const price = r.readU32BE();
       const len = r.readU8();
       const name = r.readASCII(len);
+      const item = items[i];
+      if (!item) continue;
+      item.price = price;
       item.name = /^\d+$/.test(name) ? this.game.cliloc(parseInt(name, 10)) || name : name;
       shop.addItem(item);
     }
@@ -663,6 +1001,7 @@ export class UI {
     if (!vendor) return;
     const count = r.readU16BE();
     const shop = this.openShop(vendor.serial, false, `Sell to ${vendor.name || 'vendor'}`);
+    shop.reset();
     for (let i = 0; i < count; i++) {
       const serial = r.readU32BE();
       const graphic = r.readU16BE();
@@ -708,10 +1047,59 @@ export class UI {
       const pages = r.readU16BE();
       const title = isOld ? r.readUTF8(60) : r.readUTF8(r.readU16BE());
       const author = isOld ? r.readUTF8(30) : r.readUTF8(r.readU16BE());
-      const book = new BookWindow(this.world, serial, title, author, pages, editable);
+      const book = new BookWindow(this.world, serial, title, author, pages, editable, isOld);
       this.addWindow('book', serial, book);
       this.world.socket.out.bookPageRequest(serial, 1);
     }
+  }
+
+  editBook(serial) {
+    const book = this.getWindow('book', serial);
+    if (!book || !book.editable) return;
+    const title = document.createElement('input');
+    title.value = book.title === 'Book' ? '' : book.title;
+    title.maxLength = 60;
+    const author = document.createElement('input');
+    author.value = book.author || '';
+    author.maxLength = 30;
+    const text = document.createElement('textarea');
+    text.value = (book.lines.get(book.page) || []).join('\n');
+    text.maxLength = 4096;
+    const body = document.createElement('div');
+    body.appendChild(this.formField('Title', title));
+    body.appendChild(this.formField('Author', author));
+    body.appendChild(this.formField(`Page ${book.page}`, text));
+    const oldTitle = book.title;
+    const oldAuthor = book.author;
+    const page = book.page;
+    this.showModal(
+      'Edit Book',
+      body,
+      () => {
+        const nextTitle = title.value.trim().slice(0, 60) || 'Book';
+        const nextAuthor = author.value.trim().slice(0, 30);
+        const lines = text.value.replace(/\r\n?/g, '\n').split('\n');
+        while (lines.length && !lines[lines.length - 1]) lines.pop();
+        book.applyEdit(nextTitle, nextAuthor, lines);
+        if (nextTitle !== oldTitle || nextAuthor !== oldAuthor) {
+          if (book.old) this.world.socket.out.bookHeaderOld(serial, nextTitle, nextAuthor);
+          else this.world.socket.out.bookHeader(serial, nextTitle, nextAuthor);
+        }
+        this.world.socket.out.bookPage(serial, lines, page);
+        this.addJournal(`Book page ${page} saved.`, '#b8a06a', true);
+      },
+      true
+    );
+  }
+
+  formField(labelText, control) {
+    const label = document.createElement('label');
+    label.className = 'modalField';
+    const caption = document.createElement('span');
+    caption.textContent = labelText;
+    label.appendChild(caption);
+    label.appendChild(control);
+    return label;
   }
 
   onBookData(r) {
@@ -740,12 +1128,59 @@ export class UI {
     const header = r.readASCII();
     const footer = r.readUnicodeBE();
     const body = r.readUnicodeBE();
-    const profile = new ProfileWindow(this.world, serial, header, footer, body);
+    const editable = (serial >>> 0) === (this.world.playerSerial >>> 0);
+    const profile = new ProfileWindow(this.world, serial, header, footer, body, editable);
     this.addWindow('profile', serial, profile);
+  }
+
+  editProfile(serial) {
+    const profile = this.getWindow('profile', serial);
+    if (!profile || !profile.editable) return;
+    const text = document.createElement('textarea');
+    text.value = profile.body || '';
+    text.maxLength = 4096;
+    const body = document.createElement('div');
+    body.appendChild(this.formField('Profile', text));
+    this.showModal(
+      'Edit Profile',
+      body,
+      () => {
+        const value = text.value.replace(/\r\n?/g, '\n');
+        profile.setBody(value);
+        this.world.socket.out.profileUpdate(serial, value);
+        this.addJournal('Profile saved.', '#b8a06a', true);
+      },
+      true
+    );
   }
 
   closeProfile(serial) {
     this.removeWindow('profile', serial);
+  }
+
+  openContextMenu(serial, x, y) {
+    this.contextMenuRequest = { serial: serial >>> 0, x, y };
+    this.world.socket.out.requestPopupMenu(serial);
+  }
+
+  showContextMenu(serial, items) {
+    const request = this.contextMenuRequest;
+    const at = request && request.serial === (serial >>> 0) ? request : this.mouse;
+    this.closeContextMenu();
+    if (!items.length) return;
+    this.hideTooltip();
+    const menu = new ContextMenuWindow(this.world, serial, items, at.x, at.y, (s, index) => {
+      this.world.socket.out.popupMenuSelection(s, index);
+    });
+    this.contextMenu = menu;
+    this.addWindow('contextmenu', 'menu', menu);
+    this.raiseWindow(menu);
+  }
+
+  closeContextMenu() {
+    if (!this.contextMenu) return;
+    this.removeWindow('contextmenu', 'menu');
+    this.contextMenu = null;
   }
 
   onTextEntry(r) {
@@ -772,10 +1207,96 @@ export class UI {
   }
 
   onDye(serial, graphic) {
-    this.showModalInput('Dye hue (1-3000)', '1', 4, (value) => {
-      const hue = Math.max(1, Math.min(3000, parseInt(value, 10) || 1));
-      this.world.socket.out.dyeResponse(serial, graphic, hue);
-    }, true);
+    const body = document.createElement('div');
+    body.className = 'dyeBody';
+
+    const layout = document.createElement('div');
+    layout.className = 'dyeLayout';
+    const grid = document.createElement('div');
+    grid.className = 'dyeGrid';
+    const side = document.createElement('div');
+    side.className = 'dyeSide';
+
+    const preview = document.createElement('img');
+    preview.className = 'dyePreview';
+    preview.alt = '';
+    preview.draggable = false;
+    const swatch = document.createElement('div');
+    swatch.className = 'dyeSwatch';
+    const label = document.createElement('div');
+    label.className = 'dyeHueLabel';
+    const shades = document.createElement('div');
+    shades.className = 'dyeShades';
+    const shadeLabel = document.createElement('div');
+    shadeLabel.className = 'dyeSideLabel';
+    shadeLabel.textContent = 'Shade';
+
+    side.append(preview, swatch, label, shadeLabel, shades);
+    layout.append(grid, side);
+    body.append(layout);
+
+    const hueCount = Math.max(1, this.hues?.text?.length || 1000);
+    let graduation = 0;
+    let selectedHue = 2;
+
+    const hueAt = (index) => Math.min(hueCount - 1, 2 + graduation + index * 5);
+
+    const selectHue = (hue) => {
+      selectedHue = hue;
+      const color = this.hueColor(hue);
+      preview.src = `/api/art/static/${graphic}.png?hue=${hue}`;
+      preview.style.display = graphic ? '' : 'none';
+      swatch.style.background = color;
+      label.textContent = `Hue ${hue}`;
+      for (const cell of grid.children) cell.classList.toggle('selected', Number(cell.dataset.hue) === hue);
+    };
+
+    const buildGrid = () => {
+      grid.replaceChildren();
+      grid.style.gridTemplateColumns = 'repeat(20, 10px)';
+      for (let i = 0; i < 200; i++) {
+        const hue = hueAt(i);
+        const cell = document.createElement('button');
+        cell.type = 'button';
+        cell.className = 'dyeCell';
+        cell.dataset.hue = String(hue);
+        cell.title = `Hue ${hue}`;
+        cell.style.background = this.hueColor(hue);
+        cell.addEventListener('click', () => selectHue(hue));
+        grid.append(cell);
+      }
+      selectHue(selectedHue);
+    };
+
+    const buildShades = () => {
+      shades.replaceChildren();
+      for (let i = 0; i < 5; i++) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'dyeShade';
+        button.textContent = String(i + 1);
+        button.classList.toggle('active', i === graduation);
+        button.style.borderColor = this.hueColor(Math.min(hueCount - 1, i + 2));
+        button.addEventListener('click', () => {
+          graduation = i;
+          selectedHue = hueAt(0);
+          buildGrid();
+          buildShades();
+        });
+        shades.append(button);
+      }
+    };
+
+    preview.addEventListener('error', () => {
+      preview.style.display = 'none';
+    });
+
+    buildGrid();
+    buildShades();
+
+    this.showModal('Dye', body, () => {
+      this.world.socket.out.dyeResponse(serial, graphic, selectedHue);
+    });
   }
 
   onMenu(r) {
@@ -784,33 +1305,124 @@ export class UI {
     const nameLen = r.readU8();
     const name = r.readASCII(nameLen);
     const count = r.readU8();
-    const peek = r.data.slice(r.position, r.position + 2);
-    const menuId = (peek[0] << 8) | peek[1];
-    const body = document.createElement('div');
-    body.style.cssText = 'display:flex;flex-direction:column;gap:6px;font-size:13px';
+    const entries = [];
     for (let i = 0; i < count; i++) {
       const graphic = r.readU16BE();
       const hue = r.readU16BE();
       const len = r.readU8();
-      const label = r.readASCII(len);
-      const b = document.createElement('button');
-      appendServerText(b, `${i + 1}. ${label}`);
-      b.addEventListener('click', () => {
-        this.hideModal();
-        if (menuId !== 0) this.world.socket.out.menuResponse(serial, id, i + 1, graphic, hue);
-        else this.world.socket.out.menuResponse(serial, id, i + 1);
-      });
-      body.appendChild(b);
+      entries.push({ graphic, hue, label: r.readASCII(len) });
     }
-    this.showModal(name || 'Menu', body, null, false);
+    if (!entries.length) return;
+
+    const gray = entries[0].graphic === 0;
+    const body = document.createElement('div');
+
+    if (gray) {
+      body.className = 'uoGrayMenu';
+      const group = `uoGrayMenu-${serial >>> 0}-${id}`;
+      entries.forEach((entry, index) => {
+        const label = document.createElement('label');
+        label.className = 'uoMenuChoice';
+        const radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = group;
+        radio.value = String(index + 1);
+        radio.checked = index === 0;
+        const text = document.createElement('span');
+        appendServerText(text, entry.label || `Choice ${index + 1}`);
+        label.append(radio, text);
+        body.append(label);
+      });
+      this.showModal(
+        name || 'Menu',
+        body,
+        () => {
+          const picked = body.querySelector('input[type="radio"]:checked');
+          if (!picked) return;
+          this.world.socket.out.menuResponse(serial, id, Number(picked.value));
+        },
+        true,
+        () => this.world.socket.out.menuResponse(serial, id, 0)
+      );
+      return;
+    }
+
+    body.className = 'uoMenuGrid';
+    entries.forEach((entry, index) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'uoMenuItem';
+      button.title = entry.label || `Item ${index + 1}`;
+      const image = document.createElement('img');
+      image.src = `/api/art/static/${entry.graphic}.png?hue=${entry.hue}`;
+      image.alt = '';
+      image.draggable = false;
+      image.addEventListener('error', () => {
+        image.style.display = 'none';
+      });
+      const number = document.createElement('span');
+      number.className = 'uoMenuNumber';
+      number.textContent = String(index + 1);
+      button.append(image, number);
+      button.addEventListener('click', () => {
+        this.hideModal();
+        this.world.socket.out.menuResponse(serial, id, index + 1, entry.graphic, entry.hue);
+      });
+      body.append(button);
+    });
+    this.showModal(
+      name || 'Menu',
+      body,
+      null,
+      true,
+      () => this.world.socket.out.menuResponse(serial, id, 0)
+    );
+    $('modalOk').style.display = 'none';
   }
 
   onTargetChanged() {
     const t = this.world.target;
     const hint = $('cursorHint');
-    hint.classList.toggle('hidden', !t.type);
+    hint.classList.toggle('hidden', !t.active);
     if (t.multi) hint.textContent = 'Place the structure — right click to cancel';
     else hint.textContent = 'Select a target — right click to cancel';
+  }
+
+  cancelTarget() {
+    const t = this.world.target;
+    if (!t.active) return;
+    this.world.socket.out.targetCancel(t.type, t.cursorId, t.cursorType);
+    this.world.clearTarget();
+    this.onTargetChanged();
+  }
+
+  useLastTarget() {
+    const t = this.world.target;
+    const last = this.lastTarget;
+    if (!t.active) {
+      this.addJournal('No target cursor is active.', '#c56a4a', true);
+      return;
+    }
+    if (!last) {
+      this.addJournal('No previous target.', '#c56a4a', true);
+      return;
+    }
+    if (last.serial) {
+      const entity = this.world.get(last.serial);
+      this.world.socket.out.targetObject(
+        last.serial,
+        entity?.graphic ?? last.graphic,
+        entity?.x ?? last.x,
+        entity?.y ?? last.y,
+        entity?.z ?? last.z,
+        t.cursorId,
+        t.cursorType
+      );
+    } else {
+      this.world.socket.out.targetXYZ(last.graphic, last.x, last.y, last.z, t.cursorId, t.cursorType);
+    }
+    this.world.clearTarget();
+    this.onTargetChanged();
   }
 
   onEquipmentChanged(serial) {
@@ -821,81 +1433,209 @@ export class UI {
   onEntityRemoved(entity) {
     this.removeWindow('container', entity.serial);
     this.removeWindow('paperdoll', entity.serial);
+    this.removeWindow('spellbook', entity.serial);
+    this.removeWindow('map', entity.serial);
   }
 
   onHeldChanged() {}
 
   onTradeChanged() {
-    if (this.world.trade) {
-      this.addJournal(`Trade window opened with ${this.world.trade.name || 'another player'}.`, '#c9b06c', true);
-    } else {
-      this.addJournal('Trade window closed.', '#c9b06c', true);
+    const trade = this.world.trade;
+    const existing = this.windows.filter((w) => w.kind === 'trade');
+    if (!trade) {
+      if (existing.length) {
+        this.windows = this.windows.filter((w) => w.kind !== 'trade');
+        this.addJournal('Trade window closed.', '#c9b06c', true);
+      }
+      return;
     }
+    const match = existing.find((w) => w.obj.trade?.serial === trade.serial);
+    if (match) {
+      match.obj.trade = trade;
+      this.raiseWindow(match.obj);
+      return;
+    }
+    for (const w of existing) this.removeWindow('trade', w.key);
+    this.addWindow('trade', trade.serial, new TradeWindow(this.world, trade));
+    this.addJournal(`Trade window opened with ${trade.name || 'another player'}.`, '#c9b06c', true);
   }
 
   onBulletinBoard(r) {
     const type = r.readU8();
     if (type === 0) {
       const serial = r.readU32BE();
-      const name = r.readUTF8(22);
-      this.addJournal(`Bulletin board: ${name}`, '#b8a06a', true);
+      const name = r.readUTF8Z();
+      this.openBoard(serial, name);
     } else if (type === 1) {
-      r.readU32BE();
-      r.readU32BE();
-      r.readU32BE();
-      const posterLen = r.readU8();
-      const poster = r.readUTF8(posterLen);
-      const subjectLen = r.readU8();
-      const subject = r.readUTF8(subjectLen);
-      const dateLen = r.readU8();
-      const date = r.readUTF8(dateLen);
-      this.addJournal(`[Board] ${poster} - ${subject} - ${date}`, '#b8a06a', true);
+      const boardSerial = r.readU32BE();
+      const msgSerial = r.readU32BE();
+      const poster = r.readUTF8Z();
+      const subject = r.readUTF8Z();
+      const date = r.readUTF8Z();
+      this.getWindow('board', boardSerial)?.addSummary({ serial: msgSerial, poster, subject, date });
     } else if (type === 2) {
-      r.readU32BE();
-      r.readU32BE();
-      const posterLen = r.readU8();
-      const poster = r.readUTF8(posterLen);
-      const subjectLen = r.readU8();
-      const subject = r.readUTF8(subjectLen);
-      const dateLen = r.readU8();
-      const date = r.readUTF8(dateLen);
-      const lines = r.readU8();
-      const text = [];
-      for (let i = 0; i < lines; i++) text.push(r.readUTF8());
-      const body = document.createElement('div');
-      body.style.fontSize = '13px';
-      const entry = document.createElement('div');
-      entry.style.whiteSpace = 'pre-wrap';
-      appendServerText(entry, text.join('\n'));
-      body.appendChild(entry);
-      const footer = document.createElement('div');
-      footer.style.marginTop = '8px';
-      footer.style.color = '#8f8262';
-      footer.style.fontSize = '11px';
-      appendServerText(footer, date);
-      body.appendChild(footer);
-      this.showModal(`${subject} — ${poster}`, body, null, false);
+      const boardSerial = r.readU32BE();
+      const msgSerial = r.readU32BE();
+      const poster = r.readUTF8Z();
+      const subject = r.readUTF8Z();
+      const date = r.readUTF8Z();
+      const count = r.readU8();
+      const lines = [];
+      for (let i = 0; i < count; i++) lines.push(r.readUTF8Z());
+      this.getWindow('board', boardSerial)?.setMessage({ serial: msgSerial, poster, subject, date, lines });
     }
   }
 
+  openBoard(serial, name) {
+    const existing = this.getWindow('board', serial);
+    if (existing) {
+      if (name) existing.name = name;
+      this.raiseWindow(existing);
+      return existing;
+    }
+    const window = new BoardWindow(this.world, serial, name);
+    this.addWindow('board', serial, window);
+    this.raiseWindow(window);
+    return window;
+  }
+
+  closeBoard(serial) {
+    this.removeWindow('board', serial);
+  }
+
   onChatMessage() {}
-  onMapGump() {
-    this.addJournal('Map opened.', '#b8a06a', true);
+  onMapGump(r, id = 0x90) {
+    const serial = r.readU32BE();
+    r.readU16BE();
+    const startX = r.readU16BE();
+    const startY = r.readU16BE();
+    const endX = r.readU16BE();
+    const endY = r.readU16BE();
+    const width = r.readU16BE();
+    const height = r.readU16BE();
+    const facet = id === 0xf5 ? r.readU16BE() : 0;
+    const existing = this.getWindow('map', serial);
+    if (existing) this.closeMapGump(serial);
+    this.showMapGump(new MapGumpWindow(this.world, serial, width, height, startX, startY, endX, endY, facet));
+  }
+
+  onMapData(r) {
+    const serial = r.readU32BE();
+    const action = r.readU8();
+    const window = this.getWindow('map', serial);
+    if (!window) return;
+    if (action === 1) {
+      r.skip(1);
+      const x = r.readU16BE();
+      const y = r.readU16BE();
+      window.addPin(x, y);
+    } else if (action === 5) {
+      window.clearPins();
+    } else if (action === 6 && r.remaining() > 0) {
+      window.setPlotState(r.readU8());
+    }
   }
   onExtendedCommand(r) {
     try {
       const sub = r.readU16BE();
-      if (sub === 0x06) {
-        const type = r.readU8();
-        if (type === 0x01) {
-          const serial = r.readU32BE();
-          const name = r.readASCII();
-          this.world.partyInvite = { serial, name };
-          this.addJournal(`${name || 'Someone'} invites you to a party.`, '#c9b06c', true);
+      if (sub === 0x04) {
+        const gumpId = r.readU32BE();
+        const button = r.readU32BE();
+        this.closeServerGump(gumpId, button);
+      } else if (sub === 0x16) {
+        const id = r.readU32BE();
+        const serial = r.readU32BE();
+        this.closeUserInterfaceWindow(id, serial);
+      } else if (sub === 0x06) {
+        this.onPartyPacket(r);
+      } else if (sub === 0x14) {
+        const mode = r.readU16BE();
+        const serial = r.readU32BE();
+        const count = r.readU8();
+        const items = [];
+        for (let i = 0; i < count; i++) {
+          let cliloc;
+          let index;
+          let flags;
+          if (mode >= 2) {
+            cliloc = r.readU32BE();
+            index = r.readU16BE();
+            flags = r.readU16BE();
+          } else {
+            index = r.readU16BE();
+            cliloc = r.readU16BE() + 3000000;
+            flags = r.readU16BE();
+            if (flags & 0x84) r.skip(2);
+            if (flags & 0x40) r.skip(2);
+            if (flags & 0x20) r.skip(2);
+          }
+          items.push({ index, cliloc, flags });
         }
+        this.showContextMenu(serial, items);
+      } else if (sub === 0x1b) {
+        this.onSpellbookContent(r);
       }
     } catch {
       /* ignore malformed custom packet */
+    }
+  }
+  onPartyPacket(r) {
+    const type = r.readU8();
+    const party = this.world.party;
+    if (type === 0x01 || type === 0x02) {
+      const add = type === 0x01;
+      const count = r.readU8();
+      if (count <= 1) {
+        const hadParty = party.leader !== 0 || party.members.length > 0;
+        party.members = [];
+        party.leader = 0;
+        party.inviter = 0;
+        party.canLoot = false;
+        this.onPartyChanged(false, hadParty);
+        return;
+      }
+      let removeSerial = 0;
+      if (!add && r.remaining() >= 4) removeSerial = r.readU32BE() >>> 0;
+      const previousLeader = party.leader;
+      const members = [];
+      for (let i = 0; i < count && r.remaining() >= 4; i++) {
+        const serial = r.readU32BE() >>> 0;
+        if (!add && serial === removeSerial) continue;
+        members.push(serial);
+      }
+      if (!add && (removeSerial === this.world.playerSerial || members.length <= 1)) {
+        party.members = [];
+        party.leader = 0;
+        party.inviter = 0;
+        party.canLoot = false;
+        this.onPartyChanged(false, true);
+        return;
+      }
+      party.members = members;
+      party.leader = members[0] || 0;
+      if (members.length) party.inviter = 0;
+      this.onPartyChanged(add && previousLeader === 0 && members.length > 0, false);
+      return;
+    }
+    if (type === 0x03 || type === 0x04) {
+      const serial = r.readU32BE() >>> 0;
+      const text = r.readUnicodeBE();
+      const mobile = this.world.getMobile(serial);
+      const name = serial === this.world.playerSerial ? this.world.player?.name || 'You' : mobile?.name || '';
+      this.world.addMessage(text, 0x3b2, 0, name, 3, {
+        serial,
+        textType: 'party',
+        overhead: false,
+      });
+      return;
+    }
+    if (type === 0x07) {
+      const inviter = r.readU32BE() >>> 0;
+      party.inviter = inviter;
+      const mobile = this.world.getMobile(inviter);
+      const name = mobile?.name || `0x${inviter.toString(16)}`;
+      this.addJournal(`${name} invites you to a party.`, '#c9b06c', true);
+      this.showPartyInvite(inviter);
     }
   }
   onGenericCommand() {}
@@ -917,14 +1657,32 @@ export class UI {
         r.skip(4);
         const timer = r.readU16BE();
         r.skip(3);
-        const title = r.readU32BE();
-        const desc = r.readU32BE();
-        const wtf = r.readU32BE();
-        const argLen = r.readU16BE();
-        const args = r.readUnicodeLE(argLen > 2 ? argLen : 0);
+        const titleId = r.readU32BE();
+        const descId = r.readU32BE();
+        const altId = r.readU32BE();
+        const titleArgs = readBuffArgs(r);
+        const descArgs = readBuffArgs(r);
+        const altArgs = readBuffArgs(r);
         this.world.buffs = this.world.buffs.filter((b) => b.icon !== icon);
-        this.world.buffs.push({ icon, iconId, timer, title: this.game.cliloc(title, args) || '', time: Date.now() });
+        this.world.buffs.push({
+          icon,
+          iconId,
+          queue,
+          sourceType,
+          serial,
+          graphic: buffGraphic(icon),
+          timer,
+          titleId,
+          titleArgs,
+          descId,
+          descArgs,
+          altId,
+          altArgs,
+          endsAt: timer > 0 ? Date.now() + timer * 1000 : 0,
+          time: Date.now(),
+        });
       }
+      this.showBuffs();
     } catch {
       /* ignore */
     }
@@ -944,6 +1702,20 @@ export class UI {
     this.game.renderer.mouse.x = x;
     this.game.renderer.mouse.y = y;
     this.game.renderer.mouse.world = this.game.renderer.screenToTile(x, y);
+    if (this.worldItemPress) {
+      const dx = x - this.worldItemPress.x;
+      const dy = y - this.worldItemPress.y;
+      if (dx * dx + dy * dy >= 64) {
+        const item = this.worldItemPress.item;
+        this.worldItemPress = null;
+        if (!this.world.held) {
+          this.world.held = item;
+          this.world.socket.out.pickup(item.serial, item.amount || 1);
+          this.game.renderer.mouse.world = this.game.renderer.screenToTile(x, y);
+        }
+        return;
+      }
+    }
     const hit = this.hitTest(x, y);
     if (this.dragTarget) {
       this.dragTarget.obj.onMouseMove?.(x, y);
@@ -961,34 +1733,54 @@ export class UI {
     const { x, y } = this.canvasPos(e);
     const button = e.button;
     const hit = this.hitTest(x, y);
+    if (this.contextMenu && hit?.obj !== this.contextMenu) this.closeContextMenu();
+    if (this.focusedGumpEntry && (!hit || hit.obj !== this.focusedGumpEntry.gump)) this.clearGumpFocus();
     if (hit) {
+      if (button === 0 && this.world.target.active && !this.world.held) {
+        const target = hit.obj.targetAt?.(x, y);
+        if (target) {
+          this.sendTargetEntity(target);
+          return;
+        }
+      }
+      this.raiseWindow(hit.obj);
       hit.obj.onMouseDown?.(x, y, button);
       if (hit.obj.dragging || hit.obj.onMouseMove) this.dragTarget = hit;
       return;
     }
     if (button === 0) {
-      if (this.world.target.type) {
+      if (this.world.target.active) {
         this.sendTarget(x, y);
         return;
       }
       const tile = this.game.renderer.screenToTile(x, y);
       const entity = this.game.renderer.entityAt?.(x, y) || this.findEntityAt(tile.x, tile.y);
       if (!entity) return;
-      if (e.shiftKey && entity.isItem) {
-        this.world.held = entity;
-        this.world.socket.out.pickup(entity.serial, entity.amount || 1);
+      if (entity.isItem && entity.container === 0 && !this.world.held) {
+        if (e.shiftKey) {
+          this.world.held = entity;
+          this.world.socket.out.pickup(entity.serial, entity.amount || 1);
+        } else if (e.detail < 2) {
+          this.worldItemPress = { item: entity, x, y };
+        }
         return;
       }
       this.world.socket.out.singleClick(entity.serial);
       return;
     }
     if (button === 2) {
-      if (this.world.target.type) {
-        this.world.clearTarget();
-        this.onTargetChanged();
+      if (this.world.target.active) {
+        this.cancelTarget();
         return;
       }
-      if (!this.world.held) this.startMouseWalk();
+      if (this.world.held) return;
+      const tile = this.game.renderer.screenToTile(x, y);
+      const entity = this.game.renderer.entityAt?.(x, y) || this.findEntityAt(tile.x, tile.y);
+      if (entity) {
+        this.openContextMenu(entity.serial, x, y);
+        return;
+      }
+      this.startMouseWalk();
     }
   }
 
@@ -1026,6 +1818,11 @@ export class UI {
       this.dragTarget.obj.onMouseUp?.(x, y);
       this.dragTarget = null;
     }
+    if (this.worldItemPress) {
+      const item = this.worldItemPress.item;
+      this.worldItemPress = null;
+      this.world.socket.out.singleClick(item.serial);
+    }
     if (this.world.held) {
       const hit = this.hitTest(x, y);
       if (hit) {
@@ -1044,14 +1841,17 @@ export class UI {
 
   onDoubleClick(e) {
     if (!$('modalBackdrop').classList.contains('hidden')) return;
+    this.worldItemPress = null;
     const { x, y } = this.canvasPos(e);
     const hit = this.hitTest(x, y);
     if (hit) {
+      this.raiseWindow(hit.obj);
+      if (this.focusedGumpEntry && hit.obj !== this.focusedGumpEntry.gump) this.clearGumpFocus();
       hit.obj.onDoubleClick?.(x, y);
       return;
     }
     const tile = this.game.renderer.screenToTile(x, y);
-    const entity = this.findEntityAt(tile.x, tile.y);
+    const entity = this.game.renderer.entityAt?.(x, y) || this.findEntityAt(tile.x, tile.y);
     if (entity) this.world.socket.out.doubleClick(entity.serial);
   }
 
@@ -1180,20 +1980,38 @@ export class UI {
 
   sendTarget(mx, my) {
     const t = this.world.target;
-    const tile = this.game.renderer.screenToTile(mx, my);
-    const entity = this.findEntityAt(tile.x, tile.y);
-    if (t.multi) {
-      this.world.socket.out.targetXYZ(t.multi.multiId, entity?.x ?? tile.x, entity?.y ?? tile.y, entity?.z ?? 0, t.cursorId, t.cursorType);
-    } else if (entity) {
-      this.world.socket.out.targetObject(entity.serial, entity.graphic, entity.x, entity.y, entity.z, t.cursorId, t.cursorType);
-    } else {
-      let z = 0;
-      const block = this.world.getBlock(tile.x >> 3, tile.y >> 3);
-      if (block) z = block.cells[((tile.y & 7) << 3) | (tile.x & 7)].z;
-      this.world.socket.out.targetXYZ(0, tile.x, tile.y, z, t.cursorId, t.cursorType);
+    if (!t.active) return;
+    const pick = this.game.renderer.targetAt?.(mx, my);
+    if (pick?.kind === 'entity') {
+      this.sendTargetEntity(pick.entity);
+      return;
     }
+    if (t.type === 4 || t.type === 5 || t.type === 7) return;
+    if (t.type === 0 && (!pick || !pick.graphic)) return;
+    const tile = this.game.renderer.screenToTile(mx, my);
+    const graphic = t.type === 2 || t.multi ? 0 : pick?.graphic || 0;
+    const x = t.type === 2 || t.multi ? tile.x : pick?.x ?? tile.x;
+    const y = t.type === 2 || t.multi ? tile.y : pick?.y ?? tile.y;
+    let z = pick?.z ?? 0;
+    if (t.type === 2 || t.multi) {
+      const block = this.world.getBlock(tile.x >> 3, tile.y >> 3);
+      const cell = block?.cells[((tile.y & 7) << 3) | (tile.x & 7)];
+      if (cell) z = cell.z;
+    }
+    this.world.socket.out.targetXYZ(graphic, x, y, z, t.cursorId, t.cursorType);
+    this.lastTarget = { serial: 0, graphic, x, y, z };
     this.world.clearTarget();
     this.onTargetChanged();
+  }
+
+  sendTargetEntity(entity) {
+    const t = this.world.target;
+    if (!t.active || !entity) return false;
+    this.world.socket.out.targetObject(entity.serial, entity.graphic, entity.x, entity.y, entity.z, t.cursorId, t.cursorType);
+    this.lastTarget = { serial: entity.serial, graphic: entity.graphic, x: entity.x, y: entity.y, z: entity.z };
+    this.world.clearTarget();
+    this.onTargetChanged();
+    return true;
   }
 
   updateTargetInfo(mx, my) {
@@ -1221,6 +2039,7 @@ export class UI {
   isMovementBlocked() {
     if (!$('modalBackdrop').classList.contains('hidden')) return true;
     if (this.promptMode) return true;
+    if (this.focusedGumpEntry) return true;
     return this.isTextInputFocused();
   }
 
@@ -1239,25 +2058,32 @@ export class UI {
     if (!$('modalBackdrop').classList.contains('hidden')) {
       if (e.key === 'Escape') {
         e.preventDefault();
-        this.hideModal();
+        this.cancelModal();
       }
       return;
     }
     if (!$('loginScreen').classList.contains('hidden')) return;
+    if (this.isTextInputFocused()) {
+      this.clearGumpFocus();
+      return;
+    }
+    if (this.focusedGumpEntry) {
+      if (this.focusedGumpEntry.gump.onKeyDown?.(e)) e.preventDefault();
+      return;
+    }
     const chat = $('chatInput');
-    if (this.isTextInputFocused()) return;
     if (e.key === 'Enter') {
+      this.journal.show();
       chat.focus();
       e.preventDefault();
       return;
     }
     if (e.key === 'Escape') {
-      if (this.world.target.type) {
-        this.world.clearTarget();
-        this.onTargetChanged();
+      if (this.world.target.active) {
+        this.cancelTarget();
       } else if (this.windows.length) {
         const top = this.windows[this.windows.length - 1].obj;
-        top.close?.();
+        if (top.canCloseWithEsc !== false) top.close?.();
       }
       return;
     }
@@ -1310,7 +2136,7 @@ export class UI {
 
   /* ----------------------------- modal ----------------------------- */
 
-  showModal(title, body, onOk, showCancel = true) {
+  showModal(title, body, onOk, showCancel = true, onCancel = null) {
     const titleEl = $('modalTitle');
     titleEl.textContent = '';
     appendServerText(titleEl, title);
@@ -1323,6 +2149,7 @@ export class UI {
     $('modalOk').textContent = onOk ? 'OK' : 'Close';
     $('modalOk').style.display = '';
     this.modalOk = onOk || (() => this.hideModal());
+    this.modalCancel = onCancel || null;
   }
 
   showModalInput(title, initial, maxLength, onOk, showCancel) {
@@ -1336,9 +2163,16 @@ export class UI {
     }, 10);
   }
 
+  cancelModal() {
+    const cb = this.modalCancel;
+    this.hideModal();
+    cb?.();
+  }
+
   hideModal() {
     $('modalBackdrop').classList.add('hidden');
     this.modalOk = null;
+    this.modalCancel = null;
   }
 
   /* ----------------------------- drawing ----------------------------- */
@@ -1358,6 +2192,12 @@ export class UI {
       this.refreshTooltip();
     }
   }
+}
+
+function readBuffArgs(r) {
+  const length = r.readU16BE();
+  if (length > 2) return r.readUnicodeLE(length);
+  return r.readUnicodeLE();
 }
 
 function escapeHtml(text) {

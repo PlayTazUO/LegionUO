@@ -219,8 +219,6 @@ export class Outgoing {
       w.writeU16BE(0x1c);
       w.writeU16BE(0x02);
       w.writeU16BE(index);
-      w.writeU8(0x56);
-      w.writeASCII(String(index));
     }, 32));
   }
 
@@ -397,7 +395,7 @@ export class Outgoing {
   dyeResponse(serial, graphic, hue) {
     this.send(this.make(0x95, (w) => {
       w.writeU32BE(serial);
-      w.writeU16BE(0);
+      w.writeU16BE(graphic);
       w.writeU16BE(hue);
     }, 9));
   }
@@ -434,12 +432,17 @@ export class Outgoing {
   }
 
   partyInvite() {
-    this.send(this.make(0xbf, (w) => w.writeU16BE(0x06)));
+    this.send(this.make(0xbf, (w) => {
+      w.writeU16BE(0x06);
+      w.writeU8(0x01);
+      w.writeU32BE(0);
+    }));
   }
 
   partyRemove(serial) {
     this.send(this.make(0xbf, (w) => {
       w.writeU16BE(0x06);
+      w.writeU8(0x02);
       w.writeU32BE(serial);
     }));
   }
@@ -447,8 +450,7 @@ export class Outgoing {
   partyLootType(type) {
     this.send(this.make(0xbf, (w) => {
       w.writeU16BE(0x06);
-      w.writeU8(0x02);
-      w.writeU32BE(0);
+      w.writeU8(0x06);
       w.writeU8(type ? 1 : 0);
     }));
   }
@@ -472,8 +474,12 @@ export class Outgoing {
   partyMessage(text, serial = 0) {
     this.send(this.make(0xbf, (w) => {
       w.writeU16BE(0x06);
-      w.writeU8(0x03);
-      w.writeU32BE(serial);
+      if (serial) {
+        w.writeU8(0x03);
+        w.writeU32BE(serial >>> 0);
+      } else {
+        w.writeU8(0x04);
+      }
       w.writeUnicodeBENull(text);
     }, 128));
   }
@@ -615,13 +621,16 @@ export class Outgoing {
   buy(serial, items) {
     this.send(this.make(0x3b, (w) => {
       w.writeU32BE(serial);
-      w.writeU8(0x02);
-      for (const [itemSerial, amount] of items) {
-        w.writeU8(0x1a);
-        w.writeU32BE(itemSerial);
-        w.writeU16BE(amount);
+      if (items.length) {
+        w.writeU8(0x02);
+        for (const [itemSerial, amount] of items) {
+          w.writeU8(0x1a);
+          w.writeU32BE(itemSerial);
+          w.writeU16BE(amount);
+        }
+      } else {
+        w.writeU8(0);
       }
-      w.writeU8(0);
     }, 128));
   }
 
@@ -799,17 +808,9 @@ export class Outgoing {
       w.writeU8(0x05);
       w.writeU32BE(boardSerial);
       w.writeU32BE(msgSerial);
-      const title = new TextEncoder().encode(String(subject || '').slice(0, 255));
-      w.writeU8(title.length + 1);
-      w.writeBytes(title);
-      w.writeU8(0);
+      w.writeASCII(String(subject || '').slice(0, 255));
       w.writeU8(lines.length);
-      for (const line of lines) {
-        const bytes = new TextEncoder().encode(String(line || '').slice(0, 255));
-        w.writeU8(bytes.length + 1);
-        w.writeBytes(bytes);
-        w.writeU8(0);
-      }
+      for (const line of lines) w.writeASCII(String(line || '').slice(0, 255));
     }, 1024));
   }
 

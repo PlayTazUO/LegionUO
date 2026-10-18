@@ -1,5 +1,6 @@
 import { Layer, animDirection } from './entity.js';
 import { hasUoHtmlMarkup, drawServerText, measureUoHtml } from './html.js';
+import { settings } from './settings.js';
 
 const PEOPLE_LAYERS = [
   Layer.Cloak,
@@ -87,7 +88,7 @@ export class Renderer {
     const mobiles = new Map();
     for (const e of this.world.entities.values()) {
       if (e.isMobile) {
-        if (!e.isDead || e.isCorpse) {
+        if (!e.isDead || e.isCorpse || e.isGhost) {
           const key = `${e.x},${e.y}`;
           if (!mobiles.has(key)) mobiles.set(key, []);
           mobiles.get(key).push(e);
@@ -118,7 +119,6 @@ export class Renderer {
     this.drawLighting(ctx);
     this.drawQuestArrow(ctx);
     this.drawWaypoints(ctx);
-    this.drawHeld(ctx);
   }
 
   drawTile(ctx, x, y, groundItems, mobiles, now) {
@@ -134,14 +134,7 @@ export class Renderer {
     if (land) ctx.drawImage(land, pos.sx, pos.sy);
 
     const drawables = [];
-    if (!block._staticGrid) {
-      block._staticGrid = Array.from({ length: 64 }, () => []);
-      for (const s of block.statics || []) {
-        const idx = (s.y << 3) | s.x;
-        if (idx >= 0 && idx < 64) block._staticGrid[idx].push(s);
-      }
-    }
-    for (const s of block._staticGrid[(ly << 3) | lx] || []) {
+    for (const s of this.staticGrid(block)[(ly << 3) | lx] || []) {
       drawables.push({ type: 'static', z: s.z, graphic: s.graphic, hue: s.hue });
     }
     for (const item of groundItems.get(`${x},${y}`) || []) {
@@ -258,7 +251,7 @@ export class Renderer {
     }
 
     // Equipment layers for humanoid bodies.
-    if (type === 'people' && this.assets.tileData) {
+    if (type === 'people' && !mobile.isGhost && this.assets.tileData) {
       for (const layer of PEOPLE_LAYERS) {
         const item = mobile.getItem(layer);
         if (!item) continue;
@@ -299,7 +292,10 @@ export class Renderer {
   drawMobileText(ctx, m) {
     const pos = this.screenFor(m.renderX, m.renderY, m.renderZ);
     const dist = Math.max(Math.abs(m.x - this.world.player.x), Math.abs(m.y - this.world.player.y));
-    if (dist <= 14 && m.name && m !== this.world.player) {
+    const showNames = settings.get('showNames');
+    const showBars = settings.get('showHealthBars');
+    const showSpeech = settings.get('showSpeech');
+    if (showNames && dist <= 14 && m.name && m !== this.world.player) {
       if (hasUoHtmlMarkup(m.name)) {
         const measured = measureUoHtml(ctx, m.name, {
           width: 220,
@@ -329,7 +325,7 @@ export class Renderer {
         ctx.fillText(m.name, pos.sx, pos.sy - 54);
       }
     }
-    if (m !== this.world.player && m.hitsMax > 0 && (m.hits < m.hitsMax || m.yellowBar)) {
+    if (showBars && m !== this.world.player && m.hitsMax > 0 && (m.hits < m.hitsMax || m.yellowBar)) {
       const w = 44;
       const x = pos.sx - w / 2;
       const y = pos.sy - 50;
@@ -338,7 +334,7 @@ export class Renderer {
       ctx.fillStyle = m.yellowBar ? '#e8c34a' : '#c73a3a';
       ctx.fillRect(x, y, (w * Math.max(0, m.hits)) / Math.max(1, m.hitsMax), 5);
     }
-    if (m.lastSpeech && Date.now() - m.lastSpeech.time < 7000) {
+    if (showSpeech && m.lastSpeech && Date.now() - m.lastSpeech.time < 7000) {
       if (hasUoHtmlMarkup(m.lastSpeech.text)) {
         const measured = measureUoHtml(ctx, m.lastSpeech.text, {
           width: 220,
@@ -376,6 +372,7 @@ export class Renderer {
   }
 
   drawWeather(ctx, now) {
+    if (!settings.get('weather')) return;
     const weather = this.world.weather;
     if (!weather.type || !weather.particles?.length) return;
     ctx.save();
@@ -400,6 +397,7 @@ export class Renderer {
   }
 
   drawLighting(ctx) {
+    if (!settings.get('lighting')) return;
     const light = this.world.light;
     const darkness = Math.max(0, Math.min(30, light.overall - Math.min(5, light.personal || 0)));
     if (darkness <= 0) return;
@@ -419,6 +417,7 @@ export class Renderer {
   }
 
   drawQuestArrow(ctx) {
+    if (!settings.get('questArrow')) return;
     const arrow = this.world.questArrow;
     if (!arrow) return;
     const p = this.screenFor(arrow.x, arrow.y, 0);
@@ -449,6 +448,7 @@ export class Renderer {
   }
 
   drawWaypoints(ctx) {
+    if (!settings.get('waypoints')) return;
     for (const w of this.world.waypoints || []) {
       if (w.map !== undefined && w.map !== this.world.mapIndex) continue;
       const p = this.screenFor(w.x, w.y, 0);
@@ -464,6 +464,46 @@ export class Renderer {
       ctx.stroke();
       ctx.restore();
     }
+  }
+
+  staticGrid(block) {
+    if (!block._staticGrid) {
+      block._staticGrid = Array.from({ length: 64 }, () => []);
+      for (const s of block.statics || []) {
+        const idx = (s.y << 3) | s.x;
+        if (idx >= 0 && idx < 64) block._staticGrid[idx].push(s);
+      }
+    }
+    return block._staticGrid;
+  }
+
+  targetAt(mx, my) {
+    const entity = this.entityAt(mx, my);
+    if (entity) return { kind: 'entity', entity };
+    const tile = this.screenToTile(mx, my);
+    let best = null;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const tx = tile.x + dx;
+        const ty = tile.y + dy;
+        const block = this.world.getBlock(tx >> 3, ty >> 3);
+        if (!block) continue;
+        const idx = ((ty & 7) << 3) | (tx & 7);
+        for (const s of this.staticGrid(block)[idx] || []) {
+          if (best && s.z <= best.z) continue;
+          const img = this.assets.getStatic(s.graphic, s.hue);
+          if (!img) continue;
+          const p = this.screenFor(tx, ty, s.z);
+          if (mx >= p.sx - img.width && mx < p.sx && my >= p.sy - img.height && my < p.sy) {
+            best = { kind: 'static', graphic: s.graphic, x: tx, y: ty, z: s.z };
+          }
+        }
+      }
+    }
+    if (best) return best;
+    const block = this.world.getBlock(tile.x >> 3, tile.y >> 3);
+    const cell = block?.cells[((tile.y & 7) << 3) | (tile.x & 7)];
+    return { kind: 'land', graphic: 0, x: tile.x, y: tile.y, z: cell?.z || 0 };
   }
 
   entityAt(mx, my) {

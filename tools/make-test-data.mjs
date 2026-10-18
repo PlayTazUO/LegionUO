@@ -167,6 +167,40 @@ function gumpArt(w,h,color) {
   fs.writeFileSync(path.join(dir,'statics0.mul'), Buffer.concat(staticChunks));
 }
 
+// ---------- radarcol.mul ----------
+{
+  const count=0x14000;
+  const buf=Buffer.alloc(count*2);
+  const set=(index,color)=>buf.writeUInt16LE(color,index*2);
+  for (let i=0;i<0x4000;i++) set(i, c16(40+(i%20), 80+((i*3)%40), 40+(i%10)));
+  set(0, c16(50,120,60));
+  set(1, c16(80,150,80));
+  set(2, c16(40,90,150));
+  set(0x4000+0x0eed, c16(230,190,40));
+  set(0x4000+0x0cd3, c16(30,140,50));
+  set(0x4000+0x0e75, c16(150,100,50));
+  fs.writeFileSync(path.join(dir,'radarcol.mul'), buf);
+}
+
+// ---------- facet00.mul ----------
+{
+  const mapW=7168,mapH=4096;
+  const chunks=[w16(mapW), w16(mapH)];
+  for (let y=0;y<mapH;y++) {
+    if (y<960 || y>=1088) { chunks.push(w32(0)); continue; }
+    const runs=[];
+    for (let x=0;x<mapW;x+=64) {
+      const size=Math.min(64,mapW-x);
+      const inside=x+size>960 && x<1088;
+      const color=inside ? (((x>>6)+(y>>6))%2 ? c16(60,130,70) : c16(80,150,90)) : 0;
+      runs.push(Buffer.from([size]), w16(color));
+    }
+    const row=Buffer.concat(runs);
+    chunks.push(w32(row.length), row);
+  }
+  fs.writeFileSync(path.join(dir,'facet00.mul'), Buffer.concat(chunks));
+}
+
 // ---------- skills ----------
 {
   const names=['Alchemy','Anatomy','Swordsmanship'];

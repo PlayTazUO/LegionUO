@@ -91,12 +91,33 @@ Then open <http://127.0.0.1:8080>.
 - Canvas 2D isometric terrain, statics, ground items, mobiles and equipment.
 - Animation frames, mirroring, hueing, health bars, names, speech and damage text.
 - Moving/fixed effects, lighting, weather, target cursor and held item.
-- Server gumps parsed from layout strings (`resizepic`, `gumppic`, `tilepic`,
-  `text`, `croppedtext`, `htmlgump`, `button`, `checkbox`, `radio`, `textentry`,
-  `page`, `group`, `tooltip`-adjacent commands).
-- Containers, simplified paperdolls, shops, books, profiles, prompts and modals.
+- Server gumps parsed from layout strings (`resizepic`, `gumppic`, `picinpic`,
+  `tilepic`, `text`, `croppedtext`, `htmlgump`, `button`, `checkbox`, `radio`,
+  `textentry`, `page`, `group`), with tooltip/item-property commands, inline text
+  editing, scrolling HTML panels, server update/close semantics and gump reuse.
+- Containers with server item positions, scrolling and saved positions; paperdolls
+  with real gump art, equipped layers on the doll, equipment slots, drag/drop equip,
+  action buttons and saved position; editable books, editable own profiles,
+  spellbooks, prompts and modals, plus shop buy/sell windows with quantities,
+  totals, gold checks and confirmation. Item and gray menus show numbered art or
+  radio choices, and `0x95` dye requests open a hue grid with a live preview.
+- Ghost body/state on death, ghost movement and rendering, and resurrection cleanup.
+- Draggable buff/debuff icon bar with countdown timers, tooltips and saved position.
+- Movable party manifest with live HP bars, invite/accept/decline, tell/kick,
+  leave/disband, loot toggle, party chat and saved position.
+- Radar/minimap with `radarcol.mul` terrain colours, mobile/waypoint dots and a
+  saved position; map item gumps (`0x90`/`0xF5`) render facet crops with numbered
+  `0x56` pins, plot mode and saved position.
+- Movable/resizable journal with per-account message history, tabs/filters,
+  timestamps, opacity/font/line settings, ignore list and chat speech modes.
 - Login/server/character selection, character creation, optional remembered
-  account/password, journal, status bars, skills list and chat commands.
+  account/password, a movable status window (saved position, live stats, and
+  paperdoll/skills/journal/war/refresh/logout actions), skills list and chat
+  commands.
+- Options window (`OPT` / `-options`) with General, Display, and Audio tabs for
+  always-run, journal timestamps, names, health bars, speech, lighting, weather,
+  quest arrow, waypoints, audio, volume, and footsteps; settings apply live and
+  persist in `localStorage`.
 - 10-second client ping keeps the connection alive during idle periods.
 
 ## Asset endpoints
@@ -115,13 +136,16 @@ Then open <http://127.0.0.1:8080>.
 | `GET /api/anim/:body/:action/:dir` | Animation sheet metadata |
 | `GET /api/anim/:body/:action/:dir.png?hue=` | Animation sheet PNG |
 | `GET /api/map/:map/:blockX/:blockY` | Map block cells and statics |
+| `GET /api/radarcol` | Raw `radarcol.mul` palette (16-bit colours) |
+| `GET /api/mapimage?facet=&x0=&y0=&x1=&y1=&w=&h=` | Cropped facet map PNG |
 | `WS /proxy` | UO TCP relay (JSON `connect` control frame, binary thereafter) |
 
 ## Local test shard
 
 `tools/make-test-data.mjs` generates a tiny synthetic UO data directory, and
 `tools/mock-uo.mjs` is a mock login/game shard that exercises the handshake,
-Huffman/Twofish traffic, world objects, containers and both gump formats:
+Huffman/Twofish traffic, world objects, containers, spellbooks, party packets,
+map gumps and both gump formats:
 
 ```bash
 node tools/make-test-data.mjs
@@ -142,12 +166,17 @@ you trust. The asset server itself never stores credentials.
 ## Known limitations / next steps
 
 - Server-side pathfinding is not reproduced; right-click mouse-walk sends direct steps.
-- Paperdolls, books, shops and trade windows are simplified compared to TazUO.
+- Paperdolls use the real UO gump art and equipment slots but omit durability, virtue
+  and paperdoll-book controls; books are simplified compared to TazUO. Shops have
+  functional quantities, totals, gold checks and confirmation, and secure trade has a
+  functional window but no trade history or enchantment preview.
 - Tooltips/OPL are rendered for world objects, containers, shops, paperdolls, and gump controls.
 - Map patches, UOLive and custom house editing are received but mostly inert.
 - No audio files are served yet (the audio manager is a stub).
 - BWT/UOP paths are implemented from the TazUO formats but have not been tested
   against every UO installation variant.
+- Radar colours require `radarcol.mul`; map item gumps require `facetXX.mul` (or
+  `facetX.mul`). Multis are not drawn on the radar.
 
 ## Roadmap
 

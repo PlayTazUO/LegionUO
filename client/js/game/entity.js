@@ -25,14 +25,17 @@ export const Layer = {
   Skirt: 23,
   Legs: 24,
   Mount: 25,
-  ShopBuy: 26,
-  ShopSell: 27,
-  ShopBuyRestock: 28,
-  VendorBuy: 29,
-  VendorSell: 30,
-  Bank: 31,
-  Bank2: 32,
+  ShopBuyRestock: 26,
+  ShopBuy: 27,
+  ShopSell: 28,
+  Bank: 29,
 };
+
+const GHOST_GRAPHICS = new Set([0x0192, 0x0193, 0x02b6, 0x02b7]);
+
+export function isGhostGraphic(graphic) {
+  return GHOST_GRAPHICS.has(graphic & 0x7fff);
+}
 
 export class Entity {
   constructor(serial, isMobile) {
@@ -82,6 +85,8 @@ export class Entity {
     this.motionQueue = [];
     this.hasPosition = false;
     this.isDead = false;
+    this.isGhost = false;
+    this.livingGraphic = 0;
     this.isRenamable = false;
     this.isFemale = false;
     this.race = 1;
@@ -98,6 +103,8 @@ export class Entity {
     this.title = '';
     this.buffs = [];
     this.price = 0;
+    this.spells = null;
+    this.spellbookType = 0;
   }
 
   get isItem() {

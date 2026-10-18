@@ -12,13 +12,61 @@ Implemented today:
 - Packet framing, login/Twofish encryption, Huffman, keep-alive pings.
 - Isometric terrain, statics, items, mobiles, basic equipment animation, corpses, multis.
 - Basic effects, names, speech, damage text, lighting, weather, target cursor.
-- Server gump layout parser (`client/js/game/gump.js`) and several simplified windows:
-  containers, paperdoll, shop, book, profile, status (`client/js/game/windows.js`).
-- Journal is a fixed DOM panel; the status window is a draggable canvas window.
+- Journal is now a movable/resizable window with a per-account message model, timestamp
+  toggle, tabs/filters, opacity/font/line settings, ignore list, scroll lock, and
+  speak/whisper/yell/emote/party/guild/alliance chat modes.
+- Server gump parser (`client/js/game/gump.js`) with pages, hued/tiled/pic-in-pic
+  art, HTML text, buttons, checkboxes/radios, inline text entries, scrolling,
+  tooltip/item-property commands, server gump reuse/close semantics, and position
+  persistence. Several simplified windows live in `client/js/game/windows.js`:
+  containers, paperdoll, skills, shop, book, profile, status, and spellbook.
+- Spellbooks open from `0x24` (`0xFFFF`), consume `0xBF 0x1B` content masks, show
+  circle/page tabs with icons and tooltips, page with the wheel or buttons, and cast
+  on double-click (`0xBF 0x1C`).
+- The status window is a draggable canvas window; the journal is a draggable,
+  resizable DOM window (`client/js/ui/journal.js`) with per-account settings.
+  All windows raise on click and observe right-click/Esc close rules.
 - Movement uses a paced step queue with render interpolation, confirm/deny reconciliation,
   hold-to-walk keyboard input, right-click mouse-walk, and A* click-to-walk. Other mobiles
   walk tile-by-tile to position updates via a chained motion queue.
-- Left-click selects world objects (single click); double-click uses them.
+- Death shifts the player to a ghost body and allows ghost movement; resurrection
+  restores the living body from `0x2C` or the next mobile update.
+- Left-click selects world objects (single click); double-click uses them. Dragging a
+  ground item picks it up, and releasing drops it at the cursor or into a container.
+  Shift-click picks up immediately.
+- Buff/debuff bar (`client/js/game/buffs.js`) shows active effects as draggable icons
+  with duration countdowns, hover tooltips, expiry filtering, and saved position.
+- Secure trade (`client/js/game/windows.js`) has both offer lists, gold/platinum entry,
+  accept/cancel state, live updates, item drag/drop, tooltips, and saved position.
+- Party (`0xBF 0x06`) has a manifest window with leader/member slots, HP bars, invite,
+  accept/decline, tell/kick, leave/disband, loot toggle, party chat, and saved position.
+- Context menus (`0xBF 0x14`) open on right-click over world and container items, show
+  cliloc entries with hue/arrow flags, and reply with `0xBF 0x15`. Right-clicking empty
+  ground still starts mouse-walk.
+- Shops (`0x74`/`0x9E`) have per-item quantity controls, per-unit and line totals, a
+  gold check, Clear/All helpers, confirm buy/sell, item tooltips and context menus,
+  scrolling, and a saved window position.
+- Books support page editing with title/author save (`0x66`/`0xD4`/`0x93`), and
+  profiles support own-body editing (`0xB8`); both open from their server packets.
+- Bulletin boards (`0x71`) open from board items with a scrollable message list,
+  full-message read view, post form, remove confirmation, and saved position.
+- Radar/minimap (`-radar`, `MAP`) renders terrain and statics with `radarcol.mul`
+  colours, mobile/waypoint dots, a small/large toggle, and saved position.
+- Map item gumps (`0x90`/`0xF5`) render `facetXX.mul` crops, accept `0x56` pins and
+  clear commands, support plot mode, draw numbered routes, and save their position.
+- Paperdolls use the real gump art (`0x07D0`/`0x07D1`), draw equipped layers on the
+  animated doll, show per-layer equipment slots with tooltips, support drag/drop
+  pickup and equip, provide help/journal/skills/war/status/profile/party/logout
+  buttons, and save their position per character.
+- Item menus (`0x7C`) show numbered item art with hues and hover names and reply with
+  `0x7D`; gray menus render radio choices with OK/Cancel and cancel with code 0.
+- Dye requests (`0x95`) open a 20x10 hue grid with five shade graduations, a live hue
+  swatch/item preview, and an OK response.
+- Options/settings window (`client/js/game/settings.js`, `OptionsWindow`) provides
+  General, Display, and Audio tabs for always-run, journal timestamps, mobile names,
+  health bars, speech, lighting, weather, quest arrow, waypoints, audio enable,
+  volume, and footsteps. Toggles apply live, and all values plus window position/tab
+  persist in `localStorage`; it opens from the `OPT` button or `-options`.
 
 The systems below are the main gaps.
 
@@ -104,14 +152,23 @@ The systems below are the main gaps.
 
 ---
 
-## 2. Journal and chat — P0/P1
+## 2. Journal and chat — P0/P1 (implemented)
 
 ### Current state
 
-- `client/index.html` / `client/css/style.css` contain a fixed bottom-left journal.
-- `UI.onMessage()` appends DOM rows; max 500 rows; color derived from hue.
-- `UI.sendChat()` sends Unicode speech; `-commands` are handled in `ui.js`.
-- No filters, timestamps, tabs, chat channels, ignore list, or persistence.
+- `client/js/ui/journal.js` holds a 500-entry message model and renders the movable,
+  resizable journal window in `client/index.html` / `client/css/style.css`.
+- Entries keep timestamp, text, name, serial, hue, font, message type, text type,
+  cliloc id, affix, overhead and translated flags; cliloc text is resolved when the
+  packet is handled.
+- Tabs filter All/System/Speech/Party/Guild/Spells/Damage; timestamps, font size,
+  opacity, max lines, ignore list, filter and window position/size persist per account.
+- New messages auto-scroll only when the log is already at the bottom.
+- Chat input supports history, prompt responses, and say/whisper/yell/emote/party/
+  guild/alliance modes; `-ignore`, `-journal`, `-clear`, `-timestamps` and the mode
+  commands are handled in `ui.js`.
+- Journal and chat are complete for normal play. The optional P2 extras are chat
+  channel (0xB3) UI, a language field, cliloc append/replace handling, and log export.
 
 ### Required
 
@@ -158,16 +215,26 @@ The systems below are the main gaps.
 
 ---
 
-## 3. Movable character status window — P0 (movable window implemented)
+## 3. Movable character status window — P0 (implemented)
 
 ### Current state
 
 - `StatusWindow` in `client/js/game/windows.js` is a canvas window like the
   paperdoll: drag with the left mouse button, right-click or Esc to close, and it
-  participates in the normal window z-order.
+  participates in the normal window z-order (clicking any window raises it).
 - `UI.showStatus()` opens or raises the window; it also opens on entering the
   world and can be reached from the `ST` button and the `-status` command.
 - The old fixed `#statusPanel` HUD has been removed.
+- Displayed today: name/title, ghost/notoriety/stat-cap, HP/SP/MP bars,
+  STR/DEX/INT, weight/gold/followers/luck/tithing, physical/fire/cold/poison/energy
+  resists, damage range, DCI/HCI/SSI, and position. Live values already come from the
+  status/attribute/update packets.
+- Position is saved per account and restored/clamped on open; opening or raising the
+  window sends a throttled `0x34` status request.
+- Action buttons open the paperdoll, skills list, and journal, toggle war/peace,
+  refresh status, and log out. Right-click, the title-bar X, or Esc close the window.
+- Still missing: always-on-top/lock/scale settings, extended item-property fields,
+  and a buff/debuff summary.
 
 ### Required
 
@@ -219,35 +286,70 @@ The systems below are the main gaps.
 
 Implemented in `client/js/game/gump.js`:
 
-- Layout tokenizer, pages/groups, resize-pic, gump-pic, tiled pic, tile pic,
-  text, cropped text, HTML-gump (plain text), button, checkbox, radio,
-  text entry, checker-trans, and gump response.
-- `windows.js` has simplified container, paperdoll, shop, book, profile windows.
+- Layout tokenizer, pages/groups, resize-pic, gump-pic (including hued variants),
+  pic-in-pic, tiled pic, tile pic, text, cropped text, HTML-gump, button,
+  button-tile-art, checkbox, radio, text entry, checker-trans, and gump response.
+- `nomove`, `noclose`, `nodispose`, `noresize`, `mastergump`, `tooltip`, and
+  `itemproperty` commands; tooltip clilocs/arguments and OPL serials attach to the
+  preceding control.
+- HTML gumps support clipped scrolling with mouse wheel/scrollbar interaction, and
+  links open in a new browser tab.
+- Text entries use inline focus with caret blinking, selection, clipboard
+  copy/cut/paste, Home/End/arrows, Backspace/Delete, max length, and Tab/Shift-Tab
+  focus order. Focused entries suppress movement input.
+- Server gumps are reused and updated in place when the same gump id is resent;
+  positions persist per gump id. Server close (`0xBF 0x04`) and close-UI-window
+  (`0xBF 0x16`) commands are handled, and closing a master gump cascades to gumps
+  that reference it.
+- Windows raise on click and respect right-click/Esc/no-close rules.
 
 Missing framework pieces:
 
-- Proper UO text fonts, hue application for text, rich HTML subset, link handling.
-- Tooltips/OPL are implemented (see below); `maparea`, `picinpic`, `itemproperty`,
-  `gumppichued` variants, `mastergump`, `noresize`, `nodispose`, `noclose` semantics remain.
-- Keyboard focus/caret/selection/IME, clipboard, tab order.
-- Scrolling panels, clipping, scrollbars.
-- Gump reuse/update by server gump id, position persistence, scaling.
-- Server gump close/reply semantics and master-gump cascading.
-- Z-order/drag/close rules consistent with UO (right-click, Esc, no-close gumps).
+- Proper UO bitmap text fonts and font selection (current gump text uses a browser
+  monospace font with UO hue colours).
+- Rich HTML subset gaps: tables/backgrounds/embedded images and some legacy tags.
+- `maparea` map rendering (the control is parsed but not drawn).
+- IME composition support, multi-line text entries, and native browser selection.
+- Gump scaling options and persistent switch/entry state across a server update.
+
+`windows.js` has container, paperdoll, book, profile, status, spellbook, and shop
+windows (containers, paperdolls, books, and profiles are still simplified).
 
 ### Required basic gumps
 
+Current status at a glance:
+
+| Gump | Status | Notes |
+| --- | --- | --- |
+| Paperdoll | Implemented | Real gump art, animated doll with equipment layers, per-layer sidebar slots, tooltips, drag/drop equip, action buttons, title/name, and saved position; durability/virtue/paperdoll books and lifting other mobiles' equipment remain. |
+| Container | Partial | Gump background, server `item.x/y` layout with grid fallback, item art and amounts, wheel/scrollbar scrolling, use, drag/drop with container-local coordinates, tooltips/context menu, right-click close, and saved position; no split/stack UI. |
+| Skills | Implemented | Canvas window with value/base/cap, lock cycling (`0x3A`), sort/filter, use button, wheel scrolling, and saved position; stat locks remain. |
+| Spellbook | Implemented | Canvas spellbook with circle/page tabs, icons, mana/power-word tooltips, wheel paging, saved position, and double-click casting. Supports magery, necromancy, chivalry, bushido, ninjitsu, spellweaving, mysticism, and mastery books. |
+| Shop | Implemented | Buy/sell lists with per-item quantities, unit/line totals, gold check, Clear/All, confirm, tooltips, context menus, scrolling, and saved position. |
+| Secure trade | Implemented | Canvas trade window with both offer lists, gold/platinum entry, accept state, item drag/drop, tooltips, cancel/close, and saved position. |
+| Book | Implemented | Pages, title/author, navigation, and editable pages with title/author save. |
+| Bulletin board | Implemented | `BoardWindow` opens from the board header, lists summaries, reads full messages, posts new messages with a subject/body form, removes messages after confirmation, and persists its position; `0x71` null-terminated strings are handled. |
+| Profile | Implemented | Header/footer/body rendering; own profile body editing and save (`0xB8`). |
+| Menu / gray menu | Implemented | Item menus show numbered item art with hues, hover names and `0x7D` replies; gray menus use radio choices with OK/Cancel and a code-0 cancel response. |
+| Text entry / prompts / dye | Implemented | Modal text entry, ASCII/Unicode prompts, and a hue-grid dye picker with five shade graduations and a live item/swatch preview. |
+| Party | Implemented | Movable manifest with leader/member slots, HP bars, invite/accept/decline, tell/kick, leave/disband, loot toggle, and party chat input; saved position. |
+| Buff/debuff | Implemented | Draggable icon bar with duration countdowns and shrinking progress bars, tooltips, expiry filtering, and saved position; packets are parsed from `0xDF`. |
+| Tooltips / OPL | Implemented | World, container, shop, paperdoll and gump controls; `0xD6`/`0xDC` caching and throttled requests. |
+| Context menu | Implemented | Right-click world/container items requests `0xBF 0x13`; display (`0xBF 0x14`) and selection (`0xBF 0x15`) support old and new cliloc modes. |
+
 #### P0
 
-**Paperdoll (full)**
+**Paperdoll (full)** *(implemented)*
 
-- Real paperdoll gump background (male/female/ghost) with equipment layers.
-- Draw equipped items on the paperdoll using their gump/anim IDs and hues.
-- Buttons: war/peace, status, skills, journal/quests, guild/chat, options, help,
-  party, profile, virtue, mount/dismount, title.
-- Equipment slots with double-click equip/unequip, drag/drop, tooltips.
-- Can-lift behavior, title display, update on `0x88` and equipment packets.
+- Real paperdoll gump background (`0x07D0`/`0x07D1`) with the animated doll and
+  equipped layers drawn over the body using their anim IDs and hues.
+- Buttons: war/peace, status, skills, journal, help, party, profile, logout.
+- Equipment sidebar slots with item icons, tooltips, drag-out pickup, and drop-to-
+  equip (including dropping a wearable on the doll to use its layer).
+- Can-lift behavior, title display, update on `0x88`/equipment packets, saved position.
 - Double-clicking a mobile opens its paperdoll (0x88 from server).
+- Remaining: durability/virtue/paperdoll-book buttons and lifting equipment from
+  other mobiles.
 
 **Container**
 
@@ -257,65 +359,118 @@ Missing framework pieces:
 - Close, context menu, corpse loot behavior.
 - Grid/legacy layout options (at least one usable layout).
 
-**Skills**
+**Skills** *(implemented)*
 
-- Full skill list with value/base/cap and lock state.
-- Sort/filter, use skill button, skill lock toggles (`0x3A`), stat locks.
+- `SkillsWindow` in `client/js/game/windows.js` shows the full skill list with
+  value/base/cap and lock state, and requests a fresh list on open (`0x34` type 5).
+- Sort by name/value, filter to usable skills, use a skill with its button or a
+  double-click, and cycle lock state with `0x3A`; wheel scrolling and position
+  persistence are supported.
 - Updates from `0x3A` (including `0xFE` name list and `0xFF/0xDF` single updates).
+- Remaining: stat locks and per-skill caps beyond what the server sends.
 
-**Spellbook**
+**Spellbook** *(implemented)*
 
-- Circles/pages, spell icons, cast on click/double-click.
-- Cast from book (`0x12 0x27`) or `0xBF 0x1C`, mana check/cooldown feedback.
-- Spell tooltips and scroll support.
+- `SpellbookWindow` in `client/js/game/windows.js` opens from `0x24` open-container with
+  graphic `0xFFFF`; `0xBF 0x1B` spellbook-content masks are stored on the item.
+- Circle/page tabs, spell icons, mana and power-word tooltip lines, wheel paging,
+  saved position, and double-click casting via `0xBF 0x1C`.
+- Spell data and school metadata live in `client/js/game/spells.js` (magery,
+  necromancy, chivalry, bushido, ninjitsu, spellweaving, mysticism, and mastery).
+- Local mana check prevents casting a spell the player cannot afford; the server
+  still performs the authoritative cooldown/reagent checks.
+- Remaining: drag a spell from the book to a hotbar/macro button (hotbar is P2).
 
-**Shop buy/sell**
+**Shop buy/sell** *(implemented)*
 
-- Buy list with price, quantity controls, total, gold check, confirm.
-- Sell list with quantity and total.
-- Uses `0x74`/`0x9E` and replies with `0x3B`/`0x9F`.
+- `ShopWindow` in `client/js/game/windows.js` handles both `0x74` buy lists and `0x9E`
+  sell lists with per-item quantity steppers, click-to-edit quantities, unit and line
+  totals, available stock, item tooltips, and right-click context menus.
+- Buy totals are checked against the player's current gold before `0x3B` is sent; sell
+  replies use `0x9F`. Clear and All helpers reset or fill the selection, confirmed
+  purchases reset the selection and request a fresh `0x34` status update.
+- The list scrolls with the wheel/scrollbar, responds to drag-to-move, and persists its
+  position per account.
 
-**Secure trade**
+**Secure trade** *(implemented)*
 
-- Both sides' items and gold/platinum, accept/cancel, live updates (`0x6F`).
-- Item counts/totals and state indicators.
+- `TradeWindow` in `client/js/game/windows.js` opens from `0x6F` and shows both
+  players' offer lists, gold and platinum amounts, and each side's accept state.
+- Dropping a held item on your panel sends a drop to your trade container; dragging
+  an offered item picks it up again, and both lists update live from `0x25`/`0x3C`.
+- Clicking a gold or platinum amount opens a numeric prompt and sends `0x6F` type 3;
+  accept/cancel reply with `0x6F` type 2/1. Server type 2/3/4 updates are applied
+  live, and closing the window sends a cancel.
+- Item icons, stack amounts, OPL tooltips, wheel scrolling, right-click/Esc close,
+  and per-account position persistence are supported.
 
 #### P1
 
-**Book**
+**Book** *(implemented)*
 
-- Read pages, page navigation, title/author, edit mode and save.
+- `BookWindow` reads pages and title/author and pages with the wheel/buttons.
+- The Edit button opens a title/author/page editor; saving sends `0xD4` (or the old
+  `0x93` header for legacy books) and the page body with `0x66`. Local state updates
+  immediately, and editable starts from the server's writable flag.
 - Packets: `0x66`, `0x93`, `0xD4`.
 
-**Bulletin board**
+**Bulletin board** *(implemented)*
 
-- Board list, message summary, read message, post/remove (subject/body).
-- Packet `0x71`.
+- `BoardWindow` in `client/js/game/windows.js` opens from the board header
+  (`0x71` type 0) and keeps a scrollable summary list populated by type 1 packets.
+- Double-clicking a summary requests the full message (type 3) and shows the
+  poster, date, subject, and wrapped body; the read view scrolls long messages.
+- The Post button opens a subject/body form and sends type 5. Remove asks for
+  confirmation, sends type 6, and updates the local list. Position is saved per
+  account and board serial.
+- Packet `0x71` parsing and posting use the standard null-terminated string form.
 
-**Profile**
+**Profile** *(implemented)*
 
-- Header/body/footer rendering and edit/save (`0xB8`).
+- Header/body/footer rendering (`0xB8`) and own-profile body editing with save.
+- The paperdoll's Profile button (or `-profile`) requests the profile; the Edit button
+  appears only for the local player's profile.
 
-**Menu / gray menu**
+**Menu / gray menu** *(implemented)*
 
-- Item menu with graphics/hues and numbered choices.
-- Gray menu with radio-style options and OK/Cancel.
-- Replies via `0x7D`.
+- Item menus (`0x7C` with a non-zero first graphic) show numbered item art using the
+  packet graphic/hue, a hover label, and reply through `0x7D` with the selected
+  graphic/hue when an item is chosen.
+- Gray menus (`0x7C` with zero graphics) render radio-style choices with OK and
+  Cancel; OK sends the selected index, Cancel/right-click/Esc send code 0.
+- The OK button is hidden for item menus so the art grid is the only selector;
+  Cancel still closes the menu and sends code 0.
 
-**Text entry, prompts, dye**
+**Text entry, prompts, dye** *(implemented)*
 
-- Text entry dialog (`0xAB` / `0xAC`), ASCII/Unicode prompts (`0x9A`/`0xC2`).
-- Dye/color picker (`0x95`) with hue grid and preview.
+- Text entry dialog (`0xAB` with `0xAC` response), ASCII/Unicode prompts
+  (`0x9A`/`0xC2`), and the chat prompt response path are present.
+- Dye/color picker (`0x95`) shows a 20x10 hue grid, five shade graduations, a live
+  item preview and colour swatch, and sends `0x95` with the selected hue.
 
-**Party**
+**Party** *(implemented)*
 
-- Party manifest: members, leader, HP bars, invite/accept/decline,
-  leave/kick, loot type, party chat.
-- Packets: `0xBF 0x06`, incoming party updates.
+- `PartyWindow` in `client/js/game/windows.js` shows the manifest with up to ten
+  member slots, leader marker, live HP bars, and saved position; it opens from the
+  `PT` HUD button or the `-partywindow` command.
+- `0xBF 0x06` manifests (add/remove) update the member list and leader; invite
+  (`0x07`) opens a movable accept/decline prompt, and party messages (`0x03/0x04`)
+  are added to the journal's party tab.
+- Invite, tell one member, kick, leave/disband, and loot-type packets use the
+  corrected `0xBF 0x06` sub-types; party chat focuses the shared chat input in
+  party mode.
+- Remaining: party health-bar gumps and friend-list integration.
 
-**Buff/debuff bar**
+**Buff/debuff bar** *(implemented)*
 
-- Icons with timers, tooltips, add/remove (`0xDF`), saved position.
+- `BuffBarWindow` in `client/js/game/buffs.js` opens when buff packets arrive or via
+  `-buffs`; it is draggable, right-click/Esc closable, and remembers its position.
+- Icons use the buff graphic table, with a title fallback when the artwork is missing.
+- Active effects show a countdown and a progress bar that drains as the timer runs out;
+  timed-out effects stop rendering automatically.
+- Hovering an icon shows the resolved cliloc title, description, and remaining time.
+- Remaining: per-effect stacking counts, audible expiry warnings, and a user-selected
+  icon orientation/size.
 
 **Tooltips / OPL** *(implemented)*
 
@@ -326,18 +481,23 @@ Missing framework pieces:
 - World entities, container/shop/paperdoll items, and gump controls with tooltip clilocs
   show a clamped hover tooltip.
 
-**Context menu**
+**Context menu** *(implemented)*
 
-- Right-click mobiles/items/ground: use, look, attack, follow, open paperdoll,
-  buy/sell, steal, etc., using `0xBF 0x13/0x15` when available.
+- `ContextMenuWindow` in `client/js/game/windows.js` renders the server popup menu
+  with cliloc text, hover highlighting, hue/arrow flags, and viewport clamping.
+- Right-clicking a world mobile/item, a container item, or paperdoll equipment sends
+  `0xBF 0x13`; the display response (`0xBF 0x14`) is parsed in both old (`+3000000`)
+  and new cliloc modes, and selection sends `0xBF 0x15`.
+- Right-clicking empty ground still starts mouse-walk, and the menu closes on outside
+  click, right-click, or Esc.
+- Remaining: menus for shop items and ground tiles, plus submenu arrow behavior.
 
 #### P2
 
-- Map gump / minimap / radar (`0x90`/`0xF5`), map pins and world map.
+- Full-screen world map browser; map-gump pins and the radar are implemented.
 - Options/settings window (video, sound, input, gumps, journal, movement).
 - Hotbar/desktop, spell/ability shortcuts.
 - Quest arrow and waypoint list UI.
-- Death/resurrection screen and ghost state.
 - House/custom-house editing UI.
 - Vendor search, runebook, bulk order, quest log.
 - Chat channel UI (if enabled by the shard).
@@ -355,27 +515,42 @@ Missing framework pieces:
 
 ## 5. Supporting basics (brief)
 
-- **Targeting:** last target, target cursor modes, target by resource, cancel,
-  multi placement, target info tooltip (mostly present; needs polish).
-- **Health/name overhead:** consistent name/health bars, hide/show settings.
-- **Death/ghost:** death screen, ghost rendering, resurrection gump.
-- **Lighting/time/weather:** day/night transitions, personal light, indoor light.
-- **Audio:** footsteps, combat, UI gump sounds, music, volume settings.
-- **Options:** persist client settings (not just login values).
-- **Persistence:** window positions, journal/filter settings, hotbar, paperdoll.
+- **Targeting:** target cursor, object/mobile/ground/static/multi targets, container,
+  paperdoll, shop, and trade item targets, server-side cancel packets, cursor
+  cancellation, `-lasttarget`, and target info tooltip are present;
+  target-by-resource and target macros remain.
+- **Health/name overhead:** basic names and health bars are rendered; hide/show
+  settings and consistent notoriety/ghost presentation remain.
+- **Death/ghost:** `0x2C` switches the player to the ghost body (human/elf and
+  gargoyle, male/female), ghosts move and render, equipment layers are hidden, and
+  resurrection restores the living body via the status byte or the next body update.
+  Resurrection gumps supplied by the shard open through the normal gump parser.
+- **Lighting/time/weather:** basic lighting, weather, personal light and season
+  changes are present; day/night transitions and indoor-light polish remain.
+- **Audio:** stub manager with synthesized footsteps; combat/UI/music/volume await
+  real samples and settings. The options window can enable audio, set volume, and
+  toggle footsteps.
+- **Options:** the `OPT` window (`-options`) persists display, movement, and audio
+  settings client-wide; per-account options and keybind/macro rebinding remain.
+- **Persistence:** journal/filter settings, status/shop/trade/party/paperdoll position,
+  and server-gump positions persist; the spellbook uses the same in-session position
+  cache. Container positions persist per account; hotbar and per-account option
+  settings do not.
 
 ---
 
 ## 6. Suggested implementation order
 
 1. Movement model + render interpolation + deny reconciliation. *(done)*
-2. Movable status window using the existing entity/status packets.
-3. Journal model + filters + chat input polish.
-4. Gump framework hardening (text/fonts/tooltips/scroll/focus/persistence).
-5. Paperdoll, container, skills, spellbook.
-6. Shop, trade, book, profile, menus, prompts, dye.
-7. Party, buffs, tooltips/OPL, context menu.
-8. Map/radar, options, hotbar, death screen, audio.
+2. Movable status window using the existing entity/status packets. *(done)*
+3. Journal model + filters + chat input polish. *(done)*
+4. Gump framework hardening (text/fonts/tooltips/scroll/focus/persistence). *(core done; bitmap fonts/maparea/scaling remain)*
+5. Paperdoll, container, skills, spellbook. *(paperdoll, skills, and spellbook done; container split/stack UI remains)*
+6. Shop, trade, book, profile, menus, prompts, dye. *(shop, trade, book, profile,
+   bulletin board, menus/gray menus, prompts, and the dye hue picker are done)*
+7. Party, buffs, tooltips/OPL, context menu. *(party, tooltips/OPL, buff bar, and context menu done)*
+8. Map/radar, options, hotbar, audio. *(radar and map item gumps done; options window
+   done; world map, hotbar, and real audio samples remain)*
 
 ## 7. Current file map
 
@@ -386,23 +561,36 @@ Missing framework pieces:
 | Rendering / camera | `client/js/game/renderer.js` |
 | Entities / layers | `client/js/game/entity.js` |
 | Effects / audio | `client/js/game/effects.js`, `client/js/game/audio.js` |
+| Buff bar / buff graphics | `client/js/game/buffs.js` |
+| Radar / map gumps | `client/js/game/maps.js` |
 | Server gump parser | `client/js/game/gump.js` |
+| Spell data / schools | `client/js/game/spells.js` |
+| HTML/gump text rendering | `client/js/game/html.js` |
 | OPL cache / tooltip data | `client/js/game/opl.js` |
 | Simplified windows | `client/js/game/windows.js` |
-| HUD, journal, modals, input | `client/js/ui/ui.js`, `client/index.html`, `client/css/style.css` |
+| HUD, modals, input | `client/js/ui/ui.js`, `client/index.html`, `client/css/style.css` |
+| Journal model/window | `client/js/ui/journal.js` |
+| Client options/settings | `client/js/game/settings.js`, `client/js/game/windows.js` |
 | Incoming packets | `client/js/net/handlers.js` |
 | Outgoing packets | `client/js/net/outgoing.js` |
 | Socket/crypto/compression | `client/js/net/socket.js`, `client/js/crypto/*` |
 | Asset endpoints | `server/assets.js`, `server/uo/*` |
+| Facet map crop renderer | `server/uo/multimap.js` |
 
 ## 8. Basic-play test checklist
 
 - Walk/run with keyboard, diagonals, right-click mouse-walk, and click-to-walk around obstacles.
 - Idle for 2+ minutes without disconnect.
 - Open/close/move status, journal, paperdoll, container, skills, spellbook.
-- Buy/sell an item, trade with a player, read/post a book.
+- Equip and unequip an item by dragging between the paperdoll and backpack, and use
+  the paperdoll action buttons.
+- Buy/sell an item, trade with a player, read/post a book, and read/post on a bulletin board.
+- Receive a party invite, accept, view the manifest, chat, kick, and leave.
 - Receive speech, cliloc, system, party, and damage messages.
 - Hover an item and see name/properties.
+- Right-click an item/mobile, open the context menu, and choose an action.
+- Open the radar and a map item; add a pin, plot/clear the route, and move the window.
+- Open options, toggle display/audio settings, and confirm they persist after reload.
 - Use a skill and cast a spell.
 - Die and resurrect.
 - Close every gump with its intended close method.
