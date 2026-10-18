@@ -10,6 +10,7 @@ import { AnimationsManager, MAX_DIRECTIONS, MAX_ACTIONS } from './uo/anim.js';
 import { ClilocManager } from './uo/cliloc.js';
 import { SkillsManager } from './uo/skills.js';
 import { MultiManager } from './uo/multi.js';
+import { TexmapManager } from './uo/texmaps.js';
 import { color16ToRgb } from './uo/colors.js';
 import { renderFacetCrop } from './uo/multimap.js';
 
@@ -58,6 +59,7 @@ export class AssetService {
     this.files = new UOFileManager(config.uoDir, config);
     this.hues = new HueManager(this.files);
     this.art = new ArtManager(this.files, this.hues);
+    this.texmaps = new TexmapManager(this.files, this.hues);
     this.gumps = new GumpsManager(this.files, this.hues);
     this.maps = new MapManager(this.files, config.mapCount || 6);
     this.tiledata = new TileDataManager(this.files, config.clientVersion);
@@ -78,6 +80,7 @@ export class AssetService {
     this.files.setDir(dir);
     this.hues = new HueManager(this.files);
     this.art = new ArtManager(this.files, this.hues);
+    this.texmaps = new TexmapManager(this.files, this.hues);
     this.gumps = new GumpsManager(this.files, this.hues);
     this.maps = new MapManager(this.files, this.config.mapCount || 6);
     this.tiledata = new TileDataManager(this.files, this.config.clientVersion);
@@ -109,6 +112,7 @@ export class AssetService {
         gumpMul,
         gumps: gumpUop || gumpMul,
         tiledata: has('tiledata.mul'),
+        texmaps: has('texmaps.mul') && has('texidx.mul'),
         hues: has('hues.mul'),
         cliloc: has(clilocName) || has('Cliloc.enu'),
         animMul: has('anim.mul'),
@@ -125,6 +129,7 @@ export class AssetService {
         art: this.files.find('artLegacyMUL.uop') || this.files.find('art.mul'),
         gumps: this.files.find('gumpartLegacyMUL.uop') || this.files.find('gumpart.mul'),
         tiledata: this.files.find('tiledata.mul'),
+        texmaps: this.files.find('texmaps.mul') || this.files.find('texidx.mul'),
         hues: this.files.find('hues.mul'),
         cliloc: this.files.find(clilocName) || this.files.find('Cliloc.enu'),
         anim: this.files.find('AnimationFrame1.uop') || this.files.find('anim.mul'),
@@ -165,6 +170,14 @@ export class AssetService {
       const img = this.art.getStatic(id, hue);
       if (!img || !img.width) return TRANSPARENT_PNG;
       return encodePNG(img.width, img.height, applyBlackTransparency(img.pixels));
+    });
+  }
+
+  texmap(id, hue) {
+    return this.pngCache(`texmap|${id}|${hue}`, () => {
+      const img = this.texmaps.get(id, hue);
+      if (!img || !img.width) return TRANSPARENT_PNG;
+      return encodePNG(img.width, img.height, img.pixels);
     });
   }
 
@@ -239,8 +252,14 @@ export class AssetService {
     if (cached) return cached;
     this.tiledata.load();
     const data = withNames
-      ? { land: this.tiledata.land.map((t) => [t.flags, t.name]), statics: this.tiledata.statics.map((t) => [t.flags, t.height, t.layer, t.animId, t.name]) }
-      : { land: this.tiledata.land.map((t) => [t.flags]), statics: this.tiledata.statics.map((t) => [t.flags, t.height, t.layer, t.animId]) };
+      ? {
+          land: this.tiledata.land.map((t) => [t.flags, t.textId, t.name]),
+          statics: this.tiledata.statics.map((t) => [t.flags, t.height, t.layer, t.animId, t.name]),
+        }
+      : {
+          land: this.tiledata.land.map((t) => [t.flags, t.textId]),
+          statics: this.tiledata.statics.map((t) => [t.flags, t.height, t.layer, t.animId]),
+        };
     const buf = Buffer.from(JSON.stringify(data));
     this.cache.set(key, buf);
     return buf;

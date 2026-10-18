@@ -82,13 +82,15 @@ Then open <http://127.0.0.1:8080>.
 - `anim*.mul/_idx` and `AnimationFrame*.uop`, with body/mobtype/bodyconv.def
   resolution and hue application
 - `tiledata.mul` (old and modern layouts)
+- `texmaps.mul` + `texidx.mul` (plus `TexTerr.def` remaps) for stretched terrain
 - `hues.mul`, `Cliloc.*` (including BWT-compressed clilocs), `skills.mul`,
   `multi.mul`/`MultiCollection.uop`
 - Shard-local `Art/Statics`, `Art/Land`, `Gumps`, `Clilocs.txt`
 
 ### Rendering
 
-- Canvas 2D isometric terrain, statics, ground items, mobiles and equipment.
+- Canvas 2D isometric terrain with z-stretched land textures for slopes, hills and cliffs,
+  statics, ground items, mobiles and equipment.
 - Animation frames, mirroring, hueing, health bars, names, speech and damage text.
 - Moving/fixed effects, lighting, weather, target cursor and held item.
 - Server gumps parsed from layout strings (`resizepic`, `gumppic`, `picinpic`,
@@ -136,6 +138,7 @@ Then open <http://127.0.0.1:8080>.
 | `GET /api/multi/:id` | Multi components |
 | `GET /api/art/land/:id.png?hue=` | Land tile |
 | `GET /api/art/static/:id.png?hue=` | Static/item art |
+| `GET /api/texmap/:id.png?hue=` | Land terrain texture (stretched slopes) |
 | `GET /api/gump/:id.png?hue=` | Gump art |
 | `GET /api/anim/:body/:action/:dir` | Animation sheet metadata |
 | `GET /api/anim/:body/:action/:dir.png?hue=` | Animation sheet PNG |

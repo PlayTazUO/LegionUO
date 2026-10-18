@@ -314,6 +314,13 @@ const server = http.createServer((req, res) => {
       return;
     }
 
+    m = pathname.match(/^\/api\/texmap\/(\d+)\.png$/);
+    if (m) {
+      const hue = Number(url.searchParams.get('hue') || 0);
+      sendBuffer(res, 200, assets.texmap(Number(m[1]), hue), 'image/png');
+      return;
+    }
+
     m = pathname.match(/^\/api\/gump\/(\d+)\.png$/);
     if (m) {
       const hue = Number(url.searchParams.get('hue') || 0);

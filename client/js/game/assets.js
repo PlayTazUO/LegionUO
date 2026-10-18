@@ -33,6 +33,11 @@ export class AssetManager {
     return this.image(`static|${id}|${hue}`, `/api/art/static/${id}.png?hue=${hue}`);
   }
 
+  getTexmap(id, hue = 0) {
+    if (!id) return null;
+    return this.image(`texmap|${id}|${hue}`, `/api/texmap/${id}.png?hue=${hue}`);
+  }
+
   getGump(id, hue = 0) {
     return this.image(`gump|${id}|${hue}`, `/api/gump/${id}.png?hue=${hue}`);
   }
@@ -80,7 +85,7 @@ export class AssetManager {
 
   async loadTileData() {
     if (this.tileData) return this.tileData;
-    const res = await fetch('/api/tiledata');
+    const res = await fetch('/api/tiledata?v=2');
     if (!res.ok) {
       this.tileData = { land: [], statics: [] };
       return this.tileData;
@@ -107,5 +112,9 @@ export class AssetManager {
 
   landFlags(graphic) {
     return this.tileData?.land?.[graphic]?.[0] ?? 0;
+  }
+
+  landTexId(graphic) {
+    return this.tileData?.land?.[graphic]?.[1] ?? 0;
   }
 }

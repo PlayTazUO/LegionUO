@@ -31,6 +31,9 @@ export class Renderer {
     this.game = game;
     this.camera = { x: 0, y: 0 };
     this.mouse = { x: 0, y: 0, world: { x: 0, y: 0 } };
+    this.landTileCache = new Map();
+    this.landTileCacheBytes = 0;
+    this.landTileCacheLimit = 16 * 1024 * 1024;
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
@@ -130,8 +133,10 @@ export class Renderer {
     const pos = this.screenFor(x, y, cell.z);
     if (pos.sx < -80 || pos.sx > this.width + 80 || pos.sy < -80 || pos.sy > this.height + 80) return;
 
-    const land = this.assets.getLand(cell.tile);
-    if (land) ctx.drawImage(land, pos.sx, pos.sy);
+    if (!this.drawStretchedLand(ctx, block, x, y, cell, pos)) {
+      const land = this.assets.getLand(cell.tile);
+      if (land) ctx.drawImage(land, pos.sx, pos.sy);
+    }
 
     const drawables = [];
     for (const s of this.staticGrid(block)[(ly << 3) | lx] || []) {
@@ -171,6 +176,128 @@ export class Renderer {
     for (const m of mobiles.get(`${x},${y}`) || []) {
       this.drawMobileText(ctx, m);
     }
+  }
+
+  drawStretchedLand(ctx, block, x, y, cell, pos) {
+    const texId = this.assets.landTexId(cell.tile);
+    if (!texId) return false;
+    const z = cell.z;
+    const zRight = this.tileZ(block, x + 1, y, z);
+    const zLeft = this.tileZ(block, x, y + 1, z);
+    const zBottom = this.tileZ(block, x + 1, y + 1, z);
+    const dr = zRight - z;
+    const dl = zLeft - z;
+    const db = zBottom - z;
+    if (!dr && !dl && !db) return false;
+
+    const tex = this.assets.getTexmap(texId);
+    if (!tex || tex.width <= 1 || tex.height <= 1) return false;
+
+    const tile = this.landTile(texId, tex, dr, dl, db);
+    ctx.drawImage(tile.canvas, pos.sx + tile.x, pos.sy + tile.y, tile.width, tile.height);
+    return true;
+  }
+
+  landTile(texId, tex, dr, dl, db) {
+    const key = `${texId}|${dr}|${dl}|${db}|${this.dpr}`;
+    let tile = this.landTileCache.get(key);
+    if (tile) {
+      this.landTileCache.delete(key);
+      this.landTileCache.set(key, tile);
+      return tile;
+    }
+
+    const pad = 1;
+    const rightY = 22 - dr * 4;
+    const leftY = 22 - dl * 4;
+    const bottomY = 44 - db * 4;
+    const minX = -pad;
+    const maxX = 44 + pad;
+    const minY = Math.min(0, rightY, leftY, bottomY) - pad;
+    const maxY = Math.max(0, rightY, leftY, bottomY) + pad;
+    const width = Math.max(1, Math.ceil(maxX - minX));
+    const height = Math.max(1, Math.ceil(maxY - minY));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(width * this.dpr);
+    canvas.height = Math.ceil(height * this.dpr);
+    const c = canvas.getContext('2d');
+    c.scale(this.dpr, this.dpr);
+
+    const ox = -minX;
+    const oy = -minY;
+    const top = { x: 22 + ox, y: oy };
+    const right = { x: 44 + ox, y: rightY + oy };
+    const left = { x: ox, y: leftY + oy };
+    const bottom = { x: 22 + ox, y: bottomY + oy };
+    const w = tex.width;
+    const h = tex.height;
+    this.drawTexturedTriangle(c, tex, { x: 0, y: 0 }, { x: w, y: 0 }, { x: 0, y: h }, top, right, left);
+    this.drawTexturedTriangle(c, tex, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }, right, bottom, left);
+
+    tile = {
+      canvas,
+      x: minX,
+      y: minY,
+      width,
+      height,
+      bytes: canvas.width * canvas.height * 4,
+    };
+    this.landTileCache.set(key, tile);
+    this.landTileCacheBytes += tile.bytes;
+    while (
+      this.landTileCache.size > 1 &&
+      (this.landTileCacheBytes > this.landTileCacheLimit || this.landTileCache.size > 1024)
+    ) {
+      const [oldKey, old] = this.landTileCache.entries().next().value;
+      this.landTileCache.delete(oldKey);
+      this.landTileCacheBytes -= old.bytes;
+    }
+    return tile;
+  }
+
+  drawTexturedTriangle(ctx, img, s0, s1, s2, d0, d1, d2) {
+    const denom = (s1.x - s0.x) * (s2.y - s0.y) - (s2.x - s0.x) * (s1.y - s0.y);
+    if (!denom) return;
+    const a = ((d1.x - d0.x) * (s2.y - s0.y) - (d2.x - d0.x) * (s1.y - s0.y)) / denom;
+    const c = ((d2.x - d0.x) * (s1.x - s0.x) - (d1.x - d0.x) * (s2.x - s0.x)) / denom;
+    const b = ((d1.y - d0.y) * (s2.y - s0.y) - (d2.y - d0.y) * (s1.y - s0.y)) / denom;
+    const d = ((d2.y - d0.y) * (s1.x - s0.x) - (d1.y - d0.y) * (s2.x - s0.x)) / denom;
+    const e = d0.x - a * s0.x - c * s0.y;
+    const f = d0.y - b * s0.x - d * s0.y;
+
+    const cx = (d0.x + d1.x + d2.x) / 3;
+    const cy = (d0.y + d1.y + d2.y) / 3;
+    const expand = (p) => {
+      const dx = p.x - cx;
+      const dy = p.y - cy;
+      const len = Math.hypot(dx, dy) || 1;
+      return { x: p.x + (dx / len) * 0.6, y: p.y + (dy / len) * 0.6 };
+    };
+    const e0 = expand(d0);
+    const e1 = expand(d1);
+    const e2 = expand(d2);
+
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.beginPath();
+    ctx.moveTo(e0.x, e0.y);
+    ctx.lineTo(e1.x, e1.y);
+    ctx.lineTo(e2.x, e2.y);
+    ctx.closePath();
+    ctx.clip();
+    ctx.transform(a, b, c, d, e, f);
+    ctx.drawImage(img, 0, 0);
+    ctx.restore();
+  }
+
+  tileZ(block, x, y, fallback = 0) {
+    const bx = x >> 3;
+    const by = y >> 3;
+    const source = bx === block.bx && by === block.by ? block : this.world.getBlock(bx, by);
+    if (!source) return fallback;
+    const cell = source.cells[((y & 7) << 3) | (x & 7)];
+    return cell ? cell.z : fallback;
   }
 
   drawMulti(ctx, item) {
