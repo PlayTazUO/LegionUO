@@ -76,6 +76,14 @@ Implemented today:
   health bars, speech, lighting, weather, quest arrow, waypoints, audio enable,
   volume, and footsteps. Toggles apply live, and all values plus window position/tab
   persist in `localStorage`; it opens from the `OPT` button or `-options`.
+- Waypoint/quest window (`client/js/game/waypoints.js`, `WaypointWindow`) opens from
+  the `WP` button or `-waypoints`, lists the server quest arrow, `0xE5` server
+  waypoints, and local waypoints with facet/distance. Local waypoints are added at
+  the player's position or given coordinates (`-waypoint add [x y] [name]`), can be
+  removed individually or cleared, persist per account, and render in the world,
+  radar, and world map.
+  Double-clicking a row walks there; clicking the on-screen quest arrow sends
+  `0xBF 0x07` and walks toward it.
 
 The systems below are the main gaps.
 
@@ -511,9 +519,9 @@ Current status at a glance:
 #### P2
 
 - Full-screen world map browser *(implemented)*; map-gump pins and the radar are implemented.
-- Options/settings window (video, sound, input, gumps, journal, movement).
+- Options/settings window *(implemented)*.
 - Hotbar/desktop, spell/ability shortcuts.
-- Quest arrow and waypoint list UI.
+- Quest arrow and waypoint list UI *(implemented)*.
 - House/custom-house editing UI.
 - Vendor search, runebook, bulk order, quest log.
 - Chat channel UI (if enabled by the shard).
@@ -579,6 +587,7 @@ Current status at a glance:
 | Effects / audio | `client/js/game/effects.js`, `client/js/game/audio.js` |
 | Buff bar / buff graphics | `client/js/game/buffs.js` |
 | Radar / map gumps / world map | `client/js/game/maps.js` |
+| Quest arrow / waypoint list | `client/js/game/waypoints.js` |
 | Server gump parser | `client/js/game/gump.js` |
 | Spell data / schools | `client/js/game/spells.js` |
 | HTML/gump text rendering | `client/js/game/html.js` |
@@ -606,6 +615,7 @@ Current status at a glance:
 - Hover an item and see name/properties.
 - Right-click an item/mobile, open the context menu, and choose an action.
 - Open the radar and a map item; add a pin, plot/clear the route, and move the window.
+- Open waypoints, add/remove/clear a local waypoint, and double-click a row to walk.
 - Open the world map, switch facets, zoom/pan, and double-click a reachable tile to walk.
 - Open options, toggle display/audio settings, and confirm they persist after reload.
 - Use a skill and cast a spell.

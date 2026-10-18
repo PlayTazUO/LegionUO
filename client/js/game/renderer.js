@@ -68,6 +68,14 @@ export class Renderer {
     };
   }
 
+  staticDrawPos(x, y, z, img) {
+    const p = this.screenFor(x, y, z);
+    return {
+      x: p.sx - (img.width >> 1) + 22,
+      y: p.sy - img.height + 44,
+    };
+  }
+
   screenToTile(mx, my) {
     const wx = mx + this.camera.x + 22;
     const wy = my + this.camera.y + 22;
@@ -160,14 +168,14 @@ export class Renderer {
       } else {
         const img = this.assets.getStatic(d.graphic, d.hue);
         if (!img) continue;
-        const p = this.screenFor(x, y, d.z);
-        ctx.drawImage(img, p.sx - img.width, p.sy - img.height);
+        const p = this.staticDrawPos(x, y, d.z, img);
+        ctx.drawImage(img, p.x, p.y);
         if (d.amount > 1) {
           ctx.fillStyle = '#ffe08a';
           ctx.font = '11px monospace';
           ctx.textAlign = 'left';
           ctx.textBaseline = 'top';
-          ctx.fillText(String(d.amount), p.sx - 8, p.sy - 14);
+          ctx.fillText(String(d.amount), p.x + img.width - 8, p.y + img.height - 14);
         }
       }
     }
@@ -307,8 +315,8 @@ export class Renderer {
       if (!part.visible) continue;
       const img = this.assets.getStatic(part.graphic, 0);
       if (!img) continue;
-      const p = this.screenFor(item.x + part.x, item.y + part.y, item.z + part.z);
-      ctx.drawImage(img, p.sx - img.width, p.sy - img.height);
+      const p = this.staticDrawPos(item.x + part.x, item.y + part.y, item.z + part.z, img);
+      ctx.drawImage(img, p.x, p.y);
     }
   }
 
@@ -320,8 +328,8 @@ export class Renderer {
     if (!animData || !animData.meta.frames.length) {
       const img = this.assets.getStatic(0x2006, 0);
       if (img) {
-        const p = this.screenFor(item.x, item.y, item.z);
-        ctx.drawImage(img, p.sx - img.width, p.sy - img.height);
+        const p = this.staticDrawPos(item.x, item.y, item.z, img);
+        ctx.drawImage(img, p.x, p.y);
       }
       return;
     }
@@ -543,16 +551,23 @@ export class Renderer {
     ctx.globalCompositeOperation = 'source-over';
   }
 
-  drawQuestArrow(ctx) {
-    if (!settings.get('questArrow')) return;
+  questArrowScreen() {
+    if (!settings.get('questArrow')) return null;
     const arrow = this.world.questArrow;
-    if (!arrow) return;
+    if (!arrow) return null;
     const p = this.screenFor(arrow.x, arrow.y, 0);
     const margin = 26;
     const cx = Math.max(margin, Math.min(this.width - margin, p.sx));
     const cy = Math.max(margin, Math.min(this.height - margin, p.sy));
-    const dx = p.sx - cx;
-    const dy = p.sy - cy;
+    return { x: cx, y: cy, sx: p.sx, sy: p.sy, margin };
+  }
+
+  drawQuestArrow(ctx) {
+    const point = this.questArrowScreen();
+    if (!point) return;
+    const { x: cx, y: cy, sx, sy } = point;
+    const dx = sx - cx;
+    const dy = sy - cy;
     ctx.save();
     ctx.strokeStyle = '#e8c34a';
     ctx.fillStyle = 'rgba(232,195,74,0.85)';
@@ -576,7 +591,8 @@ export class Renderer {
 
   drawWaypoints(ctx) {
     if (!settings.get('waypoints')) return;
-    for (const w of this.world.waypoints || []) {
+    const waypoints = [...(this.world.waypoints || []), ...(this.world.localWaypoints || [])];
+    for (const w of waypoints) {
       if (w.map !== undefined && w.map !== this.world.mapIndex) continue;
       const p = this.screenFor(w.x, w.y, 0);
       if (p.sx < 0 || p.sx > this.width || p.sy < 0 || p.sy > this.height) continue;
@@ -620,8 +636,8 @@ export class Renderer {
           if (best && s.z <= best.z) continue;
           const img = this.assets.getStatic(s.graphic, s.hue);
           if (!img) continue;
-          const p = this.screenFor(tx, ty, s.z);
-          if (mx >= p.sx - img.width && mx < p.sx && my >= p.sy - img.height && my < p.sy) {
+          const p = this.staticDrawPos(tx, ty, s.z, img);
+          if (mx >= p.x && mx < p.x + img.width && my >= p.y && my < p.y + img.height) {
             best = { kind: 'static', graphic: s.graphic, x: tx, y: ty, z: s.z };
           }
         }
@@ -684,19 +700,19 @@ export class Renderer {
         if (!part.visible) continue;
         const img = this.assets.getStatic(part.graphic, 0);
         if (!img) continue;
-        const p = this.screenFor(x + part.x, y + part.y, z + part.z);
-        minX = Math.min(minX, p.sx - img.width);
-        minY = Math.min(minY, p.sy - img.height);
-        maxX = Math.max(maxX, p.sx);
-        maxY = Math.max(maxY, p.sy);
+        const p = this.staticDrawPos(x + part.x, y + part.y, z + part.z, img);
+        minX = Math.min(minX, p.x);
+        minY = Math.min(minY, p.y);
+        maxX = Math.max(maxX, p.x + img.width);
+        maxY = Math.max(maxY, p.y + img.height);
       }
       if (minX === Infinity) return null;
       return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
     }
     const img = this.assets.getStatic(entity.graphic, entity.hue);
     if (!img) return null;
-    const pos = this.screenFor(x, y, z);
-    return { x: pos.sx - img.width, y: pos.sy - img.height, w: img.width, h: img.height };
+    const pos = this.staticDrawPos(x, y, z, img);
+    return { x: pos.x, y: pos.y, w: img.width, h: img.height };
   }
 
   drawHeld(ctx) {

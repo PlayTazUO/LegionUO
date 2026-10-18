@@ -83,6 +83,7 @@ export class World {
     this.profile = { serial: 0, text: '' };
     this.questArrow = null;
     this.waypoints = [];
+    this.localWaypoints = [];
     this.corpses = new Map();
     this.held = null;
     this.heldAmount = 0;
@@ -935,6 +936,9 @@ export class World {
     this.season = 0;
     this.realSeason = 0;
     this.prompt = null;
+    this.questArrow = null;
+    this.waypoints = [];
+    this.localWaypoints = [];
     this.corpses.clear();
     this.held = null;
     this.walkTarget = null;

@@ -21,6 +21,7 @@ import { Layer } from '../game/entity.js';
 import { settings } from '../game/settings.js';
 import { BuffBarWindow, buffGraphic } from '../game/buffs.js';
 import { MapGumpWindow, MinimapWindow, WorldMapWindow } from '../game/maps.js';
+import { WaypointWindow, addLocalWaypoint, clearLocalWaypoints, loadLocalWaypoints } from '../game/waypoints.js';
 import { Reader } from '../util/binary.js';
 import { Journal } from './journal.js';
 
@@ -103,6 +104,7 @@ export class UI {
     $('btnParty')?.addEventListener('click', () => this.toggleParty());
     $('btnMap')?.addEventListener('click', () => this.toggleRadar());
     $('btnWorldMap')?.addEventListener('click', () => this.toggleWorldMap());
+    $('btnWaypoints')?.addEventListener('click', () => this.toggleWaypoints());
     $('btnWar').addEventListener('click', () => this.toggleWarMode());
     $('btnStatus').addEventListener('click', () => this.showStatus());
     $('btnOptions')?.addEventListener('click', () => this.showOptions());
@@ -406,6 +408,7 @@ export class UI {
       this.journal.show();
       this.addJournal('Welcome to LegionUO.', '#d6b45d', true);
     }
+    this.world.localWaypoints = loadLocalWaypoints(this.world);
     this.refreshStatus();
     this.refreshSkills();
     this.world.alwaysRun = !!settings.get('alwaysRun');
@@ -581,6 +584,25 @@ export class UI {
     this.removeWindow('worldmap', 'player');
   }
 
+  showWaypoints() {
+    if (!this.world.player) return;
+    const existing = this.getWindow('waypoints', 'player');
+    if (existing) {
+      this.raiseWindow(existing);
+      return;
+    }
+    this.addWindow('waypoints', 'player', new WaypointWindow(this.world));
+  }
+
+  toggleWaypoints() {
+    if (this.getWindow('waypoints', 'player')) this.closeWaypoints();
+    else this.showWaypoints();
+  }
+
+  closeWaypoints() {
+    this.removeWindow('waypoints', 'player');
+  }
+
   showMapGump(window) {
     if (!window) return;
     this.addWindow('map', window.serial, window);
@@ -681,7 +703,7 @@ export class UI {
     const command = cmd.toLowerCase();
     if (command === 'help') {
       this.addJournal(
-        'Commands: -help -skills -status -options -buffs -partywindow -radar -worldmap -profile -where -war -peace -run -walk -resync -logout -open -target -lasttarget -debug -journal -clear -say -whisper -yell -emote -party -guild -alliance -ignore -unignore -ignorelist -timestamps',
+        'Commands: -help -skills -status -options -buffs -partywindow -radar -worldmap -waypoints -waypoint add [x y] [name]|clear -profile -where -war -peace -run -walk -resync -logout -open -target -lasttarget -debug -journal -clear -say -whisper -yell -emote -party -guild -alliance -ignore -unignore -ignorelist -timestamps',
         '#b8a06a',
         true
       );
@@ -740,6 +762,25 @@ export class UI {
       this.toggleRadar();
     } else if (command === 'worldmap' || command === 'map') {
       this.toggleWorldMap();
+    } else if (command === 'waypoints' || command === 'waypoint' || command === 'wp') {
+      const sub = (args[0] || '').toLowerCase();
+      if (sub === 'add') {
+        const rest = args.slice(1);
+        const hasCoords = rest.length >= 2 && rest[0] !== '' && rest[1] !== '' && Number.isFinite(Number(rest[0])) && Number.isFinite(Number(rest[1]));
+        const x = hasCoords ? Number(rest[0]) : null;
+        const y = hasCoords ? Number(rest[1]) : null;
+        const name = (hasCoords ? rest.slice(2) : rest).join(' ');
+        const waypoint = addLocalWaypoint(this.world, name, x, y);
+        if (waypoint) {
+          this.addJournal(`Added waypoint ${waypoint.name} at ${waypoint.x}, ${waypoint.y}.`, '#b8a06a', true);
+          this.showWaypoints();
+        }
+      } else if (sub === 'clear') {
+        clearLocalWaypoints(this.world);
+        this.addJournal('Cleared local waypoints.', '#b8a06a', true);
+      } else {
+        this.toggleWaypoints();
+      }
     } else if (command === 'profile') {
       if (this.world.player) this.world.socket.out.profileRequest(this.world.playerSerial);
     } else if (command === 'where') {
@@ -1774,6 +1815,15 @@ export class UI {
       if (hit.obj.dragging || hit.obj.onMouseMove) this.dragTarget = hit;
       return;
     }
+    const arrow = this.game.renderer.questArrowScreen?.();
+    if (arrow && !this.world.target.active && !this.world.held && Math.hypot(x - arrow.x, y - arrow.y) <= 12) {
+      this.world.socket.out.clickQuestArrow(button === 2);
+      if (button === 0) {
+        const target = this.world.questArrow;
+        if (target) this.game.walkTo(target.x, target.y);
+      }
+      return;
+    }
     if (button === 0) {
       if (this.world.target.active) {
         this.sendTarget(x, y);
@@ -1823,18 +1873,14 @@ export class UI {
     if (!this.mouseWalk || this.world.held) return null;
     const p = this.world.player;
     if (!p) return null;
-    const tile = this.game.renderer.screenToTile(this.mouse.x, this.mouse.y);
-    const dx = tile.x - p.x;
-    const dy = tile.y - p.y;
-    if (!dx && !dy) return null;
-    if (dx > 0 && dy > 0) return 3;
-    if (dx > 0 && dy < 0) return 1;
-    if (dx < 0 && dy > 0) return 5;
-    if (dx < 0 && dy < 0) return 7;
-    if (dx > 0) return 2;
-    if (dx < 0) return 6;
-    if (dy > 0) return 4;
-    return 0;
+    const renderer = this.game.renderer;
+    const ps = renderer.playerScreen();
+    const sx = this.mouse.x - (ps.x - renderer.camera.x);
+    const sy = this.mouse.y - (ps.y - renderer.camera.y);
+    if (sx * sx + sy * sy < 64) return null;
+    const angle = Math.atan2(sy, sx);
+    const index = Math.round((angle + Math.PI / 4) / (Math.PI / 4));
+    return ((index % 8) + 8) % 8;
   }
 
   onMouseUp(e) {

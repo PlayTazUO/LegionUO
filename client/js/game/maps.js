@@ -374,7 +374,7 @@ export class MinimapWindow {
       ctx.fillRect(Math.round(gx), Math.round(gy), 2, 2);
     }
 
-    for (const waypoint of this.world.waypoints || []) {
+    for (const waypoint of [...(this.world.waypoints || []), ...(this.world.localWaypoints || [])]) {
       if (waypoint.map !== this.world.mapIndex) continue;
       const dx = waypoint.x - player.x;
       const dy = waypoint.y - player.y;
@@ -1151,7 +1151,7 @@ export class WorldMapWindow {
         if (point) this.drawMarker(ctx, point.x, point.y, '#7ee08a', 'party');
       }
     }
-    for (const waypoint of world.waypoints || []) {
+    for (const waypoint of [...(world.waypoints || []), ...(world.localWaypoints || [])]) {
       if (waypoint.map !== this.facet) continue;
       const point = this.tileToScreen(waypoint.x, waypoint.y);
       if (point) this.drawMarker(ctx, point.x, point.y, '#7fc7ff', 'waypoint');
