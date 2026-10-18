@@ -76,6 +76,14 @@ export class Renderer {
     };
   }
 
+  priorityZ(z, graphic) {
+    const flags = (this.assets.staticFlags(graphic) || 0) >>> 0;
+    let priority = z;
+    if (flags & 0x00000001) priority--;
+    if ((this.assets.staticHeight(graphic) || 0) !== 0) priority++;
+    return priority;
+  }
+
   screenToTile(mx, my) {
     const wx = mx + this.camera.x + 22;
     const wy = my + this.camera.y + 22;
@@ -148,15 +156,23 @@ export class Renderer {
 
     const drawables = [];
     for (const s of this.staticGrid(block)[(ly << 3) | lx] || []) {
-      drawables.push({ type: 'static', z: s.z, graphic: s.graphic, hue: s.hue });
+      drawables.push({ type: 'static', z: s.z, priorityZ: this.priorityZ(s.z, s.graphic), graphic: s.graphic, hue: s.hue });
     }
     for (const item of groundItems.get(`${x},${y}`) || []) {
-      drawables.push({ type: 'item', z: item.z, graphic: item.graphic, hue: item.hue, entity: item, amount: item.amount });
+      drawables.push({
+        type: 'item',
+        z: item.z,
+        priorityZ: this.priorityZ(item.z, item.graphic),
+        graphic: item.graphic,
+        hue: item.hue,
+        entity: item,
+        amount: item.amount,
+      });
     }
     for (const m of mobiles.get(`${x},${y}`) || []) {
-      drawables.push({ type: 'mobile', z: m.z, entity: m });
+      drawables.push({ type: 'mobile', z: m.z, priorityZ: m.z + 1, entity: m });
     }
-    drawables.sort((a, b) => a.z - b.z || typeOrder(a) - typeOrder(b));
+    drawables.sort((a, b) => a.priorityZ - b.priorityZ || typeOrder(a) - typeOrder(b));
 
     for (const d of drawables) {
       if (d.type === 'mobile') {
@@ -633,12 +649,13 @@ export class Renderer {
         if (!block) continue;
         const idx = ((ty & 7) << 3) | (tx & 7);
         for (const s of this.staticGrid(block)[idx] || []) {
-          if (best && s.z <= best.z) continue;
+          const priorityZ = this.priorityZ(s.z, s.graphic);
+          if (best && priorityZ < best.priorityZ) continue;
           const img = this.assets.getStatic(s.graphic, s.hue);
           if (!img) continue;
           const p = this.staticDrawPos(tx, ty, s.z, img);
           if (mx >= p.x && mx < p.x + img.width && my >= p.y && my < p.y + img.height) {
-            best = { kind: 'static', graphic: s.graphic, x: tx, y: ty, z: s.z };
+            best = { kind: 'static', graphic: s.graphic, x: tx, y: ty, z: s.z, priorityZ };
           }
         }
       }
