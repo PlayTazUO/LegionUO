@@ -100,6 +100,14 @@ export class AssetManager {
     return null;
   }
 
+  pendingImageCount() {
+    let pending = 0;
+    for (const entry of this.images.values()) {
+      if (!entry.ready && !entry.failed) pending++;
+    }
+    return pending;
+  }
+
   isNoDraw(id, isLand = false) {
     const graphic = id & 0xffff;
     if (graphic === 0xffff) return true;

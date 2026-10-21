@@ -76,6 +76,54 @@ body {
   cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M3 2L3 20L8 15L12 23L15 21L11 13L19 13Z' fill='%23e03030' stroke='%23000' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") 3 2, default;
 }
 
+#worldLoading {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 45%, rgba(28, 23, 14, 0.75), rgba(3, 3, 3, 0.98) 70%);
+  color: #e5cd8d;
+}
+
+.worldLoadingBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  text-shadow: 0 2px 0 #000;
+}
+
+.worldLoadingSpinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid rgba(140, 118, 70, 0.28);
+  border-top-color: #e5cd8d;
+  border-radius: 50%;
+  animation: worldLoadingSpin 0.9s linear infinite;
+}
+
+@keyframes worldLoadingSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+#worldLoadingText {
+  font-family: Georgia, serif;
+  font-size: 18px;
+  letter-spacing: 2px;
+}
+
+#worldLoadingDetail {
+  min-height: 15px;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: #9c8c63;
+}
+
 .hidden {
   display: none !important;
 }

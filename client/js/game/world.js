@@ -758,8 +758,16 @@ export class World {
     this.gumps.delete(key);
   }
 
+  mapBlockKey(bx, by) {
+    return `${this.mapIndex}|${this.useXMapFiles ? 'x' : 'm'}|${bx}|${by}`;
+  }
+
+  isBlockLoaded(bx, by) {
+    return this.mapCache.has(this.mapBlockKey(bx, by));
+  }
+
   getBlock(bx, by) {
-    const key = `${this.mapIndex}|${this.useXMapFiles ? 'x' : 'm'}|${bx}|${by}`;
+    const key = this.mapBlockKey(bx, by);
     const cached = this.mapCache.get(key);
     if (cached) return cached;
     if (this.mapCache.has(key)) {
@@ -784,7 +792,7 @@ export class World {
   requestBlock(bx, by) {
     const mapIndex = this.mapIndex;
     const useX = this.useXMapFiles;
-    const key = `${mapIndex}|${useX ? 'x' : 'm'}|${bx}|${by}`;
+    const key = this.mapBlockKey(bx, by);
     const cached = this.mapCache.get(key);
     if (cached) return Promise.resolve(cached);
     if (this.mapCache.has(key)) {

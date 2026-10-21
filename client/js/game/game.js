@@ -72,6 +72,10 @@ export class Game {
     this.perfFpsEl = document.getElementById('perfFps');
     this.perfPingEl = document.getElementById('perfPing');
     this.warCursor = false;
+    this.worldLoadingToken = 0;
+    this.worldLoadingStartedAt = 0;
+    this.worldLoadingMapReadyAt = 0;
+    this.worldLoadingTimer = null;
 
     this.world.onMessage((msg) => this.ui.onMessage(msg));
     this.socket.on('packet', ({ data, header }) => this.handlers.handle(data[0], data, header));
@@ -283,6 +287,7 @@ export class Game {
   enterWorld() {
     this.clearLoginWatchdog();
     this.ui.enterWorld();
+    this.showWorldLoading();
     this.world.ensureMapAround(this.world.player.x, this.world.player.y, 4);
     const player = this.world.player;
     if (player) {
@@ -295,7 +300,94 @@ export class Game {
     }
   }
 
+  showWorldLoading() {
+    const token = ++this.worldLoadingToken;
+    this.worldLoadingStartedAt = performance.now();
+    this.worldLoadingMapReadyAt = 0;
+    if (this.worldLoadingTimer) {
+      clearTimeout(this.worldLoadingTimer);
+      this.worldLoadingTimer = null;
+    }
+    const overlay = document.getElementById('worldLoading');
+    if (overlay) overlay.classList.remove('hidden');
+    this.setWorldLoadingDetail('Contacting shard...');
+    this.pollWorldLoading(token);
+  }
+
+  hideWorldLoading() {
+    this.worldLoadingToken++;
+    this.worldLoadingMapReadyAt = 0;
+    if (this.worldLoadingTimer) {
+      clearTimeout(this.worldLoadingTimer);
+      this.worldLoadingTimer = null;
+    }
+    const overlay = document.getElementById('worldLoading');
+    if (overlay) overlay.classList.add('hidden');
+  }
+
+  setWorldLoadingDetail(text) {
+    const detail = document.getElementById('worldLoadingDetail');
+    if (detail) detail.textContent = text || '';
+  }
+
+  pollWorldLoading(token) {
+    if (token !== this.worldLoadingToken) return;
+    this.worldLoadingTimer = null;
+    const player = this.world.player;
+    if (!player) {
+      this.hideWorldLoading();
+      return;
+    }
+
+    const radius = 3;
+    const bx = player.x >> 3;
+    const by = player.y >> 3;
+    const size = this.config.maps?.[this.world.mapIndex];
+    const maxBx = size ? (size[0] >> 3) - 1 : Infinity;
+    const maxBy = size ? (size[1] >> 3) - 1 : Infinity;
+    let total = 0;
+    let loaded = 0;
+    for (let dx = -radius; dx <= radius; dx++) {
+      for (let dy = -radius; dy <= radius; dy++) {
+        const tx = bx + dx;
+        const ty = by + dy;
+        if (tx < 0 || ty < 0 || tx > maxBx || ty > maxBy) continue;
+        total++;
+        if (this.world.isBlockLoaded(tx, ty)) loaded++;
+      }
+    }
+
+    const now = performance.now();
+    const elapsed = now - this.worldLoadingStartedAt;
+    const mapsPending = this.world.mapPending.size;
+    const mapsReady = mapsPending === 0 && loaded >= total;
+    if (mapsReady) {
+      if (!this.worldLoadingMapReadyAt) this.worldLoadingMapReadyAt = now;
+    } else {
+      this.worldLoadingMapReadyAt = 0;
+    }
+
+    const artPending = this.assets.pendingImageCount();
+    const mapSettled = this.worldLoadingMapReadyAt && now - this.worldLoadingMapReadyAt >= 200;
+    if ((mapSettled && artPending === 0 && elapsed >= 350) || elapsed > 15000) {
+      // Clear the initial player animation prefetch as well; it is usually
+      // the last thing still streaming in after the map blocks arrive.
+      this.hideWorldLoading();
+      return;
+    }
+
+    if (!mapsReady) {
+      this.setWorldLoadingDetail(`Loading map ${loaded}/${total}...`);
+    } else if (artPending > 0) {
+      this.setWorldLoadingDetail(`Loading art (${artPending} remaining)...`);
+    } else {
+      this.setWorldLoadingDetail('Finalizing...');
+    }
+    this.worldLoadingTimer = setTimeout(() => this.pollWorldLoading(token), 100);
+  }
+
   disconnect(message) {
+    this.hideWorldLoading();
     this.world.socket.close();
     this._enteredWorld = false;
     this.ui._enteredWorld = false;

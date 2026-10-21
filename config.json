@@ -4,7 +4,7 @@
   "host": "127.0.0.1",
   "clientVersion": "7.0.116.0",
   "mapCount": 6,
-  "cacheMb": 256,
+  "cacheMb": 1024,
   "allowProxyHosts": ["178.156.168.253"],
   "defaultLoginHost": "192.168.0.39",
   "loginEncryption": false,

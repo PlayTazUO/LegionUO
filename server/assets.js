@@ -36,8 +36,10 @@ class LRU {
 
   static sizeOf(value) {
     if (value == null) return 0;
+    if (Array.isArray(value)) return 4096 + value.length * 64;
     if (typeof value.length === 'number') return value.length;
     if (value.png?.length) return value.png.length + 4096;
+    if (value.data?.length) return value.data.length + 4096;
     return 4096;
   }
 
@@ -48,11 +50,24 @@ class LRU {
     }
     this.map.set(key, value);
     this.size += LRU.sizeOf(value);
+    this.trim();
+  }
+
+  setLimit(limitBytes) {
+    this.limit = Math.max(0, limitBytes);
+    this.trim();
+  }
+
+  trim() {
     while (this.size > this.limit && this.map.size > 1) {
       const [oldKey, oldValue] = this.map.entries().next().value;
       this.map.delete(oldKey);
       this.size -= LRU.sizeOf(oldValue);
     }
+  }
+
+  stats() {
+    return { entries: this.map.size, bytes: this.size, limit: this.limit };
   }
 }
 
@@ -106,6 +121,11 @@ export class AssetService {
     this.serverId = assetServerId(this.config);
     this.files.setDir(dir);
     this.initManagers();
+  }
+
+  setCacheLimit(mb) {
+    const value = Number(mb);
+    this.cache.setLimit((Number.isFinite(value) && value >= 0 ? value : 256) * 1024 * 1024);
   }
 
   info() {
@@ -263,7 +283,12 @@ export class AssetService {
   }
 
   musicTrack(index) {
-    return this.music.get(index);
+    const key = this.cacheKey(`music|${index}`);
+    const cached = this.cache.get(key);
+    if (cached) return cached;
+    const track = this.music.get(index);
+    if (track) this.cache.set(key, track);
+    return track;
   }
 
   font(font, hue) {
@@ -271,7 +296,21 @@ export class AssetService {
   }
 
   sound(id) {
-    return this.sounds.get(id);
+    const key = this.cacheKey(`sound|${id}`);
+    const cached = this.cache.get(key);
+    if (cached) return cached;
+    const data = this.sounds.get(id);
+    if (data) this.cache.set(key, data);
+    return data;
+  }
+
+  multi(id) {
+    const key = this.cacheKey(`multi|${id}`);
+    const cached = this.cache.get(key);
+    if (cached) return cached;
+    const parts = this.multis.get(id);
+    this.cache.set(key, parts);
+    return parts;
   }
 
   radarColors() {
@@ -319,7 +358,19 @@ export class AssetService {
     return buf;
   }
 
+  skillsJSON() {
+    const key = this.cacheKey('skills');
+    const cached = this.cache.get(key);
+    if (cached) return cached;
+    const buf = Buffer.from(JSON.stringify(this.skills.toJSON()));
+    this.cache.set(key, buf);
+    return buf;
+  }
+
   hueInfo() {
+    const key = this.cacheKey('hues');
+    const cached = this.cache.get(key);
+    if (cached) return cached;
     this.hues.load();
     const text = [];
     const count = this.hues.count;
@@ -328,6 +379,12 @@ export class AssetService {
       const [r, g, b] = color16ToRgb(c);
       text.push((r << 16) | (g << 8) | b);
     }
-    return { count, text };
+    const info = { count, text };
+    this.cache.set(key, info);
+    return info;
+  }
+
+  cacheStats() {
+    return this.cache.stats();
   }
 }

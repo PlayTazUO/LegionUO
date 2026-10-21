@@ -136,6 +136,7 @@ function reloadConfigIfChanged() {
       next.language !== config.language;
     if (!changed) {
       Object.assign(config, next);
+      assets.setCacheLimit(config.cacheMb);
       return;
     }
     console.log(`[legionuo] config changed, reloading assets (${next.uoDir || 'no UO dir'})`);
@@ -274,7 +275,7 @@ const server = http.createServer((req, res) => {
     }
 
     if (pathname === '/api/skills') {
-      sendJSON(res, 200, assets.skills.toJSON());
+      sendJSONMaybeGzip(req, res, assets.skillsJSON(), 'public, max-age=3600');
       return;
     }
 
@@ -302,7 +303,7 @@ const server = http.createServer((req, res) => {
 
     m = pathname.match(/^\/api\/multi\/(\d+)$/);
     if (m) {
-      sendJSON(res, 200, assets.multis.get(Number(m[1])));
+      sendJSON(res, 200, assets.multi(Number(m[1])));
       return;
     }
 
@@ -417,7 +418,7 @@ const server = http.createServer((req, res) => {
     }
 
     if (pathname === '/api/health') {
-      sendJSON(res, 200, { ok: true, uoDir: config.uoDir });
+      sendJSON(res, 200, { ok: true, uoDir: config.uoDir, cache: assets.cacheStats() });
       return;
     }
 

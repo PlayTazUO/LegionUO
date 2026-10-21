@@ -12,6 +12,12 @@ import { notorietyColor } from '../util/ui.js';
 
 const ANIM_FRAME_MS = 80;
 const CORPSE_Z_BUMP = 1;
+const CULL_PAD = 80;
+const MAX_OBJECT_Z = 127;
+const MIN_OBJECT_Z = -128;
+const TRANSPARENT_FLAG = 0x00000004;
+const FOLIAGE_FLAG = 0x00020000;
+const ROOF_FLAG = 0x10000000;
 
 const GARGOYLE_EQUIPMENT = new Map([
   [0x01d5, 0x0156],
@@ -39,6 +45,7 @@ export class Renderer {
     this.landTileCache = new Map();
     this.landTileCacheBytes = 0;
     this.landTileCacheLimit = 16 * 1024 * 1024;
+    this.overheadCache = null;
     this.resize();
     window.addEventListener('resize', () => this.resize());
     if (typeof ResizeObserver !== 'undefined' && this.canvas.parentElement) {
@@ -74,7 +81,17 @@ export class Renderer {
   }
 
   tileRange() {
-    return Math.ceil((this.width + this.height) / 88) + 2;
+    // Screen axes are isometric: lateral = x - y, depth = x + y. High-z
+    // objects shift up the screen, so the depth range has to grow with z or
+    // roofs and other tall statics on nearer tiles get culled before they
+    // reach the viewport.
+    const pad = CULL_PAD;
+    const lateral = Math.ceil((this.width / 2 + pad) / 22);
+    const depth = Math.ceil((this.height / 2 + pad) / 22) + 1;
+    const pz = this.world.player?.z || 0;
+    const front = Math.ceil((Math.max(0, MAX_OBJECT_Z - pz) * 4) / 22);
+    const back = Math.ceil((Math.max(0, pz - MIN_OBJECT_Z) * 4) / 22);
+    return { lateral, depthFront: depth + front, depthBack: depth + back };
   }
 
   screenFor(x, y, z = 0) {
@@ -92,12 +109,87 @@ export class Renderer {
     };
   }
 
+  imageVisible(x, y, width, height) {
+    return x + width >= 0 && x <= this.width && y + height >= 0 && y <= this.height;
+  }
+
   priorityZ(z, graphic) {
     const flags = (this.assets.staticFlags(graphic) || 0) >>> 0;
     let priority = z;
     if (flags & 0x00000001) priority--;
     if ((this.assets.staticHeight(graphic) || 0) !== 0) priority++;
     return priority;
+  }
+
+  overheadState() {
+    // When the player is inside a building, the first floor/roof above their
+    // head becomes a cut plane: nothing at or above it is drawn. That keeps
+    // upper stories and roofs from covering the room the player is standing in.
+    // Roof-flagged art is also hidden as a whole: roof sprites extend well past
+    // their base z, so tall/sloped roofs would otherwise still cover the view
+    // from neighbouring tiles even when their base sits below the cut plane.
+    const player = this.world.player;
+    if (!player) return { cut: Infinity, hideRoofs: false };
+    const x = Math.floor(player.x);
+    const y = Math.floor(player.y);
+    const z = player.z | 0;
+    const block = this.world.getBlock(x >> 3, y >> 3);
+    const cached = this.overheadCache;
+    if (cached && cached.block === block && cached.x === x && cached.y === y && cached.z === z) {
+      return cached;
+    }
+
+    let cut = Infinity;
+    let hideRoofs = false;
+    const headZ = z + 14;
+
+    const consider = (tileZ, graphic) => {
+      const flags = (this.assets.staticFlags(graphic) || 0) >>> 0;
+      // Standing under any roof piece means roofs should not be drawn, even
+      // pieces whose base z is below the cut plane or below head height.
+      if (flags & ROOF_FLAG) {
+        if (tileZ > z) hideRoofs = true;
+      }
+      if (tileZ <= headZ || tileZ >= cut) return;
+      // Transparent and foliage tiles should not create a cut plane.
+      if (flags & TRANSPARENT_FLAG || flags & FOLIAGE_FLAG) return;
+      if (this.assets.isNoDraw(graphic, false)) return;
+      cut = tileZ;
+      hideRoofs = true;
+    };
+
+    if (block) {
+      for (const s of this.world.staticsAt(block, x & 7, y & 7)) consider(s.z, s.graphic);
+    }
+
+    // Player houses and other multis keep their floors and roofs in the multi
+    // definition rather than map statics, so check the parts covering the
+    // player's tile as well.
+    let pendingMulti = false;
+    for (const e of this.world.entities.values()) {
+      if (!e.isItem || e.container !== 0 || !e.hasPosition) continue;
+      if (e.isMulti) {
+        const dx = x - e.x;
+        const dy = y - e.y;
+        if (Math.abs(dx) > 32 || Math.abs(dy) > 32) continue;
+        const parts = this.assets.getMulti(e.graphic);
+        if (!parts) {
+          pendingMulti = true;
+          continue;
+        }
+        for (const part of parts) {
+          if (!part.visible || part.x !== dx || part.y !== dy) continue;
+          consider(e.z + part.z, part.graphic);
+        }
+      } else if (e.x === x && e.y === y) {
+        consider(e.z, e.graphic);
+      }
+    }
+
+    const state = { x, y, z, block, cut, hideRoofs };
+    // Re-scan until every multi around the player has loaded its parts.
+    this.overheadCache = pendingMulti ? null : state;
+    return state;
   }
 
   mobileSortKey(mobile) {
@@ -126,8 +218,13 @@ export class Renderer {
 
     this.updateCamera();
     const range = this.tileRange();
-    this.world.ensureMapAround(this.world.player.x, this.world.player.y, Math.ceil(range / 8) + 1);
+    const px = this.world.player.x;
+    const py = this.world.player.y;
+    const reach = Math.max(range.lateral, range.depthFront, range.depthBack);
+    this.world.ensureMapAround(px, py, Math.ceil(reach / 8) + 1);
 
+    const overhead = this.overheadState();
+    const cutZ = overhead.cut;
     const groundItems = new Map();
     const mobiles = new Map();
     for (const e of this.world.entities.values()) {
@@ -144,16 +241,17 @@ export class Renderer {
       }
     }
 
-    const px = this.world.player.x;
-    const py = this.world.player.y;
-
-    for (let depth = -range * 2; depth <= range * 2; depth++) {
-      // x + y = depth keeps a stable isometric back-to-front order.
-      for (let x = px - range; x <= px + range; x++) {
-        const y = depth - x + (px + py);
-        if (y < py - range || y > py + range) continue;
+    for (let depth = -range.depthBack; depth <= range.depthFront; depth++) {
+      // x + y = depth keeps a stable isometric back-to-front order. Walking
+      // the lateral axis (x - y) directly covers the viewport diamond without
+      // needing a full square of tiles.
+      const aMin = Math.ceil((depth - range.lateral) / 2);
+      const aMax = Math.floor((depth + range.lateral) / 2);
+      for (let a = aMin; a <= aMax; a++) {
+        const x = px + a;
+        const y = py + depth - a;
         if (x < 0 || y < 0) continue;
-        this.drawTile(ctx, x, y, groundItems, mobiles, now);
+        this.drawTile(ctx, x, y, groundItems, mobiles, now, cutZ, overhead.hideRoofs);
       }
     }
 
@@ -168,27 +266,38 @@ export class Renderer {
     this.drawWaypoints(ctx);
   }
 
-  drawTile(ctx, x, y, groundItems, mobiles, now) {
+  drawTile(ctx, x, y, groundItems, mobiles, now, cutZ = Infinity, hideRoofs = false) {
     const block = this.world.getBlock(x >> 3, y >> 3);
     if (!block) return;
     const lx = x & 7;
     const ly = y & 7;
     const cell = block.cells[(ly << 3) | lx];
     const pos = this.screenFor(x, y, cell.z);
-    if (pos.sx < -80 || pos.sx > this.width + 80 || pos.sy < -80 || pos.sy > this.height + 80) return;
+    const groundVisible =
+      pos.sx >= -CULL_PAD &&
+      pos.sx <= this.width + CULL_PAD &&
+      pos.sy >= -CULL_PAD &&
+      pos.sy <= this.height + CULL_PAD;
 
-    if (!this.drawStretchedLand(ctx, block, x, y, cell, pos)) {
-      const land = this.assets.getLand(cell.tile);
-      if (land) ctx.drawImage(land, pos.sx, pos.sy);
+    if (groundVisible && cell.z < cutZ) {
+      if (!this.drawStretchedLand(ctx, block, x, y, cell, pos)) {
+        const land = this.assets.getLand(cell.tile);
+        if (land) ctx.drawImage(land, pos.sx, pos.sy);
+      }
     }
 
     const drawables = [];
     for (const s of this.world.staticGrid(block)[(ly << 3) | lx] || []) {
+      if (s.z >= cutZ) continue;
+      if (hideRoofs && ((this.assets.staticFlags(s.graphic) || 0) & ROOF_FLAG)) continue;
       drawables.push({ type: 'static', z: s.z, priorityZ: this.priorityZ(s.z, s.graphic), graphic: s.graphic, hue: s.hue });
     }
     for (const item of groundItems.get(`${x},${y}`) || []) {
+      if (item.z >= cutZ) continue;
+      if (hideRoofs && ((this.assets.staticFlags(item.graphic) || 0) & ROOF_FLAG)) continue;
       const corpse = item.graphic === 0x2006 && this.world.corpses.has(item.serial);
       const z = corpse ? item.z + CORPSE_Z_BUMP : item.z;
+      if (z >= cutZ) continue;
       drawables.push({
         type: 'item',
         z,
@@ -201,6 +310,7 @@ export class Renderer {
       });
     }
     for (const m of mobiles.get(`${x},${y}`) || []) {
+      if (m.z >= cutZ) continue;
       drawables.push({ type: 'mobile', z: m.z, priorityZ: m.z + 1, entity: m });
     }
     drawables.sort((a, b) => a.priorityZ - b.priorityZ || typeOrder(a) - typeOrder(b));
@@ -209,13 +319,14 @@ export class Renderer {
       if (d.type === 'mobile') {
         this.drawMobile(ctx, d.entity, now);
       } else if (d.type === 'item' && d.entity?.isMulti) {
-        this.drawMulti(ctx, d.entity);
+        this.drawMulti(ctx, d.entity, cutZ, hideRoofs);
       } else if (d.corpse) {
         this.drawCorpse(ctx, d.entity, this.world.corpses.get(d.entity.serial), now, d.z);
       } else {
         const img = this.assets.getStatic(d.graphic, d.hue);
         if (!img) continue;
         const p = this.staticDrawPos(x, y, d.z, img);
+        if (!this.imageVisible(p.x, p.y, img.width, img.height)) continue;
         ctx.drawImage(img, p.x, p.y);
         if (d.amount > 1) {
           ctx.fillStyle = '#ffe08a';
@@ -229,6 +340,7 @@ export class Renderer {
 
     // Overhead names and bars are drawn after the tile's objects.
     for (const m of mobiles.get(`${x},${y}`) || []) {
+      if (m.z >= cutZ) continue;
       this.drawMobileText(ctx, m);
     }
   }
@@ -356,11 +468,13 @@ export class Renderer {
     return cell ? cell.z : fallback;
   }
 
-  drawMulti(ctx, item) {
+  drawMulti(ctx, item, cutZ = Infinity, hideRoofs = false) {
     const parts = this.assets.getMulti(item.graphic);
     if (!parts) return;
     for (const part of parts) {
       if (!part.visible) continue;
+      if (item.z + part.z >= cutZ) continue;
+      if (hideRoofs && ((this.assets.staticFlags(part.graphic) || 0) & ROOF_FLAG)) continue;
       const img = this.assets.getStatic(part.graphic, 0);
       if (!img) continue;
       const p = this.staticDrawPos(item.x + part.x, item.y + part.y, item.z + part.z, img);
@@ -783,6 +897,8 @@ export class Renderer {
     const entity = this.entityAt(mx, my);
     if (entity) return { kind: 'entity', entity };
     const tile = this.screenToTile(mx, my);
+    const overhead = this.overheadState();
+    const cutZ = overhead.cut;
     let best = null;
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
@@ -792,6 +908,8 @@ export class Renderer {
         if (!block) continue;
         const idx = ((ty & 7) << 3) | (tx & 7);
         for (const s of this.world.staticGrid(block)[idx] || []) {
+          if (s.z >= cutZ) continue;
+          if (overhead.hideRoofs && ((this.assets.staticFlags(s.graphic) || 0) & ROOF_FLAG)) continue;
           const priorityZ = this.priorityZ(s.z, s.graphic);
           if (best && priorityZ < best.priorityZ) continue;
           const img = this.assets.getStatic(s.graphic, s.hue);
@@ -843,8 +961,12 @@ export class Renderer {
   entityAt(mx, my) {
     let best = null;
     let bestDepth = -Infinity;
+    const overhead = this.overheadState();
+    const cutZ = overhead.cut;
     for (const entity of this.world.entities.values()) {
       if (!entity.isMobile && entity.container !== 0) continue;
+      if ((entity.renderZ ?? entity.z) >= cutZ) continue;
+      if (overhead.hideRoofs && !entity.isMobile && ((this.assets.staticFlags(entity.graphic) || 0) & ROOF_FLAG)) continue;
       const bounds = this.entityBounds(entity);
       if (!bounds) continue;
       if (mx < bounds.x || my < bounds.y || mx >= bounds.x + bounds.w || my >= bounds.y + bounds.h) continue;

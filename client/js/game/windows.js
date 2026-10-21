@@ -3008,18 +3008,6 @@ function loadStatusPosition(world) {
   }
 }
 
-const STATUS_ACTIONS = [
-  { id: 'paperdoll', label: 'Doll' },
-  { id: 'skills', label: 'Skills' },
-  { id: 'journal', label: 'Journal' },
-  { id: 'war', label: 'War' },
-  { id: 'refresh', label: 'Refresh' },
-  { id: 'top', label: 'Top' },
-  { id: 'lock', label: 'Lock' },
-  { id: 'scale', label: 'Scale' },
-  { id: 'logout', label: 'Logout' },
-];
-
 const STATUS_BUFF_SIZE = 24;
 const STATUS_BUFF_MAX = 9;
 
@@ -3035,7 +3023,7 @@ export class StatusWindow {
   constructor(world) {
     this.world = world;
     this.width = 340;
-    this.height = 344;
+    this.height = 292;
     this.scale = 1;
     this.alwaysOnTop = false;
     this.locked = false;
@@ -3055,7 +3043,6 @@ export class StatusWindow {
     this.y = pos.y;
     this.dragging = false;
     this.dragOffset = { x: 0, y: 0 };
-    this.hoverAction = null;
   }
 
   get player() {
@@ -3097,28 +3084,6 @@ export class StatusWindow {
     }));
   }
 
-  actionRects() {
-    const gap = 3;
-    const buttonWidth = 52;
-    const buttonHeight = 20;
-    const perRow = 6;
-    const rows = Math.ceil(STATUS_ACTIONS.length / perRow);
-    return STATUS_ACTIONS.map((action, index) => {
-      const row = Math.floor(index / perRow);
-      const inRow = Math.min(perRow, STATUS_ACTIONS.length - row * perRow);
-      const total = inRow * buttonWidth + (inRow - 1) * gap;
-      const start = this.x + (this.width - total) / 2;
-      return {
-        ...action,
-        label: action.id === 'scale' ? `${Math.round(this.scale * 100)}%` : action.label,
-        x: start + (index % perRow) * (buttonWidth + gap),
-        y: this.y + this.height - 30 - (rows - 1 - row) * (buttonHeight + gap),
-        w: buttonWidth,
-        h: buttonHeight,
-      };
-    });
-  }
-
   buffRects() {
     const active = (this.world.buffs || []).filter((buff) => !buff.endsAt || buff.endsAt > Date.now()).slice(0, STATUS_BUFF_MAX);
     const gap = 3;
@@ -3143,10 +3108,6 @@ export class StatusWindow {
     return mx >= rect.x && my >= rect.y && mx < rect.x + rect.w && my < rect.y + rect.h;
   }
 
-  actionAt(mx, my) {
-    return this.actionRects().find((rect) => this.hitRect(rect, mx, my)) || null;
-  }
-
   onMouseDown(mx, my, button) {
     const point = this.localPoint(mx, my);
     mx = point.x;
@@ -3164,11 +3125,6 @@ export class StatusWindow {
       cycleStatLock(this.world, stat.stat);
       return true;
     }
-    const action = this.actionAt(mx, my);
-    if (action) {
-      this.invoke(action.id);
-      return true;
-    }
     if (this.locked) return true;
     this.dragging = true;
     this.dragOffset.x = mx - this.x;
@@ -3178,7 +3134,6 @@ export class StatusWindow {
 
   onMouseMove(mx, my) {
     const point = this.localPoint(mx, my);
-    this.hoverAction = this.actionAt(point.x, point.y)?.id || null;
     if (this.dragging) {
       this.x = point.x - this.dragOffset.x;
       this.y = point.y - this.dragOffset.y;
@@ -3228,42 +3183,6 @@ export class StatusWindow {
 
   requestStatus(force = false) {
     this.world.game.ui.requestStatus(force);
-  }
-
-  invoke(action) {
-    const ui = this.world.game.ui;
-    const player = this.player;
-    if (!player) return;
-    if (action === 'paperdoll') {
-      this.world.socket.out.doubleClick(player.serial);
-    } else if (action === 'skills') {
-      ui.showSkills();
-    } else if (action === 'journal') {
-      ui.journal.show();
-    } else if (action === 'war') {
-      const state = !player.inWarMode;
-      player.inWarMode = state;
-      this.world.socket.out.warMode(state);
-      ui.refreshStatus();
-    } else if (action === 'refresh') {
-      this.requestStatus(true);
-    } else if (action === 'top') {
-      this.alwaysOnTop = !this.alwaysOnTop;
-      this.savePosition();
-      ui.raiseWindow(this);
-    } else if (action === 'lock') {
-      this.locked = !this.locked;
-      this.dragging = false;
-      this.savePosition();
-    } else if (action === 'scale') {
-      const steps = [0.75, 1, 1.25, 1.5];
-      const index = steps.findIndex((value) => Math.abs(value - this.scale) < 0.01);
-      this.scale = steps[(index + 1) % steps.length] || 1;
-      this.savePosition();
-    } else if (action === 'logout') {
-      this.world.socket.out.logoutNotification();
-      setTimeout(() => this.world.game.disconnect('Logged out'), 250);
-    }
   }
 
   drawButton(ctx, rect, label, active) {
@@ -3419,11 +3338,6 @@ export class StatusWindow {
     );
 
     this.drawButton(ctx, this.closeRect(), 'X', false);
-    for (const rect of this.actionRects()) {
-      let label = rect.label;
-      if (rect.id === 'war') label = p.inWarMode ? 'WAR' : 'PEACE';
-      this.drawButton(ctx, rect, label, this.hoverAction === rect.id || (rect.id === 'top' && this.alwaysOnTop) || (rect.id === 'lock' && this.locked));
-    }
 
     const buffs = this.buffRects();
     if (buffs.length) {
