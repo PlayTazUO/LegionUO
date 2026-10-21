@@ -854,6 +854,10 @@ export class Renderer {
     const img = this.assets.getStatic(entity.graphic, entity.hue);
     if (!img) return null;
     const pos = this.staticDrawPos(x, y, z, img);
+    const bounds = this.assets.staticBounds(entity.graphic, entity.hue);
+    if (bounds) {
+      return { x: pos.x + bounds.x, y: pos.y + bounds.y, w: bounds.w, h: bounds.h };
+    }
     return { x: pos.x, y: pos.y, w: img.width, h: img.height };
   }
 

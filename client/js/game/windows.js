@@ -2,7 +2,7 @@ import { Layer } from './entity.js';
 import { drawServerText } from './html.js';
 import { settings } from './settings.js';
 import { buffText } from './buffs.js';
-import { hotbarSpellSlot } from './hotbar.js';
+import { hotbarSkillSlot, hotbarSpellSlot } from './hotbar.js';
 import { SPELLS_PER_PAGE, getBookSpells, getCircleName, getSpellbookInfo, getSpellbookInfoByOffset } from './spells.js';
 
 const CONTAINER_STORAGE_BASE = 'legionuo.container.v1';
@@ -126,6 +126,11 @@ export class ContainerWindow {
     const clampEntry = (entry) => {
       entry.x = Math.max(left, Math.min(right - entry.w, entry.x));
       entry.y = Math.max(top, Math.min(bottom - entry.h, entry.y));
+      const bounds = entry.bounds;
+      entry.hitX = entry.x + (bounds?.x || 0);
+      entry.hitY = entry.y + (bounds?.y || 0);
+      entry.hitW = bounds?.w ?? entry.w;
+      entry.hitH = bounds?.h ?? entry.h;
       return entry;
     };
     if (this.usesServerPositions) {
@@ -135,6 +140,7 @@ export class ContainerWindow {
           clampEntry({
             item,
             img,
+            bounds: this.world.assets.staticBounds(item.graphic, item.hue),
             x: item.x || GRID_INSET,
             y: item.y || GRID_INSET,
             w: img?.width || 28,
@@ -147,13 +153,19 @@ export class ContainerWindow {
     }
     const cols = Math.max(1, Math.floor((this.width - GRID_INSET * 2) / GRID_CELL));
     for (let i = 0; i < items.length; i++) {
+      const x = GRID_INSET + (i % cols) * GRID_CELL;
+      const y = GRID_INSET + Math.floor(i / cols) * GRID_CELL;
       layout.push({
         item: items[i],
         img: this.world.assets.getStatic(items[i].graphic, items[i].hue),
-        x: GRID_INSET + (i % cols) * GRID_CELL,
-        y: GRID_INSET + Math.floor(i / cols) * GRID_CELL,
+        x,
+        y,
         w: GRID_CELL - 2,
         h: GRID_CELL - 2,
+        hitX: x,
+        hitY: y,
+        hitW: GRID_CELL - 2,
+        hitH: GRID_CELL - 2,
       });
     }
     return layout;
@@ -286,12 +298,18 @@ export class ContainerWindow {
     return { x: mx - this.x, y: my - this.y + this.scroll };
   }
 
+  hitBounds(entry) {
+    const stacked = entry.item?.amount > 1 ? STACK_ART_OFFSET : 0;
+    return { x: entry.hitX, y: entry.hitY, w: entry.hitW + stacked, h: entry.hitH + stacked };
+  }
+
   itemAt(mx, my) {
     const layout = this.layoutItems();
     const p = this.localPoint(mx, my);
     for (let i = layout.length - 1; i >= 0; i--) {
       const e = layout[i];
-      if (p.x >= e.x && p.y >= e.y && p.x < e.x + e.w && p.y < e.y + e.h) return e.item;
+      const b = this.hitBounds(e);
+      if (p.x >= b.x && p.y >= b.y && p.x < b.x + b.w && p.y < b.y + b.h) return e.item;
     }
     return null;
   }
@@ -568,11 +586,12 @@ export class ContainerWindow {
     } else if (this.contains(mx, my)) {
       const entry = this.layoutItems().find((item) => item.item.serial === (serial >>> 0));
       if (entry) {
-        const x = this.x + entry.x;
-        const y = this.y + entry.y - this.scroll;
+        const b = this.hitBounds(entry);
+        const x = this.x + b.x;
+        const y = this.y + b.y - this.scroll;
         const top = this.y + CONTAINER_MARGIN;
         const bottom = top + this.viewHeight;
-        if (y + entry.h > top && y < bottom) rect = { x, y, w: entry.w, h: entry.h };
+        if (y + b.h > top && y < bottom) rect = { x, y, w: b.w, h: b.h };
       }
     }
     if (!rect) return;
@@ -3956,6 +3975,9 @@ export class SkillsWindow {
     this.descending = false;
     this.usableOnly = false;
     this.hoverButton = null;
+    this.press = null;
+    this.dragSkill = null;
+    this.lastMouse = { x: 0, y: 0 };
     this.requestSkills();
   }
 
@@ -4088,6 +4110,8 @@ export class SkillsWindow {
         this.cycleLock(row.skill);
       } else if (row.localX >= 330 && row.localX < 366) {
         this.useSkill(row.skill);
+      } else if (button === 0 && row.skill.hasAction) {
+        this.press = { skill: row.skill, x: mx, y: my };
       }
       return true;
     }
@@ -4098,16 +4122,48 @@ export class SkillsWindow {
   }
 
   onMouseMove(mx, my) {
+    this.lastMouse.x = mx;
+    this.lastMouse.y = my;
     this.hoverButton = this.buttonAt(mx, my)?.id || null;
     if (this.dragging) {
       this.x = mx - this.dragOffset.x;
       this.y = my - this.dragOffset.y;
+      return;
+    }
+    if (this.press) {
+      const dx = mx - this.press.x;
+      const dy = my - this.press.y;
+      if (dx * dx + dy * dy >= 16) {
+        this.dragSkill = this.press.skill;
+        this.press = null;
+      }
     }
   }
 
-  onMouseUp() {
+  onMouseUp(mx, my) {
+    this.press = null;
+    if (this.dragSkill) {
+      const skill = this.dragSkill;
+      this.dragSkill = null;
+      this.dropSkill(skill, mx, my);
+    }
     if (this.dragging) this.savePosition();
     this.dragging = false;
+  }
+
+  dropSkill(skill, mx, my) {
+    const ui = this.world.game?.ui;
+    if (!ui) return;
+    const hotbar = ui.getWindow?.('hotbar', 'player');
+    if (hotbar?.contains?.(mx, my)) {
+      const index = hotbar.slotAt(mx, my);
+      const slot = hotbarSkillSlot(skill);
+      if (index >= 0 && slot && hotbar.setSlot(index, slot)) {
+        this.world.addMessage(`Bound ${slot.name} to hotbar slot ${index + 1}.`, 0x35, 1, 'System');
+        return;
+      }
+    }
+    if (!ui.hitTest?.(mx, my)) ui.createSkillButton?.(skill, mx, my);
   }
 
   onDoubleClick(mx, my) {
@@ -4306,6 +4362,152 @@ export class SkillsWindow {
       ctx.fillStyle = '#8d7a52';
       ctx.fillRect(trackX, thumbY, 3, thumbH);
     }
+
+    if (this.dragSkill) {
+      const label = `Use ${this.dragSkill.name}`;
+      ctx.font = 'bold 11px monospace';
+      const width = Math.min(220, ctx.measureText(label).width + 18);
+      const x = this.lastMouse.x + 14;
+      const y = this.lastMouse.y + 12;
+      ctx.fillStyle = 'rgba(18,15,10,0.94)';
+      ctx.fillRect(x, y, width, 22);
+      ctx.strokeStyle = '#9fd08f';
+      ctx.strokeRect(x + 0.5, y + 0.5, width - 1, 21);
+      ctx.fillStyle = '#b6d9a8';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(fitText(ctx, label, width - 14), x + 7, y + 12);
+      ctx.textBaseline = 'top';
+    }
+  }
+}
+
+const SKILL_BUTTON_STORAGE_BASE = 'legionuo.skillbuttons.v1';
+
+function skillButtonStorageKey(world) {
+  const account = (world.game?.loginCredentials?.account || '').trim().toLowerCase();
+  return account ? `${SKILL_BUTTON_STORAGE_BASE}.${account}` : SKILL_BUTTON_STORAGE_BASE;
+}
+
+export function loadSkillButtons(world) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(skillButtonStorageKey(world)) || 'null');
+    return Array.isArray(saved) ? saved : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveSkillButtons(world, buttons) {
+  try {
+    localStorage.setItem(skillButtonStorageKey(world), JSON.stringify(buttons));
+  } catch {
+    /* ignore quota errors */
+  }
+}
+
+export class SkillButtonWindow {
+  constructor(world, skill, x = 40, y = 40) {
+    this.world = world;
+    this.skill = {
+      index: Number(skill?.index) || 0,
+      name: String(skill?.name || `Skill ${skill?.index ?? 0}`),
+      hasAction: skill?.hasAction !== false,
+    };
+    this.width = 128;
+    this.height = 30;
+    this.dragging = false;
+    this.dragMoved = false;
+    this.dragOffset = { x: 0, y: 0 };
+    this.start = { x: 0, y: 0 };
+    const pos = clampWindowPosition(x - this.width / 2, y - this.height / 2, this.width, this.height);
+    this.x = pos.x;
+    this.y = pos.y;
+  }
+
+  contains(mx, my) {
+    return mx >= this.x && my >= this.y && mx < this.x + this.width && my < this.y + this.height;
+  }
+
+  tooltipAt() {
+    return {
+      id: `skillbutton:${this.skill.index}`,
+      title: this.skill.name,
+      lines: ['Skill', 'Click to use', 'Drag to the hotbar or right-click to remove'],
+    };
+  }
+
+  use() {
+    if (!this.skill.hasAction) return false;
+    this.world.socket.out.useSkill(this.skill.index);
+    return true;
+  }
+
+  onMouseDown(mx, my, button) {
+    if (button === 2) {
+      this.close();
+      return true;
+    }
+    if (button !== 0) return false;
+    this.dragging = true;
+    this.dragMoved = false;
+    this.dragOffset.x = mx - this.x;
+    this.dragOffset.y = my - this.y;
+    this.start.x = this.x;
+    this.start.y = this.y;
+    return true;
+  }
+
+  onMouseMove(mx, my) {
+    if (!this.dragging) return;
+    const dx = mx - (this.start.x + this.dragOffset.x);
+    const dy = my - (this.start.y + this.dragOffset.y);
+    if (!this.dragMoved && dx * dx + dy * dy < 9) return;
+    this.dragMoved = true;
+    const pos = clampWindowPosition(mx - this.dragOffset.x, my - this.dragOffset.y, this.width, this.height);
+    this.x = pos.x;
+    this.y = pos.y;
+  }
+
+  onMouseUp(mx, my) {
+    if (!this.dragging) return;
+    this.dragging = false;
+    if (!this.dragMoved) {
+      this.use();
+      return;
+    }
+    const ui = this.world.game?.ui;
+    const hotbar = ui?.getWindow?.('hotbar', 'player');
+    if (hotbar?.contains?.(mx, my)) {
+      const index = hotbar.slotAt(mx, my);
+      const slot = hotbarSkillSlot(this.skill);
+      if (index >= 0 && slot && hotbar.setSlot(index, slot)) {
+        this.world.addMessage(`Bound ${slot.name} to hotbar slot ${index + 1}.`, 0x35, 1, 'System');
+        this.x = this.start.x;
+        this.y = this.start.y;
+        return;
+      }
+    }
+    ui?.persistSkillButtons?.();
+  }
+
+  close() {
+    this.world.game.ui?.removeSkillButton?.(this.skill.index);
+  }
+
+  draw(ctx) {
+    ctx.fillStyle = 'rgba(18,15,10,0.94)';
+    ctx.fillRect(this.x, this.y, this.width, this.height);
+    ctx.strokeStyle = '#8d7a52';
+    ctx.strokeRect(this.x + 0.5, this.y + 0.5, this.width - 1, this.height - 1);
+    ctx.fillStyle = '#9fd08f';
+    ctx.fillRect(this.x + 1, this.y + 1, 3, this.height - 2);
+    ctx.fillStyle = '#e2d6b4';
+    ctx.font = 'bold 11px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(fitText(ctx, this.skill.name, this.width - 16), this.x + 10, this.y + this.height / 2 + 1);
+    ctx.textBaseline = 'top';
   }
 }
 

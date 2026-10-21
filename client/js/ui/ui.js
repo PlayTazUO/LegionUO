@@ -11,6 +11,7 @@ import {
   StatusWindow,
   OptionsWindow,
   SkillsWindow,
+  SkillButtonWindow,
   SpellbookWindow,
   TradeWindow,
   PartyWindow,
@@ -21,6 +22,8 @@ import {
   HealthBarWindow,
   HelpWindow,
   VirtueWindow,
+  loadSkillButtons,
+  saveSkillButtons,
   saveFriends,
 } from '../game/windows.js';
 import { Layer } from '../game/entity.js';
@@ -427,6 +430,7 @@ export class UI {
     this.refreshSkills();
     this.world.alwaysRun = !!settings.get('alwaysRun');
     this.showStatus();
+    this.restoreSkillButtons();
     if (document.activeElement && typeof document.activeElement.blur === 'function') document.activeElement.blur();
     $('btnWar').textContent = this.world.player?.inWarMode ? 'WAR' : 'PEACE';
   }
@@ -520,6 +524,57 @@ export class UI {
 
   closeSkills() {
     this.removeWindow('skills', 'player');
+  }
+
+  createSkillButton(skill, x, y, persist = true) {
+    if (!skill || skill.hasAction === false) return null;
+    const index = Number(skill.index);
+    if (!Number.isFinite(index) || index < 0) return null;
+    const existing = this.getWindow('skillbutton', index);
+    if (existing) {
+      this.raiseWindow(existing);
+      return existing;
+    }
+    const window = new SkillButtonWindow(this.world, skill, x, y);
+    this.addWindow('skillbutton', index, window);
+    this.raiseWindow(window);
+    if (persist) this.persistSkillButtons();
+    return window;
+  }
+
+  removeSkillButton(index) {
+    this.removeWindow('skillbutton', index);
+    this.persistSkillButtons();
+  }
+
+  restoreSkillButtons() {
+    const saved = loadSkillButtons(this.world);
+    for (const entry of saved) {
+      const index = Number(entry?.index);
+      if (!Number.isFinite(index) || index < 0) continue;
+      const info =
+        this.skillInfo?.find((skill) => Number(skill.index) === index) ||
+        this.world.skillList?.find((skill) => Number(skill.index) === index);
+      if (info && info.hasAction === false) continue;
+      this.createSkillButton(
+        { index, name: entry.name || info?.name, hasAction: info?.hasAction },
+        Number(entry.x) || 40,
+        Number(entry.y) || 40,
+        false
+      );
+    }
+  }
+
+  persistSkillButtons() {
+    const buttons = this.windows
+      .filter((entry) => entry.kind === 'skillbutton')
+      .map((entry) => ({
+        index: entry.obj.skill.index,
+        name: entry.obj.skill.name,
+        x: Math.round(entry.obj.x),
+        y: Math.round(entry.obj.y),
+      }));
+    saveSkillButtons(this.world, buttons);
   }
 
   showBuffs() {

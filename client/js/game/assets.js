@@ -1,3 +1,38 @@
+function opaqueBounds(img) {
+  const w = img.naturalWidth || img.width;
+  const h = img.naturalHeight || img.height;
+  if (!w || !h) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.drawImage(img, 0, 0);
+  let data;
+  try {
+    data = ctx.getImageData(0, 0, w, h).data;
+  } catch {
+    return null;
+  }
+  let minX = w;
+  let minY = h;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) {
+      if (data[(row + x) * 4 + 3] > 0) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < minX || maxY < minY) return { x: 0, y: 0, w: 0, h: 0 };
+  return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+}
+
 export class AssetManager {
   constructor(config) {
     this.config = config;
@@ -16,13 +51,14 @@ export class AssetManager {
     this.debug = !!enabled;
   }
 
-  image(key, url) {
+  image(key, url, computeBounds = false) {
     let entry = this.images.get(key);
     if (entry) return entry.ready ? entry.img : null;
     const img = new Image();
-    entry = { img, ready: false, failed: false };
+    entry = { img, ready: false, failed: false, bounds: null };
     this.images.set(key, entry);
     img.onload = () => {
+      if (computeBounds) entry.bounds = opaqueBounds(img);
       entry.ready = true;
     };
     img.onerror = () => {
@@ -49,7 +85,12 @@ export class AssetManager {
 
   getStatic(id, hue = 0) {
     if (!this.debug && this.isNoDraw(id, false)) return null;
-    return this.image(`static|${id}|${hue}`, `/api/art/static/${id}.png?hue=${hue}`);
+    return this.image(`static|${id}|${hue}`, `/api/art/static/${id}.png?hue=${hue}`, true);
+  }
+
+  staticBounds(id, hue = 0) {
+    const entry = this.images.get(`static|${id}|${hue}`);
+    return entry?.ready ? entry.bounds : null;
   }
 
   getTexmap(id, hue = 0) {
