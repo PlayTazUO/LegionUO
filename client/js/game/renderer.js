@@ -232,7 +232,7 @@ export class Renderer {
   }
 
   drawStretchedLand(ctx, block, x, y, cell, pos) {
-    if ((cell.tile & 0xffff) === 0 && !this.assets.debug) return false;
+    if (!this.assets.debug && this.assets.isNoDraw(cell.tile, true)) return false;
     const texId = this.assets.landTexId(cell.tile);
     if (!texId) return false;
     const z = cell.z;

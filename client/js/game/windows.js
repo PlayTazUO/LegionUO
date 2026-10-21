@@ -119,17 +119,28 @@ export class ContainerWindow {
   layoutItems() {
     const items = this.items;
     const layout = [];
+    const left = GRID_INSET;
+    const top = GRID_INSET;
+    const right = Math.max(left, this.width - GRID_INSET);
+    const bottom = Math.max(top, this.height - GRID_INSET);
+    const clampEntry = (entry) => {
+      entry.x = Math.max(left, Math.min(right - entry.w, entry.x));
+      entry.y = Math.max(top, Math.min(bottom - entry.h, entry.y));
+      return entry;
+    };
     if (this.usesServerPositions) {
       for (const item of items) {
         const img = this.world.assets.getStatic(item.graphic, item.hue);
-        layout.push({
-          item,
-          img,
-          x: item.x || GRID_INSET,
-          y: item.y || GRID_INSET,
-          w: img?.width || 28,
-          h: img?.height || 28,
-        });
+        layout.push(
+          clampEntry({
+            item,
+            img,
+            x: item.x || GRID_INSET,
+            y: item.y || GRID_INSET,
+            w: img?.width || 28,
+            h: img?.height || 28,
+          })
+        );
       }
       layout.sort((a, b) => a.y + a.h - (b.y + b.h) || a.x - b.x);
       return layout;
@@ -153,6 +164,9 @@ export class ContainerWindow {
   }
 
   get scrollMax() {
+    // Server-positioned containers clamp items inside the gump instead of
+    // scrolling. The legacy grid fallback still scrolls when it overflows.
+    if (this.usesServerPositions) return 0;
     const layout = this.layoutItems();
     const content = layout.reduce((max, e) => Math.max(max, e.y + e.h), 0);
     return Math.max(0, content - this.viewHeight + CONTAINER_MARGIN);
@@ -604,11 +618,11 @@ export class ContainerWindow {
           if (positioned) {
             ctx.drawImage(img, x, y);
           } else {
-            const scale = Math.min(1, 40 / Math.max(img.width, img.height));
+            const scale = Math.min(1, (e.w - 2) / Math.max(img.width, img.height));
             ctx.drawImage(
               img,
-              x + ((GRID_CELL - 2) - img.width * scale) / 2,
-              y + ((GRID_CELL - 2) - img.height * scale) / 2,
+              x + (e.w - img.width * scale) / 2,
+              y + (e.h - img.height * scale) / 2,
               img.width * scale,
               img.height * scale
             );

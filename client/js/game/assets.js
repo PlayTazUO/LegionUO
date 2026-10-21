@@ -32,13 +32,23 @@ export class AssetManager {
     return null;
   }
 
+  isNoDraw(id, isLand = false) {
+    const graphic = id & 0xffff;
+    if (graphic === 0xffff) return true;
+    const entry = isLand ? this.tileData?.land?.[graphic] : this.tileData?.statics?.[graphic];
+    const name = isLand ? entry?.[2] : entry?.[4];
+    if (name) return /^no[\s_-]?draw/i.test(String(name).trim());
+    // Fall back until tiledata has loaded.
+    return isLand ? graphic === 2 : graphic <= 1;
+  }
+
   getLand(id, hue = 0) {
-    if ((id & 0xffff) === 0 && !this.debug) return null;
+    if (!this.debug && this.isNoDraw(id, true)) return null;
     return this.image(`land|${id}|${hue}`, `/api/art/land/${id}.png?hue=${hue}`);
   }
 
   getStatic(id, hue = 0) {
-    if ((id & 0xffff) === 0 && !this.debug) return null;
+    if (!this.debug && this.isNoDraw(id, false)) return null;
     return this.image(`static|${id}|${hue}`, `/api/art/static/${id}.png?hue=${hue}`);
   }
 
