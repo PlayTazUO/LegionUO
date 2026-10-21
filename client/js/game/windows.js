@@ -2198,10 +2198,12 @@ export class PaperdollWindow {
       return null;
     }
     for (const line of opl.lines) {
-      const match = /(durability|hit points|uses remaining)[^0-9]*?(\d+)\s*%?/i.exec(line);
+      const match = /(durability|hit points|uses remaining)[^0-9]*?(\d+)\s*(?:\/\s*(\d+))?\s*%?/i.exec(line);
       if (match) {
-        const value = Math.max(0, Math.min(100, Number(match[2]) || 0));
-        return { value, text: line };
+        const value = Math.max(0, Number(match[2]) || 0);
+        const max = Math.max(1, Number(match[3]) || 100);
+        const ratio = Math.max(0, Math.min(1, value / max));
+        return { value, max, ratio, text: line };
       }
     }
     return null;
@@ -2376,8 +2378,8 @@ export class PaperdollWindow {
       if (wear) {
         ctx.fillStyle = 'rgba(0,0,0,0.65)';
         ctx.fillRect(slotX + 1, slotY + slot.h - 3, slot.w - 2, 2);
-        ctx.fillStyle = wear.value <= 20 ? '#d06a4a' : wear.value <= 50 ? '#d6b45d' : '#7fb36a';
-        ctx.fillRect(slotX + 1, slotY + slot.h - 3, (slot.w - 2) * (wear.value / 100), 2);
+        ctx.fillStyle = wear.ratio <= 0.2 ? '#d06a4a' : wear.ratio <= 0.5 ? '#d6b45d' : '#7fb36a';
+        ctx.fillRect(slotX + 1, slotY + slot.h - 3, (slot.w - 2) * wear.ratio, 2);
       }
     }
 

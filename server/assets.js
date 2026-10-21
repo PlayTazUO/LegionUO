@@ -40,6 +40,15 @@ class LRU {
     if (typeof value.length === 'number') return value.length;
     if (value.png?.length) return value.png.length + 4096;
     if (value.data?.length) return value.data.length + 4096;
+    if (Array.isArray(value.cells)) {
+      return (
+        2048 +
+        value.cells.length * 64 +
+        (value.statics?.length || 0) * 96 +
+        (value.land?.length || 0) * 2 +
+        (value.staticsRaw?.length || 0) * 2
+      );
+    }
     return 4096;
   }
 

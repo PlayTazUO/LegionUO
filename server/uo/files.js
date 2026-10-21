@@ -158,22 +158,24 @@ export class UOFileManager {
     if (this.mulCache.has(key)) return this.mulCache.get(key);
 
     const data = Reader.open(filePath);
-    const idx = idxPath ? Reader.open(idxPath) : data;
-    const entries = new Array(Math.floor(idx.length / 12));
-    for (let i = 0; i < entries.length; i++) {
-      idx.seek(i * 12);
-      const offset = idx.readU32();
-      const length = idx.readI32();
-      const extra = idx.readI32();
-      entries[i] = {
-        offset,
-        length,
-        decompressedLength: 0,
-        compression: 0,
-        width: extra > 0 ? (extra >> 16) : 0,
-        height: extra > 0 ? (extra & 0xffff) : 0,
-        hue: 0,
-      };
+    const idx = idxPath ? Reader.open(idxPath) : null;
+    const entries = idx ? new Array(Math.floor(idx.length / 12)) : [];
+    if (idx) {
+      for (let i = 0; i < entries.length; i++) {
+        idx.seek(i * 12);
+        const offset = idx.readU32();
+        const length = idx.readI32();
+        const extra = idx.readI32();
+        entries[i] = {
+          offset,
+          length,
+          decompressedLength: 0,
+          compression: 0,
+          width: extra > 0 ? (extra >> 16) : 0,
+          height: extra > 0 ? (extra & 0xffff) : 0,
+          hue: 0,
+        };
+      }
     }
     const spec = { type: 'mul', reader: data, idx, entries };
     this.mulCache.set(key, spec);
