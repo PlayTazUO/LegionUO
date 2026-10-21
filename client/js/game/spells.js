@@ -244,3 +244,33 @@ export function getBookSpells(info, slots, page) {
 export function getCircleName(info, page) {
   return info.circles?.[page - 1] || `Spells ${(page - 1) * SPELLS_PER_PAGE + 1}-${Math.min(info.names.length, page * SPELLS_PER_PAGE)}`;
 }
+
+export function findSpellByName(query) {
+  const needle = String(query || '').trim().toLowerCase();
+  if (!needle) return null;
+  const schools = SPELLBOOK_TYPES.map((info) => ({
+    info,
+    exact: info.names.findIndex((name) => name.toLowerCase() === needle),
+    partial: info.names.findIndex((name) => name.toLowerCase().includes(needle)),
+  }));
+  for (const school of schools) {
+    if (school.exact >= 0) {
+      return { ...getBookSpell(school.info, school.exact + 1), school: school.info.key };
+    }
+  }
+  for (const school of schools) {
+    if (school.partial >= 0) {
+      return { ...getBookSpell(school.info, school.partial + 1), school: school.info.key };
+    }
+  }
+  for (const info of SPELLBOOK_TYPES) {
+    const id = Number(query);
+    if (Number.isFinite(id) && id > 0) {
+      const slot = id - (info.idBase || 0);
+      if (slot >= 1 && slot <= info.names.length) {
+        return { ...getBookSpell(info, slot), school: info.key };
+      }
+    }
+  }
+  return null;
+}

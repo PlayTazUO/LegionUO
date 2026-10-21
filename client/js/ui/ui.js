@@ -20,6 +20,15 @@ import {
 import { Layer } from '../game/entity.js';
 import { settings } from '../game/settings.js';
 import { BuffBarWindow, buffGraphic } from '../game/buffs.js';
+import {
+  HotbarWindow,
+  hotbarCommandSlot,
+  hotbarItemSlot,
+  hotbarSkillSlot,
+  hotbarSlotForKey,
+  hotbarSpellSlot,
+} from '../game/hotbar.js';
+import { findSpellByName } from '../game/spells.js';
 import { MapGumpWindow, MinimapWindow, WorldMapWindow } from '../game/maps.js';
 import { WaypointWindow, addLocalWaypoint, clearLocalWaypoints, loadLocalWaypoints } from '../game/waypoints.js';
 import { Reader } from '../util/binary.js';
@@ -103,6 +112,7 @@ export class UI {
     $('btnSkills').addEventListener('click', () => this.toggleSkills());
     $('btnParty')?.addEventListener('click', () => this.toggleParty());
     $('btnMap')?.addEventListener('click', () => this.toggleRadar());
+    $('btnHotbar')?.addEventListener('click', () => this.toggleHotbar());
     $('btnWorldMap')?.addEventListener('click', () => this.toggleWorldMap());
     $('btnWaypoints')?.addEventListener('click', () => this.toggleWaypoints());
     $('btnWar').addEventListener('click', () => this.toggleWarMode());
@@ -527,6 +537,27 @@ export class UI {
     this.removeWindow('buffs', 'player');
   }
 
+  showHotbar() {
+    if (!this.world.player) return null;
+    const existing = this.getWindow('hotbar', 'player');
+    if (existing) {
+      this.raiseWindow(existing);
+      return existing;
+    }
+    const window = new HotbarWindow(this.world);
+    this.addWindow('hotbar', 'player', window);
+    return window;
+  }
+
+  toggleHotbar() {
+    if (this.getWindow('hotbar', 'player')) this.closeHotbar();
+    else this.showHotbar();
+  }
+
+  closeHotbar() {
+    this.removeWindow('hotbar', 'player');
+  }
+
   showParty() {
     if (!this.world.player) return;
     const existing = this.getWindow('party', 'player');
@@ -703,7 +734,7 @@ export class UI {
     const command = cmd.toLowerCase();
     if (command === 'help') {
       this.addJournal(
-        'Commands: -help -skills -status -options -buffs -partywindow -radar -worldmap -waypoints -waypoint add [x y] [name]|clear -profile -where -war -peace -run -walk -resync -logout -open -target -lasttarget -debug -journal -clear -say -whisper -yell -emote -party -guild -alliance -ignore -unignore -ignorelist -timestamps',
+        'Commands: -help -skills -status -options -buffs -hotbar [set n item|spell|skill|command ...|clear [n]|use n] -partywindow -radar -worldmap -waypoints -waypoint add [x y] [name]|clear -profile -where -war -peace -run -walk -resync -logout -open -target -lasttarget -debug -journal -clear -say -whisper -yell -emote -party -guild -alliance -ignore -unignore -ignorelist -timestamps',
         '#b8a06a',
         true
       );
@@ -756,6 +787,8 @@ export class UI {
       this.showOptions();
     } else if (command === 'buffs') {
       this.toggleBuffs();
+    } else if (command === 'hotbar') {
+      this.hotbarCommand(args);
     } else if (command === 'partywindow') {
       this.toggleParty();
     } else if (command === 'radar' || command === 'minimap') {
@@ -816,6 +849,82 @@ export class UI {
       this.useLastTarget();
     } else {
       this.addJournal(`Unknown command: -${cmd}`, '#c56a4a', true);
+    }
+  }
+
+  hotbarCommand(args) {
+    const sub = String(args[0] || '').toLowerCase();
+    if (!sub) {
+      this.toggleHotbar();
+      return;
+    }
+    const window = this.showHotbar();
+    if (!window) return;
+    const usage =
+      'Usage: -hotbar [set n item <serial>|spell <name>|skill <name>|command <text> | clear [n] | use n]';
+    const slotNumber = Number.parseInt(args[1], 10);
+    const index = Number.isFinite(slotNumber) ? slotNumber - 1 : -1;
+    if (sub === 'clear') {
+      if (index >= 0 && index < window.slots.length) {
+        window.clearSlot(index);
+        this.addJournal(`Cleared hotbar slot ${index + 1}.`, '#b8a06a', true);
+      } else if (index < 0) {
+        for (let i = 0; i < window.slots.length; i++) window.clearSlot(i);
+        this.addJournal('Cleared all hotbar slots.', '#b8a06a', true);
+      } else {
+        this.addJournal(usage, '#c56a4a', true);
+      }
+      return;
+    }
+    if (index < 0 || index >= window.slots.length) {
+      this.addJournal(usage, '#c56a4a', true);
+      return;
+    }
+    if (sub === 'use') {
+      if (!window.use(index)) this.addJournal(`Hotbar slot ${index + 1} is empty.`, '#c56a4a', true);
+      return;
+    }
+    if (sub !== 'set') {
+      this.addJournal(usage, '#c56a4a', true);
+      return;
+    }
+    const type = String(args[2] || '').toLowerCase();
+    const rest = args.slice(3).join(' ').trim();
+    let slot = null;
+    if (type === 'item') {
+      const serial = Number.parseInt(rest, /^0x/i.test(rest) ? 16 : 10);
+      const item = Number.isFinite(serial) ? this.world.getItem(serial >>> 0) : null;
+      if (!item) {
+        this.addJournal('No item with that serial is loaded. Drag an item onto a slot instead.', '#c56a4a', true);
+        return;
+      }
+      slot = hotbarItemSlot(item);
+    } else if (type === 'spell') {
+      const spell = findSpellByName(rest);
+      if (!spell) {
+        this.addJournal(`Unknown spell: ${rest || '(none)'}`, '#c56a4a', true);
+        return;
+      }
+      slot = hotbarSpellSlot(spell);
+    } else if (type === 'skill') {
+      const needle = rest.toLowerCase();
+      const skills = this.skillInfo?.length ? this.skillInfo : this.world.skillList || [];
+      const skill =
+        skills.find((entry) => (entry.name || '').toLowerCase() === needle) ||
+        skills.find((entry) => (entry.name || '').toLowerCase().includes(needle));
+      if (!skill) {
+        this.addJournal(`Unknown skill: ${rest || '(none)'}`, '#c56a4a', true);
+        return;
+      }
+      slot = hotbarSkillSlot(skill);
+    } else if (type === 'command') {
+      slot = hotbarCommandSlot(rest, rest.replace(/^-/, ''));
+    } else {
+      this.addJournal(usage, '#c56a4a', true);
+      return;
+    }
+    if (slot && window.setSlot(index, slot)) {
+      this.addJournal(`Hotbar slot ${index + 1}: ${slot.name}.`, '#b8a06a', true);
     }
   }
 
@@ -2181,6 +2290,14 @@ export class UI {
       this.game.cancelWalkPath();
       const direction = this.computeDirection();
       if (direction != null) this.world.walk(direction, !!this.shiftDown || !!this.world.alwaysRun);
+      return;
+    }
+    if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+      const slot = hotbarSlotForKey(e.code);
+      if (slot >= 0) {
+        const window = this.getWindow('hotbar', 'player');
+        if (window?.use(slot)) e.preventDefault();
+      }
     }
   }
 

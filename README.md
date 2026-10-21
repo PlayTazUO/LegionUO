@@ -106,6 +106,8 @@ Then open <http://127.0.0.1:8080>.
   radio choices, and `0x95` dye requests open a hue grid with a live preview.
 - Ghost body/state on death, ghost movement and rendering, and resurrection cleanup.
 - Draggable buff/debuff icon bar with countdown timers, tooltips and saved position.
+- Hotbar/desktop with 12 key-bound slots (`1`-`0`, `-`, `=`), drag-to-bind items,
+  spell/skill/command bindings, tooltips, and per-account persistence.
 - Movable party manifest with live HP bars, invite/accept/decline, tell/kick,
   leave/disband, loot toggle, party chat and saved position.
 - Radar/minimap with `radarcol.mul` terrain colours, mobile/waypoint dots and a

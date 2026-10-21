@@ -45,6 +45,10 @@ Implemented today:
   accept/cancel state, live updates, item drag/drop, tooltips, and saved position.
 - Party (`0xBF 0x06`) has a manifest window with leader/member slots, HP bars, invite,
   accept/decline, tell/kick, leave/disband, loot toggle, party chat, and saved position.
+- Hotbar/desktop (`client/js/game/hotbar.js`, `HB` button or `-hotbar`) has 12 slots
+  bound to keys `1`-`0`, `-`, and `=`, drag-to-bind items, `-hotbar set` bindings for
+  items, spells, skills, and commands, right-click clearing, tooltips, and per-account
+  position and slot persistence.
 - Context menus (`0xBF 0x14`) open on right-click over world and container items, show
   cliloc entries with hue/arrow flags, and reply with `0xBF 0x15`. Right-clicking empty
   ground still starts mouse-walk.
@@ -63,6 +67,9 @@ Implemented today:
   facets through `/api/mapimage`, with facet tabs, wheel zoom around the cursor, drag
   panning, center/fit controls, window drag/resize, saved state, player/party/
   waypoint/quest markers, hover coordinates, and double-click click-to-walk.
+- UOLive/UltimaLive map updates (`client/js/game/uolive.js`) handle server map
+  definitions, block CRC/hash queries, and terrain/static patches, applying them to
+  map blocks before rendering; custom house editing is still inert.
 - Paperdolls use the real gump art (`0x07D0`/`0x07D1`), draw equipped layers on the
   animated doll, show per-layer equipment slots with tooltips, support drag/drop
   pickup and equip, provide help/journal/skills/war/status/profile/party/logout
@@ -520,7 +527,8 @@ Current status at a glance:
 
 - Full-screen world map browser *(implemented)*; map-gump pins and the radar are implemented.
 - Options/settings window *(implemented)*.
-- Hotbar/desktop, spell/ability shortcuts.
+- Hotbar/desktop *(implemented)*; drag-from-spellbook binding, multiple bars/pages, and
+  macro recording remain.
 - Quest arrow and waypoint list UI *(implemented)*.
 - House/custom-house editing UI.
 - Vendor search, runebook, bulk order, quest log.
@@ -574,7 +582,7 @@ Current status at a glance:
    bulletin board, menus/gray menus, prompts, and the dye hue picker are done)*
 7. Party, buffs, tooltips/OPL, context menu. *(party, tooltips/OPL, buff bar, and context menu done)*
 8. Map/radar, options, hotbar, audio. *(radar, map item gumps, the full-screen world
-   map, and the options window are done; hotbar and real audio samples remain)*
+   map, the options window, and the hotbar are done; real audio samples remain)*
 
 ## 7. Current file map
 
@@ -586,7 +594,9 @@ Current status at a glance:
 | Entities / layers | `client/js/game/entity.js` |
 | Effects / audio | `client/js/game/effects.js`, `client/js/game/audio.js` |
 | Buff bar / buff graphics | `client/js/game/buffs.js` |
+| Hotbar / shortcuts | `client/js/game/hotbar.js` |
 | Radar / map gumps / world map | `client/js/game/maps.js` |
+| UOLive map patches | `client/js/game/uolive.js` |
 | Quest arrow / waypoint list | `client/js/game/waypoints.js` |
 | Server gump parser | `client/js/game/gump.js` |
 | Spell data / schools | `client/js/game/spells.js` |
@@ -618,6 +628,8 @@ Current status at a glance:
 - Open waypoints, add/remove/clear a local waypoint, and double-click a row to walk.
 - Open the world map, switch facets, zoom/pan, and double-click a reachable tile to walk.
 - Open options, toggle display/audio settings, and confirm they persist after reload.
+- Open the hotbar, drag an item onto a slot, bind a spell/skill/command, use the slot
+  with its key, and confirm the layout persists after reload.
 - Use a skill and cast a spell.
 - Die and resurrect.
 - Close every gump with its intended close method.
