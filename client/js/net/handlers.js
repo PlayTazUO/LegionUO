@@ -955,6 +955,11 @@ export class Handlers {
         if (layer === Layer.Mount && parent?.isMobile) parent.mount = item;
         itemSerial = r.readU32BE();
       }
+      const mobile = world.get(serial);
+      if (is078 && mobile?.isMobile && r.remaining() > 0) {
+        const name = r.readASCII();
+        if (name) mobile.name = name;
+      }
       game.ui?.onEquipmentChanged?.(serial);
     };
     this.set(0x78, (r) => updateObject(r, true));

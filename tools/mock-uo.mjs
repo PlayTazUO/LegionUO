@@ -107,7 +107,7 @@ const gameServer = net.createServer((socket) => {
   }, 6000);
   setTimeout(() => {
     // Another mobile, a ground item, speech, animation, light, season.
-    const mob = concat(u32(2), u16(0x0190), u16(1004), u16(1000), Buffer.from([0]), u8(2), u16(0), u8(0), u8(1), u32(0));
+    const mob = concat(u32(2), u16(0x0190), u16(1004), u16(1000), Buffer.from([0]), u8(2), u16(0), u8(0), u8(1), u32(0), ascii('Guard\0'));
     const updateMob = packet(0x78, mob, -1);
     const item = concat(u32(0x40000001), u16(0x0eed), u16(1002), u16(1002), Buffer.from([0]));
     const updateItem = packet(0x1a, item, -1);

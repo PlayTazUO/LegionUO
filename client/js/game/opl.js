@@ -56,14 +56,25 @@ export class OPLManager {
   }
 
   request(serial) {
-    serial = serial >>> 0;
-    if (!serial || !this.world.inGame) return;
-    if (this.isFresh(serial)) return;
+    this.requestMany([serial]);
+  }
+
+  requestMany(serials) {
+    if (!this.world.inGame) return;
     const now = performance.now();
-    const last = this.requestedAt.get(serial) || 0;
-    if (now - last < REQUEST_COOLDOWN) return;
-    this.requestedAt.set(serial, now);
-    this.world.socket.out.megaClilocRequest([serial]);
+    const pending = [];
+    const seen = new Set();
+    for (const value of serials) {
+      const serial = value >>> 0;
+      if (!serial || seen.has(serial)) continue;
+      seen.add(serial);
+      if (this.isFresh(serial)) continue;
+      const last = this.requestedAt.get(serial) || 0;
+      if (now - last < REQUEST_COOLDOWN) continue;
+      this.requestedAt.set(serial, now);
+      pending.push(serial);
+    }
+    if (pending.length) this.world.socket.out.megaClilocRequest(pending);
   }
 
   resolve(serial) {

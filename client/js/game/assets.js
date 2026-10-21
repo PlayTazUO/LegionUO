@@ -114,7 +114,7 @@ export class AssetManager {
 
   async loadTileData() {
     if (this.tileData) return this.tileData;
-    const res = await fetch('/api/tiledata?v=2');
+    const res = await fetch('/api/tiledata?names=1&v=2');
     if (!res.ok) {
       this.tileData = { land: [], statics: [] };
       return this.tileData;
@@ -137,6 +137,10 @@ export class AssetManager {
 
   staticAnimId(graphic) {
     return this.tileData?.statics?.[graphic]?.[3] ?? graphic;
+  }
+
+  staticName(graphic) {
+    return this.tileData?.statics?.[graphic]?.[4] || '';
   }
 
   landFlags(graphic) {

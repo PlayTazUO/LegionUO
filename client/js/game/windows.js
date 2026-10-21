@@ -16,6 +16,16 @@ const LIST_MAX_ROWS = 8;
 const LIST_MIN_WIDTH = 280;
 const LIST_ICON_SIZE = 20;
 
+function resolveItemName(world, item) {
+  if (!item) return '';
+  if (item.name) return item.name;
+  const opl = world.opl.resolve(item.serial);
+  if (opl?.name) return opl.name;
+  const dataName = world.assets.staticName?.(item.graphic);
+  if (dataName) return dataName;
+  return `0x${item.graphic.toString(16)}`;
+}
+
 function containerStorageKey(world) {
   const account = (world.game?.loginCredentials?.account || '').trim().toLowerCase();
   return account ? `${CONTAINER_STORAGE_BASE}.${account}` : CONTAINER_STORAGE_BASE;
@@ -63,6 +73,7 @@ export class ContainerWindow {
     this.listPress = null;
     this.listHover = -1;
     this.listScrollDrag = false;
+    this.requestContentsOpl();
   }
 
   get item() {
@@ -73,6 +84,11 @@ export class ContainerWindow {
     const parent = this.world.get(this.serial);
     if (!parent) return [];
     return [...parent.items.values()].filter((it) => it.layer === Layer.Invalid && it !== this.world.player);
+  }
+
+  requestContentsOpl() {
+    const serials = this.items.map((item) => item.serial);
+    if (serials.length) this.world.opl.requestMany(serials);
   }
 
   background() {
@@ -180,8 +196,8 @@ export class ContainerWindow {
 
   get listSortedItems() {
     return [...this.items].sort((a, b) => {
-      const an = String(a.name || `0x${a.graphic.toString(16)}`).toLowerCase();
-      const bn = String(b.name || `0x${b.graphic.toString(16)}`).toLowerCase();
+      const an = resolveItemName(this.world, a).toLowerCase();
+      const bn = resolveItemName(this.world, b).toLowerCase();
       return an.localeCompare(bn) || (a.serial >>> 0) - (b.serial >>> 0);
     });
   }
@@ -274,7 +290,7 @@ export class ContainerWindow {
   tooltipAt(mx, my) {
     const item = this.listItemAt(mx, my) || this.itemAt(mx, my);
     if (!item) return null;
-    return { id: `container:${this.serial}:${item.serial}`, serial: item.serial, title: item.name };
+    return { id: `container:${this.serial}:${item.serial}`, serial: item.serial, title: resolveItemName(this.world, item) };
   }
 
   get scrollbarRect() {
@@ -429,7 +445,7 @@ export class ContainerWindow {
     ui.dragTarget = null;
     this.press = null;
     this.listPress = null;
-    ui.showModalInput(`Split ${item.name || 'stack'} (1-${total})`, '1', 6, (value) => {
+    ui.showModalInput(`Split ${resolveItemName(this.world, item) || 'stack'} (1-${total})`, '1', 6, (value) => {
       const parsed = parseInt(String(value).replace(/[^0-9]/g, ''), 10);
       if (!Number.isFinite(parsed) || parsed <= 0) return;
       this.pickupItem(item, parsed);
@@ -521,6 +537,7 @@ export class ContainerWindow {
   }
 
   draw(ctx, now) {
+    this.requestContentsOpl();
     this.scroll = Math.max(0, Math.min(this.scroll, this.scrollMax));
     const bg = this.background();
     if (bg) {
@@ -630,7 +647,7 @@ export class ContainerWindow {
           ctx.drawImage(img, row.x + 4 + (LIST_ICON_SIZE - iw) / 2, row.y + (row.h - ih) / 2, iw, ih);
         }
 
-        const name = item.name || `0x${item.graphic.toString(16)}`;
+        const name = resolveItemName(this.world, item);
         const countText = `x${item.amount || 1}`;
         ctx.font = '11px monospace';
         const countWidth = ctx.measureText(countText).width;
@@ -808,9 +825,8 @@ export class TradeWindow {
   }
 
   itemName(item) {
-    const opl = this.world.opl.resolve(item.serial);
-    if (!opl) this.world.opl.request(item.serial);
-    return opl?.name || item.name || `0x${item.graphic.toString(16)}`;
+    if (!this.world.opl.resolve(item.serial)) this.world.opl.request(item.serial);
+    return resolveItemName(this.world, item);
   }
 
   closeRect() {
@@ -2026,7 +2042,7 @@ export class PaperdollWindow {
   tooltipAt(mx, my) {
     const item = this.equipmentAt(mx, my);
     if (!item) return null;
-    return { id: `paperdoll:${this.mobile.serial}:${item.serial}`, serial: item.serial, title: item.name };
+    return { id: `paperdoll:${this.mobile.serial}:${item.serial}`, serial: item.serial, title: resolveItemName(this.world, item) };
   }
 
   onMouseDown(mx, my, button) {
@@ -2904,7 +2920,7 @@ export class EquipmentWindow {
       ctx.fillStyle = '#d9c58d';
       ctx.font = '11px monospace';
       ctx.textBaseline = 'middle';
-      ctx.fillText(item.name || `Item ${item.serial}`, this.x + 42, y + 14);
+      ctx.fillText(resolveItemName(this.world, item), this.x + 42, y + 14);
       const wear = this.world.opl.resolve(item.serial)?.lines?.find((line) => /durability|hit points|uses remaining/i.test(line));
       if (wear) {
         ctx.fillStyle = '#8d8060';
@@ -3332,6 +3348,113 @@ export class StatusWindow {
   }
 }
 
+function healthBarColor(mobile) {
+  if (mobile.isDead || mobile.isGhost) return '#6d6147';
+  switch (mobile.notoriety) {
+    case 1:
+      return '#6fb7ff';
+    case 2:
+      return '#7ee08a';
+    case 3:
+      return '#c8c8c8';
+    case 4:
+      return '#ffd34a';
+    case 5:
+      return '#ff8a3a';
+    case 6:
+      return '#ff4a4a';
+    case 7:
+      return '#ff5cd6';
+    default:
+      return '#e8e8e8';
+  }
+}
+
+export class HealthBarWindow {
+  constructor(world, mobile, x, y) {
+    this.world = world;
+    this.serial = mobile.serial >>> 0;
+    this.width = 150;
+    this.height = 38;
+    this.x = x;
+    this.y = y;
+    this.dragging = false;
+    this.dragOffset = { x: 0, y: 0 };
+  }
+
+  get mobile() {
+    return this.world.getMobile(this.serial);
+  }
+
+  contains(mx, my) {
+    return mx >= this.x && my >= this.y && mx < this.x + this.width && my < this.y + this.height;
+  }
+
+  closeRect() {
+    return { x: this.x + this.width - 17, y: this.y + 4, w: 12, h: 12 };
+  }
+
+  onMouseDown(mx, my, button) {
+    const close = this.closeRect();
+    if (button === 2 || (mx >= close.x && my >= close.y && mx < close.x + close.w && my < close.y + close.h)) {
+      this.close();
+      return true;
+    }
+    this.dragging = true;
+    this.dragOffset.x = mx - this.x;
+    this.dragOffset.y = my - this.y;
+    return true;
+  }
+
+  onMouseMove(mx, my) {
+    if (!this.dragging) return;
+    this.x = mx - this.dragOffset.x;
+    this.y = my - this.dragOffset.y;
+  }
+
+  onMouseUp() {
+    this.dragging = false;
+  }
+
+  close() {
+    this.world.game.ui?.closeHealthBar(this.serial);
+  }
+
+  draw(ctx) {
+    const mobile = this.mobile;
+    if (!mobile) return;
+    ctx.fillStyle = 'rgba(24,20,14,0.94)';
+    ctx.fillRect(this.x, this.y, this.width, this.height);
+    ctx.strokeStyle = healthBarColor(mobile);
+    ctx.strokeRect(this.x + 0.5, this.y + 0.5, this.width - 1, this.height - 1);
+
+    const name = mobile.name || `Mobile 0x${this.serial.toString(16)}`;
+    ctx.fillStyle = mobile.isDead || mobile.isGhost ? '#9aa0a6' : '#e8d7a8';
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(fitText(ctx, name, this.width - 34), this.x + 7, this.y + 6);
+
+    ctx.fillStyle = '#9e8e65';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText('x', this.x + this.width - 8, this.y + 6);
+    ctx.textAlign = 'left';
+
+    const barX = this.x + 7;
+    const barY = this.y + 23;
+    const barW = this.width - 14;
+    const barH = 8;
+    const pct = mobile.hitsMax > 0 ? Math.max(0, Math.min(1, mobile.hits / mobile.hitsMax)) : 0;
+    ctx.fillStyle = '#191308';
+    ctx.fillRect(barX, barY, barW, barH);
+    ctx.fillStyle = mobile.isDead || mobile.isGhost ? '#5f5133' : mobile.yellowBar ? '#e8c34a' : '#c73a3a';
+    ctx.fillRect(barX, barY, barW * pct, barH);
+    ctx.strokeStyle = '#5f5133';
+    ctx.strokeRect(barX + 0.5, barY + 0.5, barW - 1, barH - 1);
+  }
+}
+
 const OPTION_TABS = [
   { id: 'general', label: 'General' },
   { id: 'display', label: 'Display' },
@@ -3391,6 +3514,7 @@ export class OptionsWindow {
       return [
         { type: 'toggle', key: 'showNames', label: 'Show mobile names' },
         { type: 'toggle', key: 'showHealthBars', label: 'Show health bars' },
+        { type: 'toggle', key: 'dragSelectHealthBars', label: 'Drag-select health bars' },
         { type: 'toggle', key: 'showSpeech', label: 'Show overhead speech' },
         { type: 'toggle', key: 'lighting', label: 'Day/night lighting' },
         { type: 'toggle', key: 'weather', label: 'Weather effects' },
@@ -3403,7 +3527,6 @@ export class OptionsWindow {
         { type: 'key', key: 'keyJournal', label: 'Journal' },
         { type: 'key', key: 'keyHelp', label: 'Help' },
         { type: 'key', key: 'keyWar', label: 'War/peace' },
-        { type: 'key', key: 'keyTarget', label: 'Target cursor' },
         { type: 'key', key: 'keyLastTarget', label: 'Last target' },
         { type: 'key', key: 'keyAllNames', label: 'Toggle names' },
         { type: 'note', label: 'Click a shortcut, then press the new key combination.' },

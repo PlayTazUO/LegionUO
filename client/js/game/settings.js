@@ -5,6 +5,7 @@ const DEFAULTS = {
   alwaysRun: false,
   showNames: true,
   showHealthBars: true,
+  dragSelectHealthBars: true,
   showSpeech: true,
   lighting: true,
   weather: true,
@@ -18,7 +19,6 @@ const DEFAULTS = {
   keyJournal: 'KeyJ',
   keyHelp: 'F1',
   keyWar: 'Alt+KeyW',
-  keyTarget: 'KeyT',
   keyLastTarget: 'KeyL',
   keyAllNames: 'KeyN',
   optionsTab: 'general',
@@ -30,6 +30,7 @@ const BOOLEAN_KEYS = [
   'alwaysRun',
   'showNames',
   'showHealthBars',
+  'dragSelectHealthBars',
   'showSpeech',
   'lighting',
   'weather',
@@ -40,7 +41,7 @@ const BOOLEAN_KEYS = [
   'footsteps',
 ];
 
-const KEY_KEYS = ['keyJournal', 'keyHelp', 'keyWar', 'keyTarget', 'keyLastTarget', 'keyAllNames'];
+const KEY_KEYS = ['keyJournal', 'keyHelp', 'keyWar', 'keyLastTarget', 'keyAllNames'];
 
 const TABS = ['general', 'display', 'audio', 'keys'];
 

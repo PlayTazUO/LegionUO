@@ -20,6 +20,10 @@ body {
   image-rendering: auto;
 }
 
+#game.war-mode {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M3 2L3 20L8 15L12 23L15 21L11 13L19 13Z' fill='%23e03030' stroke='%23000' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") 3 2, default;
+}
+
 .hidden {
   display: none !important;
 }

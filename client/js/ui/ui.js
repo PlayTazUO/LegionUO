@@ -18,6 +18,7 @@ import {
   DebugGumpWindow,
   FriendListWindow,
   HouseWindow,
+  HealthBarWindow,
   VirtueWindow,
   saveFriends,
 } from '../game/windows.js';
@@ -50,6 +51,7 @@ export class UI {
     this.windows = [];
     this.mouseWalk = false;
     this.worldItemPress = null;
+    this.selection = null;
     this.lastTarget = null;
     this.promptMode = false;
     this.chatHistory = [];
@@ -58,6 +60,8 @@ export class UI {
     this.skillInfo = null;
     this.lastStatusRefresh = 0;
     this.statusRequestTime = 0;
+    this.nameRequestAt = new Map();
+    this.lastNameSweep = 0;
     this.mouse = { x: 0, y: 0 };
     this.tooltipEl = $('tooltip');
     this.hoverId = null;
@@ -178,6 +182,7 @@ export class UI {
     });
     window.addEventListener('mouseup', (e) => {
       if (e.button === 2) this.stopMouseWalk();
+      if (this.selection) this.finishDragSelect(e.clientX, e.clientY);
     });
     window.addEventListener('blur', () => {
       this.keyDir = {};
@@ -1925,6 +1930,7 @@ export class UI {
 
   onEntityRemoved(entity) {
     this.removeWindow('container', entity.serial);
+    this.removeWindow('healthbar', entity.serial);
     this.removeWindow('paperdoll', entity.serial);
     this.removeWindow('spellbook', entity.serial);
     this.removeWindow('map', entity.serial);
@@ -2333,6 +2339,14 @@ export class UI {
     this.game.renderer.mouse.x = x;
     this.game.renderer.mouse.y = y;
     this.game.renderer.mouse.world = this.game.renderer.screenToTile(x, y);
+    if (this.selection) {
+      this.selection.x = x;
+      this.selection.y = y;
+      if (Math.abs(x - this.selection.startX) > 4 || Math.abs(y - this.selection.startY) > 4) {
+        this.selection.moved = true;
+      }
+      return;
+    }
     if (this.worldItemPress) {
       const dx = x - this.worldItemPress.x;
       const dy = y - this.worldItemPress.y;
@@ -2395,7 +2409,10 @@ export class UI {
       }
       const tile = this.game.renderer.screenToTile(x, y);
       const entity = this.game.renderer.entityAt?.(x, y) || this.findEntityAt(tile.x, tile.y);
-      if (!entity) return;
+      if (!entity) {
+        if (settings.get('dragSelectHealthBars') && !this.world.held) this.startDragSelect(x, y);
+        return;
+      }
       if (entity.isItem && entity.container === 0 && !this.world.held) {
         if (e.shiftKey) {
           this.world.held = entity;
@@ -2428,6 +2445,69 @@ export class UI {
     }
   }
 
+  startDragSelect(x, y) {
+    this.selection = { startX: x, startY: y, x, y, moved: false };
+  }
+
+  finishDragSelect(x, y) {
+    const selection = this.selection;
+    this.selection = null;
+    if (!selection?.moved) return;
+    const rect = {
+      x: Math.min(selection.startX, x),
+      y: Math.min(selection.startY, y),
+      w: Math.abs(x - selection.startX),
+      h: Math.abs(y - selection.startY),
+    };
+    const mobiles = this.game.renderer.mobilesInRect(rect);
+    if (!mobiles.length) return;
+    let barX = Math.max(8, Math.min(rect.x, window.innerWidth - 158));
+    let barY = Math.max(8, Math.min(rect.y, window.innerHeight - 46));
+    for (const mobile of mobiles) {
+      if (barY + 42 > window.innerHeight - 8) {
+        barY = 8;
+        barX += 154;
+      }
+      if (barX + 150 > window.innerWidth - 8) {
+        barX = 8;
+        barY = 8;
+      }
+      this.openHealthBar(mobile, barX, barY);
+      barY += 42;
+    }
+  }
+
+  openHealthBar(mobile, x, y) {
+    if (!mobile?.isMobile || mobile === this.world.player) return;
+    const existing = this.getWindow('healthbar', mobile.serial);
+    if (existing) {
+      this.raiseWindow(existing);
+      return;
+    }
+    this.world.socket.out.statusRequest(mobile.serial);
+    this.addWindow('healthbar', mobile.serial, new HealthBarWindow(this.world, mobile, x, y));
+    this.raiseWindow(this.getWindow('healthbar', mobile.serial));
+  }
+
+  closeHealthBar(serial) {
+    this.removeWindow('healthbar', serial);
+  }
+
+  drawSelection(ctx) {
+    if (!this.selection?.moved) return;
+    const x = Math.min(this.selection.startX, this.selection.x);
+    const y = Math.min(this.selection.startY, this.selection.y);
+    const w = Math.abs(this.selection.x - this.selection.startX);
+    const h = Math.abs(this.selection.y - this.selection.startY);
+    ctx.save();
+    ctx.fillStyle = 'rgba(201,176,108,0.12)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = '#c9b06c';
+    ctx.setLineDash([4, 3]);
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    ctx.restore();
+  }
+
   startMouseWalk() {
     this.mouseWalk = true;
     this.game.cancelWalkPath();
@@ -2454,6 +2534,10 @@ export class UI {
   onMouseUp(e) {
     if (e.button === 2) this.stopMouseWalk();
     const { x, y } = this.canvasPos(e);
+    if (this.selection) {
+      this.finishDragSelect(x, y);
+      return;
+    }
     if (this.dragTarget) {
       this.dragTarget.obj.onMouseUp?.(x, y);
       this.dragTarget = null;
@@ -2469,12 +2553,21 @@ export class UI {
         hit.obj.onItemDrop?.(x, y);
       } else {
         const tile = this.game.renderer.screenToTile(x, y);
-        const block = this.world.getBlock(tile.x >> 3, tile.y >> 3);
-        let z = 0;
-        if (block) z = block.cells[((tile.y & 7) << 3) | (tile.x & 7)].z;
+        let entity = this.game.renderer.entityAt?.(x, y);
+        if (!entity?.isMobile) {
+          const tileEntity = this.findEntityAt(tile.x, tile.y);
+          if (tileEntity?.isMobile) entity = tileEntity;
+        }
         const held = this.world.held;
         this.world.held = null;
-        this.world.socket.out.drop(held.serial, tile.x, tile.y, z, 0, 0);
+        if (entity?.isMobile) {
+          this.world.socket.out.drop(held.serial, entity.x, entity.y, entity.z || 0, 0, entity.serial);
+        } else {
+          const block = this.world.getBlock(tile.x >> 3, tile.y >> 3);
+          let z = 0;
+          if (block) z = block.cells[((tile.y & 7) << 3) | (tile.x & 7)].z;
+          this.world.socket.out.drop(held.serial, tile.x, tile.y, z, 0, 0);
+        }
       }
     }
   }
@@ -2492,7 +2585,14 @@ export class UI {
     }
     const tile = this.game.renderer.screenToTile(x, y);
     const entity = this.game.renderer.entityAt?.(x, y) || this.findEntityAt(tile.x, tile.y);
-    if (entity) this.world.socket.out.doubleClick(entity.serial);
+    if (!entity) return;
+    const attack =
+      this.world.player?.inWarMode &&
+      entity.isMobile &&
+      entity !== this.world.player &&
+      entity.notoriety !== 7;
+    if (attack) this.world.socket.out.attack(entity.serial);
+    else this.world.socket.out.doubleClick(entity.serial);
   }
 
   findEntityAt(x, y) {
@@ -2747,12 +2847,6 @@ export class UI {
       e.preventDefault();
       return;
     }
-    if (keyMatches(e, settings.get('keyTarget'))) {
-      this.world.setTarget(1, 0, 0);
-      this.onTargetChanged();
-      e.preventDefault();
-      return;
-    }
     if (keyMatches(e, settings.get('keyLastTarget'))) {
       this.useLastTarget();
       e.preventDefault();
@@ -2849,12 +2943,29 @@ export class UI {
   /* ----------------------------- drawing ----------------------------- */
 
   draw(ctx, now) {
+    this.drawSelection(ctx);
     const top = this.topWindow;
     for (const w of this.windows) {
       if (w.obj === top) continue;
       w.obj.draw?.(ctx, now);
     }
     top?.draw?.(ctx, now);
+  }
+
+  requestMissingNames(now) {
+    const player = this.world.player;
+    if (!player) return;
+    let sent = 0;
+    for (const entity of this.world.entities.values()) {
+      if (sent >= 8) break;
+      if (!entity.isMobile || entity === player || entity.name) continue;
+      if (Math.max(Math.abs(entity.x - player.x), Math.abs(entity.y - player.y)) > 18) continue;
+      const last = this.nameRequestAt.get(entity.serial) || 0;
+      if (now - last < 10000) continue;
+      this.nameRequestAt.set(entity.serial, now);
+      this.world.socket.out.nameRequest(entity.serial);
+      sent++;
+    }
   }
 
   update(now) {
@@ -2864,6 +2975,10 @@ export class UI {
       this.refreshStatus();
       this.updateTargetInfo(this.game.renderer.mouse.x || 0, this.game.renderer.mouse.y || 0);
       this.refreshTooltip();
+    }
+    if (now - this.lastNameSweep > 1000) {
+      this.lastNameSweep = now;
+      this.requestMissingNames(now);
     }
   }
 }

@@ -46,6 +46,7 @@ export class Game {
     this.lastFrame = performance.now();
     this.pingSeq = 0;
     this.lastPingSent = 0;
+    this.warCursor = false;
 
     this.world.onMessage((msg) => this.ui.onMessage(msg));
     this.socket.on('packet', ({ data, header }) => this.handlers.handle(data[0], data, header));
@@ -433,6 +434,7 @@ export class Game {
     this.world.update(dt);
     this.effects.update(dt);
     this.updateMovement(now);
+    this.updateWarCursor();
     this.renderer.draw(now);
     this.ui.draw(this.renderer.ctx, now);
     this.ui.update(now);
@@ -458,6 +460,13 @@ export class Game {
     this.heldCtx.setTransform(this.heldDpr, 0, 0, this.heldDpr, 0, 0);
     this.heldCtx.clearRect(0, 0, this.heldWidth, this.heldHeight);
     this.renderer.drawHeld(this.heldCtx);
+  }
+
+  updateWarCursor() {
+    const war = !!this.world.player?.inWarMode;
+    if (war === this.warCursor) return;
+    this.warCursor = war;
+    this.renderer.canvas.classList.toggle('war-mode', war);
   }
 
   drawTargetCursor() {

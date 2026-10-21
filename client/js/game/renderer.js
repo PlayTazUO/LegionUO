@@ -2,6 +2,9 @@ import { Layer, animDirection } from './entity.js';
 import { hasUoHtmlMarkup, drawServerText, measureUoHtml } from './html.js';
 import { settings } from './settings.js';
 
+const ANIM_FRAME_MS = 80;
+const CORPSE_Z_BUMP = 1;
+
 const PEOPLE_LAYERS = [
   Layer.Cloak,
   Layer.Torso,
@@ -61,6 +64,10 @@ export class Renderer {
     this.camera.y = ps.y - this.height / 2;
   }
 
+  tileRange() {
+    return Math.ceil((this.width + this.height) / 88) + 2;
+  }
+
   screenFor(x, y, z = 0) {
     return {
       sx: (x - y) * 22 - 22 - this.camera.x,
@@ -84,6 +91,14 @@ export class Renderer {
     return priority;
   }
 
+  mobileSortKey(mobile) {
+    const x = mobile.renderX ?? mobile.x;
+    const y = mobile.renderY ?? mobile.y;
+    const depth = Math.ceil(x + y - 1e-6);
+    const tileX = Math.ceil(x - 1e-6);
+    return `${tileX},${depth - tileX}`;
+  }
+
   screenToTile(mx, my) {
     const wx = mx + this.camera.x;
     const wy = my + this.camera.y;
@@ -101,14 +116,15 @@ export class Renderer {
     if (!this.world.player) return;
 
     this.updateCamera();
-    this.world.ensureMapAround(this.world.player.x, this.world.player.y, 4);
+    const range = this.tileRange();
+    this.world.ensureMapAround(this.world.player.x, this.world.player.y, Math.ceil(range / 8) + 1);
 
     const groundItems = new Map();
     const mobiles = new Map();
     for (const e of this.world.entities.values()) {
       if (e.isMobile) {
         if (!e.isDead || e.isCorpse || e.isGhost) {
-          const key = `${e.x},${e.y}`;
+          const key = this.mobileSortKey(e);
           if (!mobiles.has(key)) mobiles.set(key, []);
           mobiles.get(key).push(e);
         }
@@ -119,7 +135,6 @@ export class Renderer {
       }
     }
 
-    const range = 23;
     const px = this.world.player.x;
     const py = this.world.player.y;
 
@@ -162,14 +177,17 @@ export class Renderer {
       drawables.push({ type: 'static', z: s.z, priorityZ: this.priorityZ(s.z, s.graphic), graphic: s.graphic, hue: s.hue });
     }
     for (const item of groundItems.get(`${x},${y}`) || []) {
+      const corpse = item.graphic === 0x2006 && this.world.corpses.has(item.serial);
+      const z = corpse ? item.z + CORPSE_Z_BUMP : item.z;
       drawables.push({
         type: 'item',
-        z: item.z,
-        priorityZ: this.priorityZ(item.z, item.graphic),
+        z,
+        priorityZ: this.priorityZ(z, item.graphic),
         graphic: item.graphic,
         hue: item.hue,
         entity: item,
         amount: item.amount,
+        corpse,
       });
     }
     for (const m of mobiles.get(`${x},${y}`) || []) {
@@ -182,8 +200,8 @@ export class Renderer {
         this.drawMobile(ctx, d.entity, now);
       } else if (d.type === 'item' && d.entity?.isMulti) {
         this.drawMulti(ctx, d.entity);
-      } else if (d.type === 'item' && d.graphic === 0x2006 && this.world.corpses.has(d.entity.serial)) {
-        this.drawCorpse(ctx, d.entity, this.world.corpses.get(d.entity.serial), now);
+      } else if (d.corpse) {
+        this.drawCorpse(ctx, d.entity, this.world.corpses.get(d.entity.serial), now, d.z);
       } else {
         const img = this.assets.getStatic(d.graphic, d.hue);
         if (!img) continue;
@@ -339,7 +357,7 @@ export class Renderer {
     }
   }
 
-  drawCorpse(ctx, item, corpse, now) {
+  drawCorpse(ctx, item, corpse, now, z = item.z) {
     const type = this.game.getAnimType(corpse.graphic);
     const group = type === 'people' ? 21 : type === 'low' ? 8 : 2;
     const { dir, mirror } = animDirection(corpse.direction || 0);
@@ -347,43 +365,27 @@ export class Renderer {
     if (!animData || !animData.meta.frames.length) {
       const img = this.assets.getStatic(0x2006, 0);
       if (img) {
-        const p = this.staticDrawPos(item.x, item.y, item.z, img);
+        const p = this.staticDrawPos(item.x, item.y, z, img);
         ctx.drawImage(img, p.x, p.y);
       }
       return;
     }
     const frames = animData.meta.frames;
     const f = frames[frames.length - 1];
-    const p = this.screenFor(item.x, item.y, item.z);
+    const p = this.screenFor(item.x, item.y, z);
     this.drawAnimFrame(ctx, animData, f, p.sx + 22, p.sy + 22, mirror, 1);
-  }
-
-  motionProgress(mobile, now) {
-    if (mobile.motion) {
-      const t = (now - mobile.motion.start) / Math.max(1, mobile.motion.duration);
-      return Math.max(0, Math.min(1, t));
-    }
-    if (mobile === this.world.player) {
-      const step = this.world.playerStepAt(now);
-      if (step) {
-        const t = (now - step.startTime) / Math.max(1, step.duration);
-        return Math.max(0, Math.min(1, t));
-      }
-    }
-    return null;
   }
 
   drawMobile(ctx, mobile, now) {
     const type = this.game.getAnimType(mobile.graphic);
     const anim = mobile.animation;
     const sinceStart = now - (anim?.start || 0);
-    const serverPlaying = anim?.fromServer && sinceStart < Math.max(400, (anim.frameCount || 5) * 120);
-    const stepProgress = mobile.moving ? this.motionProgress(mobile, now) : null;
+    const serverPlaying = anim?.fromServer && sinceStart < Math.max(400, (anim.frameCount || 5) * ANIM_FRAME_MS);
     let group;
     if (serverPlaying) group = anim.group;
     else if (mobile.moving) group = type === 'people' ? (mobile.inWarMode ? 15 : 0) : type === 'low' ? 0 : 0;
-    else group = type === 'people' ? 4 : type === 'low' ? 2 : 1;
-    if (mobile.inWarMode && type === 'people' && !mobile.moving && !serverPlaying) group = 4;
+    else if (type === 'people') group = mobile.inWarMode && !mobile.isDead ? 7 : 4;
+    else group = type === 'low' ? 2 : 1;
 
     const { dir, mirror } = animDirection(mobile.direction);
     const animData = this.assets.getAnim(mobile.graphic, group, dir, mobile.hue || 0);
@@ -395,12 +397,11 @@ export class Renderer {
       const frames = animData.meta.frames;
       let frameIndex = 0;
       if (serverPlaying) {
-        frameIndex = Math.floor(sinceStart / 120) % frames.length;
+        const frameDelay = ANIM_FRAME_MS * (1 + (anim.delay || 0));
+        frameIndex = Math.floor(sinceStart / frameDelay) % frames.length;
         if (!anim.forward) frameIndex = frames.length - 1 - frameIndex;
-      } else if (mobile.moving && stepProgress != null) {
-        frameIndex = Math.min(frames.length - 1, Math.floor(stepProgress * frames.length));
       } else if (mobile.moving) {
-        frameIndex = Math.floor(now / 130) % frames.length;
+        frameIndex = Math.floor(now / ANIM_FRAME_MS) % frames.length;
       }
       const f = frames[Math.min(frameIndex, frames.length - 1)];
       this.drawAnimFrame(ctx, animData, f, pos.sx, pos.sy, mirror, 1);
@@ -418,12 +419,11 @@ export class Renderer {
         const frames = equip.meta.frames;
         let fi = 0;
         if (serverPlaying) {
-          fi = Math.floor(sinceStart / 120) % frames.length;
+          const frameDelay = ANIM_FRAME_MS * (1 + (anim.delay || 0));
+          fi = Math.floor(sinceStart / frameDelay) % frames.length;
           if (!anim.forward) fi = frames.length - 1 - fi;
-        } else if (mobile.moving && stepProgress != null) {
-          fi = Math.min(frames.length - 1, Math.floor(stepProgress * frames.length));
         } else if (mobile.moving) {
-          fi = Math.floor(now / 130) % frames.length;
+          fi = Math.floor(now / ANIM_FRAME_MS) % frames.length;
         }
         this.drawAnimFrame(ctx, equip, frames[fi], pos.sx, pos.sy, mirror, 1);
       }
@@ -706,7 +706,13 @@ export class Renderer {
       pos.sx += 22;
       pos.sy += 22;
       const type = this.game.getAnimType(entity.graphic);
-      const group = entity.moving ? (type === 'people' ? (entity.inWarMode ? 15 : 0) : 0) : type === 'people' ? 4 : type === 'low' ? 2 : 1;
+      const group = entity.moving
+        ? (type === 'people' ? (entity.inWarMode ? 15 : 0) : 0)
+        : type === 'people'
+          ? (entity.inWarMode && !entity.isDead ? 7 : 4)
+          : type === 'low'
+            ? 2
+            : 1;
       const { dir, mirror } = animDirection(entity.direction);
       const animData = this.assets.getAnim(entity.graphic, group, dir, entity.hue || 0);
       const frame = animData?.meta?.frames?.[0];
@@ -744,6 +750,31 @@ export class Renderer {
     if (!img) return null;
     const pos = this.staticDrawPos(x, y, z, img);
     return { x: pos.x, y: pos.y, w: img.width, h: img.height };
+  }
+
+  mobilesInRect(rect) {
+    const out = [];
+    for (const entity of this.world.entities.values()) {
+      if (!entity.isMobile || entity === this.world.player) continue;
+      const bounds = this.entityBounds(entity);
+      if (!bounds) continue;
+      if (
+        bounds.x >= rect.x + rect.w ||
+        bounds.x + bounds.w <= rect.x ||
+        bounds.y >= rect.y + rect.h ||
+        bounds.y + bounds.h <= rect.y
+      ) {
+        continue;
+      }
+      out.push(entity);
+    }
+    out.sort(
+      (a, b) =>
+        (a.renderY ?? a.y) - (b.renderY ?? b.y) ||
+        (a.renderX ?? a.x) - (b.renderX ?? b.x) ||
+        a.serial - b.serial
+    );
+    return out;
   }
 
   drawHeld(ctx) {
