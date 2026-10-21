@@ -1,3 +1,5 @@
+import { accountStorageKey, clampPosition } from '../util/ui.js';
+
 const BUFF_STORAGE_BASE = 'legionuo.buffs.v1';
 const ICON_SIZE = 40;
 const GAP = 4;
@@ -70,15 +72,7 @@ export function buffText(buff, game) {
 }
 
 function buffStorageKey(world) {
-  const account = (world.game?.loginCredentials?.account || '').trim().toLowerCase();
-  return account ? `${BUFF_STORAGE_BASE}.${account}` : BUFF_STORAGE_BASE;
-}
-
-function clampPosition(x, y, width, height) {
-  return {
-    x: Math.max(0, Math.min(x, Math.max(0, window.innerWidth - width))),
-    y: Math.max(0, Math.min(y, Math.max(0, window.innerHeight - height))),
-  };
+  return accountStorageKey(world, BUFF_STORAGE_BASE);
 }
 
 export class BuffBarWindow {

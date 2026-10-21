@@ -10,6 +10,7 @@ import { settings } from './settings.js';
 import { buffText } from './buffs.js';
 import { hotbarSkillSlot, hotbarSpellSlot } from './hotbar.js';
 import { SPELLS_PER_PAGE, getBookSpells, getCircleName, getSpellbookInfo, getSpellbookInfoByOffset } from './spells.js';
+import { accountStorageKey, clampPosition, fitText, notorietyColor } from '../util/ui.js';
 
 const CONTAINER_STORAGE_BASE = 'legionuo.container.v1';
 const CONTAINER_MARGIN = 6;
@@ -32,8 +33,7 @@ function resolveItemName(world, item) {
 }
 
 function containerStorageKey(world) {
-  const account = (world.game?.loginCredentials?.account || '').trim().toLowerCase();
-  return account ? `${CONTAINER_STORAGE_BASE}.${account}` : CONTAINER_STORAGE_BASE;
+  return accountStorageKey(world, CONTAINER_STORAGE_BASE);
 }
 
 function loadContainerPositions(world) {
@@ -65,7 +65,7 @@ export class ContainerWindow {
       x: Math.max(20, window.innerWidth - 260 - Math.random() * 120),
       y: 60 + Math.random() * 60,
     };
-    const pos = clampWindowPosition(saved?.x ?? fallback.x, saved?.y ?? fallback.y, 240, 220);
+    const pos = clampPosition(saved?.x ?? fallback.x, saved?.y ?? fallback.y, 240, 220);
     this.x = pos.x;
     this.y = pos.y;
     this.dragging = false;
@@ -562,7 +562,7 @@ export class ContainerWindow {
   }
 
   savePosition() {
-    const pos = clampWindowPosition(this.x, this.y, 240, 220);
+    const pos = clampPosition(this.x, this.y, 240, 220);
     this.x = pos.x;
     this.y = pos.y;
     saveContainerPosition(this.world, this.serial, this.x, this.y, this.listCollapsed);
@@ -775,8 +775,7 @@ export class ContainerWindow {
 const TRADE_STORAGE_BASE = 'legionuo.trade.v1';
 
 function tradeStorageKey(world) {
-  const account = (world.game?.loginCredentials?.account || '').trim().toLowerCase();
-  return account ? `${TRADE_STORAGE_BASE}.${account}` : TRADE_STORAGE_BASE;
+  return accountStorageKey(world, TRADE_STORAGE_BASE);
 }
 
 function loadTradePosition(world) {
@@ -793,8 +792,7 @@ const PARTY_STORAGE_BASE = 'legionuo.party.v1';
 const PARTY_SIZE = 10;
 
 function partyStorageKey(world) {
-  const account = (world.game?.loginCredentials?.account || '').trim().toLowerCase();
-  return account ? `${PARTY_STORAGE_BASE}.${account}` : PARTY_STORAGE_BASE;
+  return accountStorageKey(world, PARTY_STORAGE_BASE);
 }
 
 function loadPartyPosition(world) {
@@ -814,7 +812,7 @@ export class TradeWindow {
     this.width = 470;
     this.height = 340;
     const saved = loadTradePosition(world);
-    const pos = clampWindowPosition(
+    const pos = clampPosition(
       saved?.x ?? Math.max(20, (window.innerWidth - this.width) / 2),
       saved?.y ?? 90,
       this.width,
@@ -1036,7 +1034,7 @@ export class TradeWindow {
   }
 
   savePosition() {
-    const pos = clampWindowPosition(this.x, this.y, this.width, this.height);
+    const pos = clampPosition(this.x, this.y, this.width, this.height);
     this.x = Math.round(pos.x);
     this.y = Math.round(pos.y);
     try {
@@ -1200,7 +1198,7 @@ export class PartyWindow {
     this.width = 330;
     this.height = 366;
     const saved = loadPartyPosition(world);
-    const pos = clampWindowPosition(
+    const pos = clampPosition(
       saved?.x ?? Math.max(20, (window.innerWidth - this.width) / 2),
       saved?.y ?? 100,
       this.width,
@@ -1343,7 +1341,7 @@ export class PartyWindow {
   }
 
   savePosition() {
-    const pos = clampWindowPosition(this.x, this.y, this.width, this.height);
+    const pos = clampPosition(this.x, this.y, this.width, this.height);
     this.x = Math.round(pos.x);
     this.y = Math.round(pos.y);
     try {
@@ -1940,8 +1938,7 @@ const PAPERDOLL_RIGHT_LAYERS = [
   Layer.Shoes,
 ];
 function paperdollStorageKey(world) {
-  const account = (world.game?.loginCredentials?.account || '').trim().toLowerCase();
-  return account ? `${PAPERDOLL_STORAGE_BASE}.${account}` : PAPERDOLL_STORAGE_BASE;
+  return accountStorageKey(world, PAPERDOLL_STORAGE_BASE);
 }
 
 function loadPaperdollPositions(world) {
@@ -1967,7 +1964,7 @@ export class PaperdollWindow {
     this.mobile = mobile;
     const saved = loadPaperdollPositions(world)[String(this.mobile.serial)];
     const fallback = { x: 140, y: 100 };
-    const pos = clampWindowPosition(
+    const pos = clampPosition(
       saved?.x ?? fallback.x,
       saved?.y ?? fallback.y,
       PAPERDOLL_WIDTH,
@@ -2244,7 +2241,7 @@ export class PaperdollWindow {
   }
 
   savePosition() {
-    const pos = clampWindowPosition(this.x, this.y, this.width, this.height);
+    const pos = clampPosition(this.x, this.y, this.width, this.height);
     this.x = pos.x;
     this.y = pos.y;
     savePaperdollPosition(this.world, this.mobile.serial, this.x, this.y);
@@ -2620,8 +2617,7 @@ export class HouseWindow {
 const FRIEND_STORAGE_BASE = 'legionuo.friends.v1';
 
 function friendStorageKey(world) {
-  const account = (world.game?.loginCredentials?.account || '').trim().toLowerCase();
-  return account ? `${FRIEND_STORAGE_BASE}.${account}` : FRIEND_STORAGE_BASE;
+  return accountStorageKey(world, FRIEND_STORAGE_BASE);
 }
 
 export function loadFriends(world) {
@@ -2999,8 +2995,7 @@ export class EquipmentWindow {
 const STATUS_STORAGE_BASE = 'legionuo.status.v1';
 
 function statusStorageKey(world) {
-  const account = (world.game?.loginCredentials?.account || '').trim().toLowerCase();
-  return account ? `${STATUS_STORAGE_BASE}.${account}` : STATUS_STORAGE_BASE;
+  return accountStorageKey(world, STATUS_STORAGE_BASE);
 }
 
 function loadStatusPosition(world) {
@@ -3055,7 +3050,7 @@ export class StatusWindow {
       /* ignore corrupt status settings */
     }
     const saved = loadStatusPosition(world);
-    const pos = clampWindowPosition(saved?.x ?? 20, saved?.y ?? 20, this.scaledWidth, this.scaledHeight);
+    const pos = clampPosition(saved?.x ?? 20, saved?.y ?? 20, this.scaledWidth, this.scaledHeight);
     this.x = pos.x;
     this.y = pos.y;
     this.dragging = false;
@@ -3212,7 +3207,7 @@ export class StatusWindow {
   }
 
   savePosition() {
-    const pos = clampWindowPosition(this.x, this.y, this.scaledWidth, this.scaledHeight);
+    const pos = clampPosition(this.x, this.y, this.scaledWidth, this.scaledHeight);
     this.x = pos.x;
     this.y = pos.y;
     try {
@@ -3457,24 +3452,7 @@ export class StatusWindow {
 
 function healthBarColor(mobile) {
   if (mobile.isDead || mobile.isGhost) return '#6d6147';
-  switch (mobile.notoriety) {
-    case 1:
-      return '#6fb7ff';
-    case 2:
-      return '#7ee08a';
-    case 3:
-      return '#c8c8c8';
-    case 4:
-      return '#ffd34a';
-    case 5:
-      return '#ff8a3a';
-    case 6:
-      return '#ff4a4a';
-    case 7:
-      return '#ff5cd6';
-    default:
-      return '#e8e8e8';
-  }
+  return notorietyColor(mobile.notoriety);
 }
 
 export class HealthBarWindow {
@@ -3576,7 +3554,7 @@ export class OptionsWindow {
     this.height = 348;
     const savedX = settings.get('optionsX');
     const savedY = settings.get('optionsY');
-    const pos = clampWindowPosition(
+    const pos = clampPosition(
       savedX ?? Math.max(20, (window.innerWidth - this.width) / 2),
       savedY ?? Math.max(20, (window.innerHeight - this.height) / 2),
       this.width,
@@ -3778,7 +3756,7 @@ export class OptionsWindow {
   }
 
   savePosition() {
-    const pos = clampWindowPosition(this.x, this.y, this.width, this.height);
+    const pos = clampPosition(this.x, this.y, this.width, this.height);
     this.x = pos.x;
     this.y = pos.y;
     settings.set('optionsX', Math.round(this.x));
@@ -3984,8 +3962,7 @@ const SKILL_STORAGE_BASE = 'legionuo.skills.v1';
 const SKILL_LOCK_LABELS = ['UP', 'DN', 'LK'];
 
 function skillStorageKey(world) {
-  const account = (world.game?.loginCredentials?.account || '').trim().toLowerCase();
-  return account ? `${SKILL_STORAGE_BASE}.${account}` : SKILL_STORAGE_BASE;
+  return accountStorageKey(world, SKILL_STORAGE_BASE);
 }
 
 function loadSkillPosition(world) {
@@ -4004,7 +3981,7 @@ export class SkillsWindow {
     this.width = 380;
     this.height = 460;
     const saved = loadSkillPosition(world);
-    const pos = clampWindowPosition(saved?.x ?? 420, saved?.y ?? 80, this.width, this.height);
+    const pos = clampPosition(saved?.x ?? 420, saved?.y ?? 80, this.width, this.height);
     this.x = pos.x;
     this.y = pos.y;
     this.dragging = false;
@@ -4255,7 +4232,7 @@ export class SkillsWindow {
   }
 
   savePosition() {
-    const pos = clampWindowPosition(this.x, this.y, this.width, this.height);
+    const pos = clampPosition(this.x, this.y, this.width, this.height);
     this.x = pos.x;
     this.y = pos.y;
     try {
@@ -4420,8 +4397,7 @@ export class SkillsWindow {
 const SKILL_BUTTON_STORAGE_BASE = 'legionuo.skillbuttons.v1';
 
 function skillButtonStorageKey(world) {
-  const account = (world.game?.loginCredentials?.account || '').trim().toLowerCase();
-  return account ? `${SKILL_BUTTON_STORAGE_BASE}.${account}` : SKILL_BUTTON_STORAGE_BASE;
+  return accountStorageKey(world, SKILL_BUTTON_STORAGE_BASE);
 }
 
 export function loadSkillButtons(world) {
@@ -4455,7 +4431,7 @@ export class SkillButtonWindow {
     this.dragMoved = false;
     this.dragOffset = { x: 0, y: 0 };
     this.start = { x: 0, y: 0 };
-    const pos = clampWindowPosition(x - this.width / 2, y - this.height / 2, this.width, this.height);
+    const pos = clampPosition(x - this.width / 2, y - this.height / 2, this.width, this.height);
     this.x = pos.x;
     this.y = pos.y;
   }
@@ -4499,7 +4475,7 @@ export class SkillButtonWindow {
     const dy = my - (this.start.y + this.dragOffset.y);
     if (!this.dragMoved && dx * dx + dy * dy < 9) return;
     this.dragMoved = true;
-    const pos = clampWindowPosition(mx - this.dragOffset.x, my - this.dragOffset.y, this.width, this.height);
+    const pos = clampPosition(mx - this.dragOffset.x, my - this.dragOffset.y, this.width, this.height);
     this.x = pos.x;
     this.y = pos.y;
   }
@@ -4546,28 +4522,6 @@ export class SkillButtonWindow {
   }
 }
 
-function fitText(ctx, text, maxWidth) {
-  const value = String(text ?? '');
-  if (!value || maxWidth <= 0) return '';
-  if (ctx.measureText(value).width <= maxWidth) return value;
-  const suffix = '...';
-  let lo = 0;
-  let hi = value.length;
-  while (lo < hi) {
-    const mid = Math.ceil((lo + hi) / 2);
-    if (ctx.measureText(value.slice(0, mid) + suffix).width <= maxWidth) lo = mid;
-    else hi = mid - 1;
-  }
-  return lo > 0 ? value.slice(0, lo) + suffix : '';
-}
-
-function clampWindowPosition(x, y, width, height) {
-  return {
-    x: Math.max(0, Math.min(x, Math.max(0, window.innerWidth - width))),
-    y: Math.max(0, Math.min(y, Math.max(0, window.innerHeight - height))),
-  };
-}
-
 function layerName(layer) {
   const names = {
     1: 'One handed',
@@ -4602,8 +4556,7 @@ function layerName(layer) {
 const SHOP_STORAGE_BASE = 'legionuo.shop.v1';
 
 function shopStorageKey(world) {
-  const account = (world.game?.loginCredentials?.account || '').trim().toLowerCase();
-  return account ? `${SHOP_STORAGE_BASE}.${account}` : SHOP_STORAGE_BASE;
+  return accountStorageKey(world, SHOP_STORAGE_BASE);
 }
 
 function loadShopPosition(world) {
@@ -4625,7 +4578,7 @@ export class ShopWindow {
     this.width = 480;
     this.height = 392;
     const saved = loadShopPosition(world);
-    const pos = clampWindowPosition(saved?.x ?? 160, saved?.y ?? 120, this.width, this.height);
+    const pos = clampPosition(saved?.x ?? 160, saved?.y ?? 120, this.width, this.height);
     this.x = pos.x;
     this.y = pos.y;
     this.items = [];
@@ -4886,7 +4839,7 @@ export class ShopWindow {
   }
 
   savePosition() {
-    const pos = clampWindowPosition(this.x, this.y, this.width, this.height);
+    const pos = clampPosition(this.x, this.y, this.width, this.height);
     this.x = pos.x;
     this.y = pos.y;
     try {
@@ -5275,8 +5228,7 @@ export class BookWindow {
 const BOARD_STORAGE_BASE = 'legionuo.board.v1';
 
 function boardStorageKey(world) {
-  const account = (world.game?.loginCredentials?.account || '').trim().toLowerCase();
-  return account ? `${BOARD_STORAGE_BASE}.${account}` : BOARD_STORAGE_BASE;
+  return accountStorageKey(world, BOARD_STORAGE_BASE);
 }
 
 function loadBoardPositions(world) {
@@ -5343,7 +5295,7 @@ export class BoardWindow {
     this.width = 480;
     this.height = 420;
     const saved = loadBoardPositions(world)[String(this.serial)];
-    const pos = clampWindowPosition(saved?.x ?? 260, saved?.y ?? 90, this.width, this.height);
+    const pos = clampPosition(saved?.x ?? 260, saved?.y ?? 90, this.width, this.height);
     this.x = pos.x;
     this.y = pos.y;
     this.dragging = false;
@@ -5572,7 +5524,7 @@ export class BoardWindow {
   }
 
   savePosition() {
-    const pos = clampWindowPosition(this.x, this.y, this.width, this.height);
+    const pos = clampPosition(this.x, this.y, this.width, this.height);
     this.x = pos.x;
     this.y = pos.y;
     saveBoardPosition(this.world, this.serial, this.x, this.y);
@@ -5906,7 +5858,7 @@ export class ContextMenuWindow {
     }
     this.width = Math.min(Math.max(150, Math.ceil(width)), Math.min(420, window.innerWidth - 16));
     this.height = Math.max(this.rowHeight + this.padding * 2, this.items.length * this.rowHeight + this.padding * 2);
-    const pos = clampWindowPosition(x, y, this.width, this.height);
+    const pos = clampPosition(x, y, this.width, this.height);
     this.x = pos.x;
     this.y = pos.y;
   }

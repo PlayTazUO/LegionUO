@@ -29,6 +29,8 @@ export class AnimationsManager {
     this.bodyConv = new Map();
     this.bodyDef = new Map();
     this.mobTypes = new Map();
+    this.resolveCache = new Map();
+    this.frameEntryCache = new Map();
     this.empty = [];
   }
 
@@ -125,6 +127,9 @@ export class AnimationsManager {
 
   resolve(body) {
     this.load();
+    const cached = this.resolveCache.get(body);
+    if (cached) return cached;
+
     let graphic = body;
     let fileIndex = 0;
     let type = null;
@@ -144,7 +149,9 @@ export class AnimationsManager {
       if (!type) type = this.calcType(graphic, fileIndex);
     }
     if (!type) type = this.calcType(graphic, fileIndex);
-    return { graphic, fileIndex, type };
+    const result = { graphic, fileIndex, type };
+    this.resolveCache.set(body, result);
+    return result;
   }
 
   actionCount(type) {
@@ -173,14 +180,25 @@ export class AnimationsManager {
 
     // Modern UO ships animation frames in UOP archives. They are keyed by
     // body/action and carry every direction inside one entry.
-    for (let i = 0; i < 10; i++) {
-      const spec = this.filesUop[i];
-      if (!spec) continue;
+    const frameKey = `${graphic}|${action}`;
+    if (!this.frameEntryCache.has(frameKey)) {
+      let found = null;
       const name = `build/animationlegacyframe/${String(graphic).padStart(6, '0')}/${String(action).padStart(2, '0')}.bin`;
-      const entry = spec.hashes.get(createHash(name));
-      if (entry) {
-        return this.readUopFrames(spec, entry, action, direction, type, hue);
+      const hash = createHash(name);
+      for (let i = 0; i < 10; i++) {
+        const spec = this.filesUop[i];
+        if (!spec) continue;
+        const entry = spec.hashes.get(hash);
+        if (entry) {
+          found = { spec, entry };
+          break;
+        }
       }
+      this.frameEntryCache.set(frameKey, found);
+    }
+    const frameEntry = this.frameEntryCache.get(frameKey);
+    if (frameEntry) {
+      return this.readUopFrames(frameEntry.spec, frameEntry.entry, action, direction, type, hue);
     }
 
     const mul = this.filesMul[fileIndex];

@@ -1,3 +1,6 @@
+const UTF8_DECODER = new TextDecoder('utf-8');
+const UTF8_ENCODER = new TextEncoder();
+
 export class Reader {
   constructor(data) {
     this.data = data instanceof Uint8Array ? data : new Uint8Array(data);
@@ -125,7 +128,7 @@ export class Reader {
     this.position = end;
     let stop = bytes.indexOf(0);
     if (stop < 0) stop = bytes.length;
-    return new TextDecoder('utf-8').decode(bytes.subarray(0, stop));
+    return UTF8_DECODER.decode(bytes.subarray(0, stop));
   }
 
   readUTF8Z() {
@@ -133,7 +136,7 @@ export class Reader {
     while (this.position < this.length && this.data[this.position] !== 0) this.position++;
     const bytes = this.data.subarray(start, this.position);
     if (this.position < this.length) this.position++;
-    return new TextDecoder('utf-8').decode(bytes);
+    return UTF8_DECODER.decode(bytes);
   }
 
   readUnicodeBE(byteLength) {
@@ -195,7 +198,9 @@ export class Reader {
 
 function asciiDecode(bytes) {
   let s = '';
-  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  for (let i = 0; i < bytes.length; i += 4096) {
+    s += String.fromCharCode.apply(null, bytes.subarray(i, i + 4096));
+  }
   return s;
 }
 
@@ -299,7 +304,7 @@ export class Writer {
   }
 
   writeUTF8(str) {
-    const bytes = new TextEncoder().encode(str);
+    const bytes = UTF8_ENCODER.encode(str);
     this.writeBytes(bytes);
     return this;
   }

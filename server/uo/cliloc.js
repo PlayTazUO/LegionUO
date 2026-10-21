@@ -7,6 +7,7 @@ export class ClilocManager {
     this.language = language;
     this.loaded = false;
     this.entries = new Map();
+    this.allBuffer = null;
   }
 
   load() {
@@ -58,7 +59,8 @@ export class ClilocManager {
 
   allJSON() {
     this.load();
-    return Buffer.from(JSON.stringify(Object.fromEntries(this.entries)));
+    if (!this.allBuffer) this.allBuffer = Buffer.from(JSON.stringify(Object.fromEntries(this.entries)));
+    return this.allBuffer;
   }
 
   translate(id, args = '', capitalize = false) {

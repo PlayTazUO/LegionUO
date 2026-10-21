@@ -73,6 +73,11 @@ export class AssetService {
     this.config = config;
     this.serverId = assetServerId(config);
     this.files = new UOFileManager(config.uoDir, config);
+    this.initManagers();
+  }
+
+  initManagers() {
+    const config = this.config;
     this.hues = new HueManager(this.files);
     this.art = new ArtManager(this.files, this.hues);
     this.texmaps = new TexmapManager(this.files, this.hues);
@@ -100,22 +105,7 @@ export class AssetService {
     this.config.uoDir = dir;
     this.serverId = assetServerId(this.config);
     this.files.setDir(dir);
-    this.hues = new HueManager(this.files);
-    this.art = new ArtManager(this.files, this.hues);
-    this.texmaps = new TexmapManager(this.files, this.hues);
-    this.gumps = new GumpsManager(this.files, this.hues);
-    this.maps = new MapManager(this.files, this.config.mapCount || 6);
-    this.tiledata = new TileDataManager(this.files, this.config.clientVersion);
-    this.equipconv = new EquipConvManager(this.files);
-    this.animations = new AnimationsManager(this.files, this.hues);
-    this.clilocs = new ClilocManager(this.files, this.config.language || 'enu');
-    this.skills = new SkillsManager(this.files);
-    this.multis = new MultiManager(this.files, this.config.clientVersion);
-    this.sounds = new SoundManager(this.files);
-    this.fonts = new FontManager(this.files, this.hues);
-    this.music = new MusicManager(this.files);
-    this.cache = new LRU((this.config.cacheMb || 256) * 1024 * 1024);
-    this.radarBuffer = undefined;
+    this.initManagers();
   }
 
   info() {
@@ -264,7 +254,12 @@ export class AssetService {
   }
 
   mapBlock(map, bx, by, useXFiles = false) {
-    return this.maps.getBlock(map, bx, by, useXFiles);
+    const key = this.cacheKey(`mapblock|${map}|${bx}|${by}|${useXFiles ? 'x' : ''}`);
+    const cached = this.cache.get(key);
+    if (cached) return cached;
+    const block = this.maps.getBlock(map, bx, by, useXFiles);
+    if (block) this.cache.set(key, block);
+    return block;
   }
 
   musicTrack(index) {

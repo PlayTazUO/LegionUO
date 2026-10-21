@@ -8,6 +8,7 @@ import {
 } from './entity.js';
 import { hasUoHtmlMarkup, drawServerText, measureUoHtml } from './html.js';
 import { settings } from './settings.js';
+import { notorietyColor } from '../util/ui.js';
 
 const ANIM_FRAME_MS = 80;
 const CORPSE_Z_BUMP = 1;
@@ -182,7 +183,7 @@ export class Renderer {
     }
 
     const drawables = [];
-    for (const s of this.staticGrid(block)[(ly << 3) | lx] || []) {
+    for (const s of this.world.staticGrid(block)[(ly << 3) | lx] || []) {
       drawables.push({ type: 'static', z: s.z, priorityZ: this.priorityZ(s.z, s.graphic), graphic: s.graphic, hue: s.hue });
     }
     for (const item of groundItems.get(`${x},${y}`) || []) {
@@ -778,17 +779,6 @@ export class Renderer {
     }
   }
 
-  staticGrid(block) {
-    if (!block._staticGrid) {
-      block._staticGrid = Array.from({ length: 64 }, () => []);
-      for (const s of block.statics || []) {
-        const idx = (s.y << 3) | s.x;
-        if (idx >= 0 && idx < 64) block._staticGrid[idx].push(s);
-      }
-    }
-    return block._staticGrid;
-  }
-
   targetAt(mx, my) {
     const entity = this.entityAt(mx, my);
     if (entity) return { kind: 'entity', entity };
@@ -801,7 +791,7 @@ export class Renderer {
         const block = this.world.getBlock(tx >> 3, ty >> 3);
         if (!block) continue;
         const idx = ((ty & 7) << 3) | (tx & 7);
-        for (const s of this.staticGrid(block)[idx] || []) {
+        for (const s of this.world.staticGrid(block)[idx] || []) {
           const priorityZ = this.priorityZ(s.z, s.graphic);
           if (best && priorityZ < best.priorityZ) continue;
           const img = this.assets.getStatic(s.graphic, s.hue);
@@ -979,27 +969,6 @@ export class Renderer {
 
 function typeOrder(d) {
   return d.type === 'mobile' ? 2 : d.type === 'item' ? 1 : 0;
-}
-
-function notorietyColor(noto) {
-  switch (noto) {
-    case 1:
-      return '#6fb7ff';
-    case 2:
-      return '#7ee08a';
-    case 3:
-      return '#c8c8c8';
-    case 4:
-      return '#ffd34a';
-    case 5:
-      return '#ff8a3a';
-    case 6:
-      return '#ff4a4a';
-    case 7:
-      return '#ff5cd6';
-    default:
-      return '#e8e8e8';
-  }
 }
 
 function wrapText(ctx, text, maxWidth) {

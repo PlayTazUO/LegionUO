@@ -1,6 +1,7 @@
 import { Entity, isGhostGraphic, isMobileSerial, Layer } from './entity.js';
 import { OPLManager } from './opl.js';
 import { UltimaLiveManager } from './uolive.js';
+import { accountStorageKey } from '../util/ui.js';
 
 export class Mobile extends Entity {
   constructor(serial) {
@@ -577,7 +578,7 @@ export class World {
     entity.walkStepIndex = -1;
   }
 
-  staticsAt(block, lx, ly) {
+  staticGrid(block) {
     if (!block._staticGrid) {
       block._staticGrid = Array.from({ length: 64 }, () => []);
       for (const s of block.statics || []) {
@@ -585,7 +586,11 @@ export class World {
         if (idx >= 0 && idx < 64) block._staticGrid[idx].push(s);
       }
     }
-    return block._staticGrid[(ly << 3) | lx] || [];
+    return block._staticGrid;
+  }
+
+  staticsAt(block, lx, ly) {
+    return this.staticGrid(block)[(ly << 3) | lx] || [];
   }
 
   tileInfo(x, y) {
@@ -691,8 +696,7 @@ export class World {
   }
 
   gumpStateKey() {
-    const account = (this.game?.loginCredentials?.account || '').trim().toLowerCase();
-    return account ? `legionuo.gumps.v1.${account}` : 'legionuo.gumps.v1';
+    return accountStorageKey(this, 'legionuo.gumps.v1');
   }
 
   loadGumpState() {

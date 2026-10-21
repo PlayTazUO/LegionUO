@@ -1,4 +1,6 @@
 import { withServerParam } from './serverCache.js';
+import { FIVE_BIT } from './html.js';
+import { accountStorageKey, clampPosition, notorietyColor } from '../util/ui.js';
 
 const RADAR_STORAGE_BASE = 'legionuo.radar.v1';
 const MAP_STORAGE_BASE = 'legionuo.mapgump.v1';
@@ -8,11 +10,6 @@ const TITLE_HEIGHT = 22;
 const MAP_MARGIN = 10;
 const BUTTON_HEIGHT = 22;
 const RADAR_REFRESH_MS = 500;
-
-const FIVE_BIT = [
-  0x00, 0x08, 0x10, 0x18, 0x20, 0x29, 0x31, 0x39, 0x41, 0x4a, 0x52, 0x5a, 0x62, 0x6a, 0x73, 0x7b,
-  0x83, 0x8b, 0x94, 0x9c, 0xa4, 0xac, 0xb4, 0xbd, 0xc5, 0xcd, 0xd5, 0xde, 0xe6, 0xee, 0xf6, 0xff,
-];
 
 const radarCache = new Map();
 const staticCache = new WeakMap();
@@ -27,14 +24,9 @@ function radarEntry(world) {
   return entry;
 }
 
-function storageKey(world, base) {
-  const account = (world.game?.loginCredentials?.account || '').trim().toLowerCase();
-  return account ? `${base}.${account}` : base;
-}
-
 function loadSaved(world, base) {
   try {
-    const saved = JSON.parse(localStorage.getItem(storageKey(world, base)) || 'null');
+    const saved = JSON.parse(localStorage.getItem(accountStorageKey(world, base)) || 'null');
     return saved && typeof saved === 'object' ? saved : {};
   } catch {
     return {};
@@ -43,37 +35,9 @@ function loadSaved(world, base) {
 
 function saveSaved(world, base, value) {
   try {
-    localStorage.setItem(storageKey(world, base), JSON.stringify(value));
+    localStorage.setItem(accountStorageKey(world, base), JSON.stringify(value));
   } catch {
     /* ignore quota errors */
-  }
-}
-
-function clampPosition(x, y, width, height) {
-  return {
-    x: Math.max(0, Math.min(x, Math.max(0, window.innerWidth - width))),
-    y: Math.max(0, Math.min(y, Math.max(0, window.innerHeight - height))),
-  };
-}
-
-function notorietyColor(noto) {
-  switch (noto) {
-    case 1:
-      return '#6fb7ff';
-    case 2:
-      return '#7ee08a';
-    case 3:
-      return '#c8c8c8';
-    case 4:
-      return '#ffd34a';
-    case 5:
-      return '#ff8a3a';
-    case 6:
-      return '#ff4a4a';
-    case 7:
-      return '#ff5cd6';
-    default:
-      return '#e8e8e8';
   }
 }
 

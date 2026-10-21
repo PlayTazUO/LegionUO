@@ -1,3 +1,5 @@
+import { accountStorageKey, clampPosition } from '../util/ui.js';
+
 const HOTBAR_STORAGE_BASE = 'legionuo.hotbar.v1';
 const SLOT_COUNT = 12;
 const PAGE_COUNT = 3;
@@ -9,15 +11,7 @@ const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='];
 const KEY_CODES = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0', 'Minus', 'Equal'];
 
 function storageKey(world) {
-  const account = (world.game?.loginCredentials?.account || '').trim().toLowerCase();
-  return account ? `${HOTBAR_STORAGE_BASE}.${account}` : HOTBAR_STORAGE_BASE;
-}
-
-function clampPosition(x, y, width, height) {
-  return {
-    x: Math.max(0, Math.min(x, Math.max(0, window.innerWidth - width))),
-    y: Math.max(0, Math.min(y, Math.max(0, window.innerHeight - height))),
-  };
+  return accountStorageKey(world, HOTBAR_STORAGE_BASE);
 }
 
 function normalizeSlot(slot) {
@@ -104,8 +98,7 @@ export function hotbarMacroSlot(name, steps) {
 }
 
 export function macroStorageKey(world) {
-  const account = (world.game?.loginCredentials?.account || '').trim().toLowerCase();
-  return account ? `legionuo.macros.v1.${account}` : 'legionuo.macros.v1';
+  return accountStorageKey(world, 'legionuo.macros.v1');
 }
 
 export function loadMacros(world) {

@@ -2,6 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { AssetService } from './assets.js';
 import { attachWebSocketServer } from './ws.js';
@@ -183,6 +184,28 @@ function sendBuffer(res, status, body, type, cache = 'public, max-age=86400') {
   res.end(body);
 }
 
+const gzipCache = new WeakMap();
+
+function sendJSONMaybeGzip(req, res, body, cache) {
+  const type = 'application/json; charset=utf-8';
+  if (!String(req.headers['accept-encoding'] || '').includes('gzip')) {
+    sendBuffer(res, 200, body, type, cache);
+    return;
+  }
+  let gz = gzipCache.get(body);
+  if (!gz) {
+    gz = zlib.gzipSync(body);
+    gzipCache.set(body, gz);
+  }
+  res.writeHead(200, {
+    'Content-Type': type,
+    'Content-Encoding': 'gzip',
+    'Content-Length': gz.length,
+    'Cache-Control': cache,
+  });
+  res.end(gz);
+}
+
 function serveStatic(res, urlPath) {
   let relative = decodeURIComponent(urlPath.split('?')[0]);
   if (relative === '/' || relative === '') relative = '/index.html';
@@ -241,22 +264,7 @@ const server = http.createServer((req, res) => {
     }
 
     if (pathname === '/api/tiledata') {
-      const buf = assets.tiledataJSON(url.searchParams.get('names') === '1');
-      const acceptsGzip = String(req.headers['accept-encoding'] || '').includes('gzip');
-      if (acceptsGzip) {
-        import('node:zlib').then(({ gzipSync }) => {
-          const gz = gzipSync(buf);
-          res.writeHead(200, {
-            'Content-Type': 'application/json; charset=utf-8',
-            'Content-Encoding': 'gzip',
-            'Content-Length': gz.length,
-            'Cache-Control': 'public, max-age=3600',
-          });
-          res.end(gz);
-        }).catch(() => sendBuffer(res, 200, buf, 'application/json; charset=utf-8', 'public, max-age=3600'));
-      } else {
-        sendBuffer(res, 200, buf, 'application/json; charset=utf-8', 'public, max-age=3600');
-      }
+      sendJSONMaybeGzip(req, res, assets.tiledataJSON(url.searchParams.get('names') === '1'), 'public, max-age=3600');
       return;
     }
 
@@ -279,22 +287,7 @@ const server = http.createServer((req, res) => {
     }
 
     if (pathname === '/api/cliloc/all') {
-      const buf = assets.clilocs.allJSON();
-      const acceptsGzip = String(req.headers['accept-encoding'] || '').includes('gzip');
-      if (acceptsGzip) {
-        import('node:zlib').then(({ gzipSync }) => {
-          const gz = gzipSync(buf);
-          res.writeHead(200, {
-            'Content-Type': 'application/json; charset=utf-8',
-            'Content-Encoding': 'gzip',
-            'Content-Length': gz.length,
-            'Cache-Control': 'public, max-age=86400',
-          });
-          res.end(gz);
-        });
-      } else {
-        sendBuffer(res, 200, buf, 'application/json; charset=utf-8', 'public, max-age=86400');
-      }
+      sendJSONMaybeGzip(req, res, assets.clilocs.allJSON(), 'public, max-age=86400');
       return;
     }
 

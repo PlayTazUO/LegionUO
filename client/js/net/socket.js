@@ -142,6 +142,11 @@ export class UOSocket {
 
   append(data) {
     if (!data.length) return;
+    if (!this.buffer.length) {
+      this.buffer = data;
+      this.parse();
+      return;
+    }
     const next = new Uint8Array(this.buffer.length + data.length);
     next.set(this.buffer);
     next.set(data, this.buffer.length);

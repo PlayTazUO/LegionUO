@@ -639,10 +639,7 @@ export class Outgoing {
       w.writeU16BE(lines.length);
       for (const line of lines) {
         const clean = String(line || '').replace(/\n/g, '');
-        if (clean) {
-          const bytes = new TextEncoder().encode(clean);
-          w.writeBytes(bytes);
-        }
+        if (clean) w.writeUTF8(clean);
         w.writeU8(0);
       }
       w.writeU8(0);

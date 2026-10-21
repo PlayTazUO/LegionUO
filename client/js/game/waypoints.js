@@ -1,4 +1,5 @@
 import { settings } from './settings.js';
+import { accountStorageKey, clampPosition, fitText } from '../util/ui.js';
 
 const STORAGE_BASE = 'legionuo.waypoints.v1';
 const WINDOW_STORAGE_BASE = 'legionuo.waypoints.window.v1';
@@ -17,33 +18,6 @@ const BADGE_LABELS = {
   local: 'L',
 };
 
-function storageKey(world, base) {
-  const account = (world.game?.loginCredentials?.account || '').trim().toLowerCase();
-  return account ? `${base}.${account}` : base;
-}
-
-function clampPosition(x, y, width, height) {
-  return {
-    x: Math.max(0, Math.min(x, Math.max(0, window.innerWidth - width))),
-    y: Math.max(0, Math.min(y, Math.max(0, window.innerHeight - height))),
-  };
-}
-
-function fitText(ctx, text, maxWidth) {
-  const value = String(text ?? '');
-  if (!value || maxWidth <= 0) return '';
-  if (ctx.measureText(value).width <= maxWidth) return value;
-  const suffix = '...';
-  let lo = 0;
-  let hi = value.length;
-  while (lo < hi) {
-    const mid = Math.ceil((lo + hi) / 2);
-    if (ctx.measureText(value.slice(0, mid) + suffix).width <= maxWidth) lo = mid;
-    else hi = mid - 1;
-  }
-  return lo > 0 ? value.slice(0, lo) + suffix : '';
-}
-
 function normalizeWaypoint(entry, index) {
   if (!entry || typeof entry !== 'object') return null;
   const x = Number(entry.x);
@@ -61,7 +35,7 @@ function normalizeWaypoint(entry, index) {
 
 export function loadLocalWaypoints(world) {
   try {
-    const saved = JSON.parse(localStorage.getItem(storageKey(world, STORAGE_BASE)) || 'null');
+    const saved = JSON.parse(localStorage.getItem(accountStorageKey(world, STORAGE_BASE)) || 'null');
     const list = Array.isArray(saved) ? saved : Array.isArray(saved?.waypoints) ? saved.waypoints : [];
     return list.map(normalizeWaypoint).filter(Boolean);
   } catch {
@@ -73,7 +47,7 @@ export function saveLocalWaypoints(world, list) {
   const clean = (Array.isArray(list) ? list : []).map(normalizeWaypoint).filter(Boolean);
   world.localWaypoints = clean;
   try {
-    localStorage.setItem(storageKey(world, STORAGE_BASE), JSON.stringify(clean));
+    localStorage.setItem(accountStorageKey(world, STORAGE_BASE), JSON.stringify(clean));
   } catch {
     /* ignore quota errors */
   }
@@ -130,7 +104,7 @@ export class WaypointWindow {
 
   loadPosition() {
     try {
-      const saved = JSON.parse(localStorage.getItem(storageKey(this.world, WINDOW_STORAGE_BASE)) || 'null');
+      const saved = JSON.parse(localStorage.getItem(accountStorageKey(this.world, WINDOW_STORAGE_BASE)) || 'null');
       if (!saved || !Number.isFinite(Number(saved.x)) || !Number.isFinite(Number(saved.y))) return null;
       return { x: Number(saved.x), y: Number(saved.y) };
     } catch {
@@ -143,7 +117,7 @@ export class WaypointWindow {
     this.x = pos.x;
     this.y = pos.y;
     try {
-      localStorage.setItem(storageKey(this.world, WINDOW_STORAGE_BASE), JSON.stringify({ x: this.x, y: this.y }));
+      localStorage.setItem(accountStorageKey(this.world, WINDOW_STORAGE_BASE), JSON.stringify({ x: this.x, y: this.y }));
     } catch {
       /* ignore quota errors */
     }

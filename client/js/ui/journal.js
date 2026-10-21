@@ -1,4 +1,5 @@
 import { hasUoHtmlMarkup, uoHtmlFragment } from '../game/html.js';
+import { clamp } from '../util/ui.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -20,10 +21,6 @@ const DEFAULTS = {
 };
 
 const STORAGE_BASE = 'legionuo.journal.v1';
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
 
 function pad(value) {
   return String(value).padStart(2, '0');

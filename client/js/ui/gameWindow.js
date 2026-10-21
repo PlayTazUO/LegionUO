@@ -1,12 +1,10 @@
+import { clamp } from '../util/ui.js';
+
 const STORAGE_KEY = 'legionuo.gameWindow.v1';
 const DEFAULT_WIDTH = 800;
 const DEFAULT_HEIGHT = 700;
 const MIN_WIDTH = 320;
 const MIN_HEIGHT = 240;
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
 
 export class GameWindow {
   constructor(game, onChange) {
