@@ -83,6 +83,8 @@ function loadConfig() {
     cacheMb: 256,
     allowProxyHosts: [],
     defaultLoginHost: '',
+    loginEncryption: true,
+    gameEncryption: true,
     language: 'enu',
     walkDelay: 400,
     runDelay: 200,
@@ -126,7 +128,11 @@ function reloadConfigIfChanged() {
     if (mtime === configMtime) return;
     configMtime = mtime;
     const next = loadConfig();
-    const changed = next.uoDir !== config.uoDir || next.clientVersion !== config.clientVersion || next.mapCount !== config.mapCount;
+    const changed =
+      next.uoDir !== config.uoDir ||
+      next.clientVersion !== config.clientVersion ||
+      next.mapCount !== config.mapCount ||
+      next.language !== config.language;
     if (!changed) {
       Object.assign(config, next);
       return;
@@ -217,6 +223,8 @@ const server = http.createServer((req, res) => {
         wsPath: '/proxy',
         defaultLoginHost: config.defaultLoginHost || '',
         allowProxyHosts: config.allowProxyHosts || [],
+        loginEncryption: config.loginEncryption !== false,
+        gameEncryption: config.gameEncryption !== false,
         walkDelay: config.walkDelay,
         runDelay: config.runDelay,
         mountedWalkDelay: config.mountedWalkDelay,
@@ -249,6 +257,11 @@ const server = http.createServer((req, res) => {
       } else {
         sendBuffer(res, 200, buf, 'application/json; charset=utf-8', 'public, max-age=3600');
       }
+      return;
+    }
+
+    if (pathname === '/api/equipconv') {
+      sendBuffer(res, 200, assets.equipConvJSON(), 'application/json; charset=utf-8', 'public, max-age=3600');
       return;
     }
 
@@ -349,8 +362,13 @@ const server = http.createServer((req, res) => {
 
     m = pathname.match(/^\/api\/gump\/(\d+)\.png$/);
     if (m) {
+      const id = Number(m[1]);
+      if (!assets.gumps.exists(id)) {
+        sendJSON(res, 404, { error: 'gump not found' });
+        return;
+      }
       const hue = Number(url.searchParams.get('hue') || 0);
-      sendBuffer(res, 200, assets.gump(Number(m[1]), hue), 'image/png');
+      sendBuffer(res, 200, assets.gump(id, hue), 'image/png');
       return;
     }
 
@@ -428,4 +446,12 @@ server.listen(config.httpPort, config.host, () => {
   console.log(`[legionuo] tiledata: ${info.paths.tiledata || 'NOT FOUND'}`);
   console.log(`[legionuo] cliloc: ${info.paths.cliloc || 'NOT FOUND'}`);
   if (!config.uoDir) console.log('[legionuo] Set uoDir in config.json or pass --uo-dir <path>');
+  const proxyHosts = config.defaultLoginHost
+    ? [config.defaultLoginHost, ...(config.allowProxyHosts || [])]
+    : config.allowProxyHosts || [];
+  console.log(
+    `[legionuo] proxy: default login host ${config.defaultLoginHost || '(none)'}, allowed hosts ${
+      proxyHosts.length ? proxyHosts.join(', ') : '(any)'
+    }`
+  );
 });

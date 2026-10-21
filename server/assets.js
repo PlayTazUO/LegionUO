@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { applyBlackTransparency, encodePNG } from './lib/png.js';
 import { UOFileManager } from './uo/files.js';
@@ -6,6 +7,7 @@ import { ArtManager } from './uo/art.js';
 import { GumpsManager } from './uo/gumps.js';
 import { MapManager, MAP_SIZES } from './uo/map.js';
 import { TileDataManager } from './uo/tiledata.js';
+import { EquipConvManager } from './uo/equipconv.js';
 import { AnimationsManager, MAX_DIRECTIONS, MAX_ACTIONS } from './uo/anim.js';
 import { ClilocManager } from './uo/cliloc.js';
 import { SkillsManager } from './uo/skills.js';
@@ -56,9 +58,20 @@ class LRU {
 
 const TRANSPARENT_PNG = encodePNG(1, 1, new Uint32Array(1));
 
+function assetServerId(config) {
+  const seed = [
+    config.uoDir || '',
+    config.clientVersion || '',
+    config.mapCount || '',
+    config.language || '',
+  ].join('\n');
+  return crypto.createHash('sha1').update(seed).digest('hex').slice(0, 16);
+}
+
 export class AssetService {
   constructor(config) {
     this.config = config;
+    this.serverId = assetServerId(config);
     this.files = new UOFileManager(config.uoDir, config);
     this.hues = new HueManager(this.files);
     this.art = new ArtManager(this.files, this.hues);
@@ -66,6 +79,7 @@ export class AssetService {
     this.gumps = new GumpsManager(this.files, this.hues);
     this.maps = new MapManager(this.files, config.mapCount || 6);
     this.tiledata = new TileDataManager(this.files, config.clientVersion);
+    this.equipconv = new EquipConvManager(this.files);
     this.animations = new AnimationsManager(this.files, this.hues);
     this.clilocs = new ClilocManager(this.files, config.language || 'enu');
     this.skills = new SkillsManager(this.files);
@@ -83,6 +97,8 @@ export class AssetService {
   }
 
   setDir(dir) {
+    this.config.uoDir = dir;
+    this.serverId = assetServerId(this.config);
     this.files.setDir(dir);
     this.hues = new HueManager(this.files);
     this.art = new ArtManager(this.files, this.hues);
@@ -90,6 +106,7 @@ export class AssetService {
     this.gumps = new GumpsManager(this.files, this.hues);
     this.maps = new MapManager(this.files, this.config.mapCount || 6);
     this.tiledata = new TileDataManager(this.files, this.config.clientVersion);
+    this.equipconv = new EquipConvManager(this.files);
     this.animations = new AnimationsManager(this.files, this.hues);
     this.clilocs = new ClilocManager(this.files, this.config.language || 'enu');
     this.skills = new SkillsManager(this.files);
@@ -109,6 +126,7 @@ export class AssetService {
     const gumpMul = has('gumpart.mul');
     const clilocName = `Cliloc.${this.config.language || 'enu'}`;
     return {
+      serverId: this.serverId,
       uoDir: this.config.uoDir,
       clientVersion: this.config.clientVersion,
       maps: this.maps.sizes,
@@ -164,11 +182,16 @@ export class AssetService {
     };
   }
 
+  cacheKey(key) {
+    return `${this.serverId}|${key}`;
+  }
+
   pngCache(key, producer) {
-    const cached = this.cache.get(key);
+    const cacheKey = this.cacheKey(key);
+    const cached = this.cache.get(cacheKey);
     if (cached) return cached;
     const png = producer() || TRANSPARENT_PNG;
-    this.cache.set(key, png);
+    this.cache.set(cacheKey, png);
     return png;
   }
 
@@ -205,7 +228,7 @@ export class AssetService {
   }
 
   animation(body, action, direction, hue) {
-    const key = `anim|${body}|${action}|${direction}|${hue}`;
+    const key = this.cacheKey(`anim|${body}|${action}|${direction}|${hue}`);
     const cached = this.cache.get(key);
     if (cached) return cached;
     const frames = this.animations.getFrames(body, action, direction, hue) || [];
@@ -265,7 +288,7 @@ export class AssetService {
 
   mapImage(facet, x0, y0, x1, y1, width, height) {
     if (!Number.isFinite(facet) || facet < 0) return null;
-    const key = `mapimage|${facet}|${x0}|${y0}|${x1}|${y1}|${width}|${height}`;
+    const key = this.cacheKey(`mapimage|${facet}|${x0}|${y0}|${x1}|${y1}|${width}|${height}`);
     const cached = this.cache.get(key);
     if (cached) return cached;
     const png = renderFacetCrop(this.files, Math.floor(facet), x0, y0, x1, y1, width, height);
@@ -274,7 +297,7 @@ export class AssetService {
   }
 
   tiledataJSON(withNames = false) {
-    const key = `tiledata|${withNames}`;
+    const key = this.cacheKey(`tiledata|${withNames}`);
     const cached = this.cache.get(key);
     if (cached) return cached;
     this.tiledata.load();
@@ -288,6 +311,15 @@ export class AssetService {
           statics: this.tiledata.statics.map((t) => [t.flags, t.height, t.layer, t.animId]),
         };
     const buf = Buffer.from(JSON.stringify(data));
+    this.cache.set(key, buf);
+    return buf;
+  }
+
+  equipConvJSON() {
+    const key = this.cacheKey('equipconv');
+    const cached = this.cache.get(key);
+    if (cached) return cached;
+    const buf = Buffer.from(JSON.stringify(this.equipconv.toJSON()));
     this.cache.set(key, buf);
     return buf;
   }

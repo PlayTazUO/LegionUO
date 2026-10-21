@@ -1,4 +1,10 @@
-import { Layer } from './entity.js';
+import {
+  Layer,
+  baseBodyGraphic,
+  buildEquipmentOrder,
+  isFemaleMobile,
+  isGargoyleBody,
+} from './entity.js';
 import { drawServerText } from './html.js';
 import { settings } from './settings.js';
 import { buffText } from './buffs.js';
@@ -13,7 +19,6 @@ const STACK_ART_OFFSET = 3;
 const LIST_HEADER_HEIGHT = 20;
 const LIST_ROW_HEIGHT = 24;
 const LIST_MAX_ROWS = 8;
-const LIST_MIN_WIDTH = 280;
 const LIST_ICON_SIZE = 20;
 
 function resolveItemName(world, item) {
@@ -185,7 +190,7 @@ export class ContainerWindow {
   }
 
   get listWidth() {
-    return Math.max(this.width, LIST_MIN_WIDTH);
+    return this.width;
   }
 
   get listVisibleRows() {
@@ -1934,32 +1939,6 @@ const PAPERDOLL_RIGHT_LAYERS = [
   Layer.Waist,
   Layer.Shoes,
 ];
-const PAPERDOLL_LAYER_ORDER = [
-  Layer.Cloak,
-  Layer.Shirt,
-  Layer.Pants,
-  Layer.Shoes,
-  Layer.Legs,
-  Layer.Arms,
-  Layer.Torso,
-  Layer.Tunic,
-  Layer.Ring,
-  Layer.Bracelet,
-  Layer.Face,
-  Layer.Gloves,
-  Layer.Skirt,
-  Layer.Robe,
-  Layer.Waist,
-  Layer.Necklace,
-  Layer.Hair,
-  Layer.Beard,
-  Layer.Earrings,
-  Layer.Helm,
-  Layer.OneHanded,
-  Layer.TwoHanded,
-  Layer.Talisman,
-];
-
 function paperdollStorageKey(world) {
   const account = (world.game?.loginCredentials?.account || '').trim().toLowerCase();
   return account ? `${PAPERDOLL_STORAGE_BASE}.${account}` : PAPERDOLL_STORAGE_BASE;
@@ -2285,18 +2264,38 @@ export class PaperdollWindow {
     if (graphic === 0x029b || graphic === 0x02b7) return { id: 0x0299, hue: this.mobile.hue || 0 };
     if (graphic === 0x04e5) return { id: 0xc835, hue: this.mobile.hue || 0 };
     if (graphic === 0x03db) return { id: 0x0c, hue: 0x03ea };
-    return { id: this.mobile.isFemale ? 0x0d : 0x0c, hue: this.mobile.hue || 0 };
+    return { id: isFemaleMobile(this.mobile) ? 0x0d : 0x0c, hue: this.mobile.hue || 0 };
   }
 
   equipGump(item) {
-    if (!this.world.assets.tileData) return 0;
-    const animId = this.world.assets.staticAnimId(item.graphic);
+    const assets = this.world.assets;
+    if (!assets.tileData) return 0;
+    let animId = assets.staticAnimId(item.graphic) || 0;
     if (!animId) return 0;
-    const female = !!this.mobile.isFemale;
-    const primary = animId + (female ? PAPERDOLL_FEMALE_GUMP_OFFSET : PAPERDOLL_MALE_GUMP_OFFSET);
-    const alternate = animId + (female ? PAPERDOLL_MALE_GUMP_OFFSET : PAPERDOLL_FEMALE_GUMP_OFFSET);
-    if (this.world.assets.getGump(primary)) return primary;
-    if (this.world.assets.getGump(alternate)) return alternate;
+    if ((this.mobile.graphic === 0x02b6 || this.mobile.graphic === 0x02b7) && animId === 0x03ca) {
+      animId = 0x0223;
+    }
+    const female = isFemaleMobile(this.mobile);
+    const conv = assets.equipConv(baseBodyGraphic(this.mobile), animId);
+    if (conv) {
+      if (conv.gump > PAPERDOLL_MALE_GUMP_OFFSET) {
+        animId =
+          conv.gump >= PAPERDOLL_FEMALE_GUMP_OFFSET
+            ? conv.gump - PAPERDOLL_FEMALE_GUMP_OFFSET
+            : conv.gump - PAPERDOLL_MALE_GUMP_OFFSET;
+      } else {
+        animId = conv.gump;
+      }
+      if (!animId) return 0;
+    }
+    const offset = female ? PAPERDOLL_FEMALE_GUMP_OFFSET : PAPERDOLL_MALE_GUMP_OFFSET;
+    const alternateOffset = female ? PAPERDOLL_MALE_GUMP_OFFSET : PAPERDOLL_FEMALE_GUMP_OFFSET;
+    const hue = (item.hue || 0) & 0x3fff;
+    const primary = animId + offset;
+    if (assets.gumpProbe(primary, hue) === false) {
+      const alternate = animId + alternateOffset;
+      if (assets.gumpProbe(alternate, hue)) return alternate;
+    }
     return primary;
   }
 
@@ -2329,14 +2328,10 @@ export class PaperdollWindow {
     const body = this.bodyGump();
     const bodyImg = this.world.assets.getGump(body.id, body.hue);
     if (bodyImg) ctx.drawImage(bodyImg, avatar.x, avatar.y);
-    const arms = m.getItem(Layer.Arms);
-    const swapArms = !!arms && (arms.graphic === 0x1410 || arms.graphic === 0x1417);
-    for (const orderLayer of PAPERDOLL_LAYER_ORDER) {
-      let layer = orderLayer;
-      if (swapArms) {
-        if (layer === Layer.Arms) layer = Layer.Torso;
-        else if (layer === Layer.Torso) layer = Layer.Arms;
-      }
+    const layerOrder = buildEquipmentOrder(m, this.world.assets, {
+      altTorso: isFemaleMobile(m) || isGargoyleBody(m.graphic),
+    });
+    for (const layer of layerOrder) {
       const item = m.getItem(layer);
       if (!item) continue;
       const gumpId = this.equipGump(item);
@@ -3033,6 +3028,14 @@ const STATUS_ACTIONS = [
 const STATUS_BUFF_SIZE = 24;
 const STATUS_BUFF_MAX = 9;
 
+function cycleStatLock(world, stat) {
+  if (!world.statLocks) world.statLocks = { str: 0, dex: 0, int: 0 };
+  const next = ((world.statLocks[stat] || 0) + 1) % 3;
+  world.statLocks[stat] = next;
+  const index = stat === 'str' ? 0 : stat === 'dex' ? 1 : 2;
+  world.socket.out.statLock(index, next);
+}
+
 export class StatusWindow {
   constructor(world) {
     this.world = world;
@@ -3082,6 +3085,21 @@ export class StatusWindow {
 
   closeRect() {
     return { x: this.x + this.width - 26, y: this.y + 7, w: 18, h: 18 };
+  }
+
+  statRects() {
+    const left = this.x + 12;
+    const gap = 5;
+    const totalWidth = this.width - 24;
+    const boxWidth = Math.floor((totalWidth - gap * 2) / 3);
+    return ['str', 'dex', 'int'].map((stat, index) => ({
+      stat,
+      label: stat.toUpperCase(),
+      x: left + index * (boxWidth + gap),
+      y: this.y + 52,
+      w: boxWidth,
+      h: 22,
+    }));
   }
 
   actionRects() {
@@ -3144,6 +3162,11 @@ export class StatusWindow {
     }
     if (this.hitRect(this.closeRect(), mx, my)) {
       this.close();
+      return true;
+    }
+    const stat = this.statRects().find((rect) => this.hitRect(rect, mx, my));
+    if (stat) {
+      cycleStatLock(this.world, stat.stat);
       return true;
     }
     const action = this.actionAt(mx, my);
@@ -3340,9 +3363,25 @@ export class StatusWindow {
     ctx.fillStyle = '#5f5133';
     ctx.fillRect(left, this.y + 48, width, 1);
 
-    ctx.fillStyle = '#d9c58d';
-    ctx.font = '12px monospace';
-    ctx.fillText(`STR ${p.strength}   DEX ${p.dexterity}   INT ${p.intelligence}`, left, this.y + 56);
+    for (const rect of this.statRects()) {
+      const state = this.world.statLocks?.[rect.stat] || 0;
+      const label = SKILL_LOCK_LABELS[state] || 'UP';
+      const value = p[rect.stat === 'str' ? 'strength' : rect.stat === 'dex' ? 'dexterity' : 'intelligence'] ?? 0;
+      ctx.fillStyle = 'rgba(0,0,0,0.24)';
+      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.strokeStyle = state === 2 ? '#c8a8ff' : state === 1 ? '#d6a35a' : '#8fd6ff';
+      ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
+      ctx.fillStyle = '#d9c58d';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`${rect.label} ${value}`, rect.x + 8, rect.y + rect.h / 2);
+      ctx.fillStyle = state === 2 ? '#c8a8ff' : state === 1 ? '#d6a35a' : '#8fd6ff';
+      ctx.textAlign = 'right';
+      ctx.fillText(label, rect.x + rect.w - 8, rect.y + rect.h / 2);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+    }
 
     this.drawBar(ctx, this.y + 78, 'HP', p.hits, p.hitsMax, '#c34434');
     this.drawBar(ctx, this.y + 100, 'SP', p.stamina, p.staminaMax, '#5fa84e');
@@ -4193,11 +4232,7 @@ export class SkillsWindow {
   }
 
   cycleStatLock(stat) {
-    if (!this.world.statLocks) this.world.statLocks = { str: 0, dex: 0, int: 0 };
-    const next = ((this.world.statLocks[stat] || 0) + 1) % 3;
-    this.world.statLocks[stat] = next;
-    const index = stat === 'str' ? 0 : stat === 'dex' ? 1 : 2;
-    this.world.socket.out.statLock(index, next);
+    cycleStatLock(this.world, stat);
   }
 
   cycleLock(skill) {

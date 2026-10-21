@@ -7,6 +7,8 @@ export class UOSocket {
   constructor(options = {}) {
     this.url = options.url || `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/proxy`;
     this.clientVersion = options.clientVersion || '7.0.104.0';
+    this.loginEncryption = options.loginEncryption !== false;
+    this.gameEncryption = options.gameEncryption !== false;
     this.clientVersionValue = versionValue(this.clientVersion);
     this.lengthTable = buildLengthTable(this.clientVersion);
     this.ws = null;
@@ -129,7 +131,7 @@ export class UOSocket {
     // The proxy text frames are control messages; binary frames are UO bytes.
     // Browsers deliver text as strings, so anything here is binary.
     if (this.compressionEnabled) {
-      const decrypted = this.encryption.decryptGame(data);
+      const decrypted = this.gameEncryption ? this.encryption.decryptGame(data) : data;
       const decompressed = this.huffman.decompress(decrypted, 65536);
       if (this.debugPackets) console.log('RX', Array.from(decompressed).map(b=>b.toString(16).padStart(2,'0')).join(' '));
       if (decompressed.length) this.append(decompressed);
@@ -194,10 +196,12 @@ export class UOSocket {
     let data = new Uint8Array(packet);
     if (!options.skipEncryption) {
       if (this.compressionEnabled) {
-        const out = new Uint8Array(data.length);
-        this.encryption.encryptGame(data, out, data.length);
-        data = out;
-      } else if (this.initialized) {
+        if (this.gameEncryption) {
+          const out = new Uint8Array(data.length);
+          this.encryption.encryptGame(data, out, data.length);
+          data = out;
+        }
+      } else if (this.initialized && this.loginEncryption) {
         const out = new Uint8Array(data.length);
         this.encryption.encryptLogin(data, out, data.length);
         data = out;

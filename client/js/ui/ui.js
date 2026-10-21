@@ -204,6 +204,7 @@ export class UI {
         }
       }
       this.game.assets.loadTileData();
+      this.game.assets.loadEquipConv();
       const meta = $('assetMeta');
       if (meta) {
         const f = config.files || {};
@@ -2025,7 +2026,7 @@ export class UI {
     const selectHue = (hue) => {
       selectedHue = hue;
       const color = this.hueColor(hue);
-      preview.src = `/api/art/static/${graphic}.png?hue=${hue}`;
+      preview.src = this.game.assets.url(`/api/art/static/${graphic}.png?hue=${hue}`);
       preview.style.display = graphic ? '' : 'none';
       swatch.style.background = color;
       label.textContent = `Hue ${hue}`;
@@ -2135,7 +2136,7 @@ export class UI {
       button.className = 'uoMenuItem';
       button.title = entry.label || `Item ${index + 1}`;
       const image = document.createElement('img');
-      image.src = `/api/art/static/${entry.graphic}.png?hue=${entry.hue}`;
+      image.src = this.game.assets.url(`/api/art/static/${entry.graphic}.png?hue=${entry.hue}`);
       image.alt = '';
       image.draggable = false;
       image.addEventListener('error', () => {

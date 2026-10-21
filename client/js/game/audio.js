@@ -1,4 +1,5 @@
 import { settings } from './settings.js';
+import { withServerParam } from './serverCache.js';
 
 function volumeGain(base) {
   return Math.max(0.0001, base * (settings.get('audioVolume') / 100));
@@ -8,7 +9,8 @@ const FOOTSTEP_BASE = 0x012;
 const FOOTSTEP_COUNT = 5;
 
 export class AudioManager {
-  constructor() {
+  constructor(config = {}) {
+    this.config = config;
     this.ctx = null;
     this.master = null;
     this.music = null;
@@ -47,7 +49,7 @@ export class AudioManager {
     if (this.pending.has(key)) return null;
     const ctx = this.ensure();
     if (!ctx) return null;
-    const promise = fetch(`/api/sound/${key}.wav`)
+    const promise = fetch(withServerParam(`/api/sound/${key}.wav`, this.config))
       .then((res) => (res.ok ? res.arrayBuffer() : null))
       .then((data) => (data ? ctx.decodeAudioData(data) : null))
       .then((buffer) => {
@@ -137,7 +139,7 @@ export class AudioManager {
     if (this.musicPending.has(key)) return null;
     const ctx = this.ensure();
     if (!ctx) return null;
-    const promise = fetch(`/api/music/${key}.mp3`)
+    const promise = fetch(withServerParam(`/api/music/${key}.mp3`, this.config))
       .then((res) => (res.ok ? res.arrayBuffer() : null))
       .then((data) => (data ? ctx.decodeAudioData(data) : null))
       .then((buffer) => {

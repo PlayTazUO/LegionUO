@@ -43,7 +43,9 @@ Then open <http://127.0.0.1:8080>.
   "mapCount": 6,
   "cacheMb": 256,
   "allowProxyHosts": [],
-  "defaultLoginHost": ""
+  "defaultLoginHost": "",
+  "loginEncryption": true,
+  "gameEncryption": true
 }
 ```
 
@@ -53,6 +55,11 @@ Then open <http://127.0.0.1:8080>.
 - `allowProxyHosts` - optional host allow-list for the relay. Empty means any
   host is allowed; set this if the server is exposed beyond localhost.
 - `defaultLoginHost` - prefilled login host in the client.
+- `loginEncryption` / `gameEncryption` - set to `false` for shards that accept
+  unencrypted login or game traffic. Some shards disable one or both; if the
+  shard closes the connection silently right after a login packet, try turning
+  the matching option off. Server-to-client Huffman compression still works when
+  game encryption is off.
 
 ## What is implemented
 

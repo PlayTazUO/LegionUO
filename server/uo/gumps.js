@@ -44,6 +44,14 @@ export class GumpsManager {
     }
   }
 
+  exists(id) {
+    this.load();
+    if (this.ours.has(id)) return true;
+    if (!this.file) return false;
+    const entry = this.file.entries[id];
+    return !!entry && entry.length > 0;
+  }
+
   get(id, hue = 0) {
     this.load();
     if (this.ours.has(id)) {

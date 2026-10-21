@@ -33,6 +33,11 @@ class WebSocketConnection {
     this.closed = false;
     this.onMessage = null;
     this.onClose = null;
+    this.remote = socket.remoteAddress || 'unknown';
+    this.tcpLabel = '';
+    this.tcpBytes = 0;
+    this.loggedFirstData = false;
+    this.warnedNoTcp = false;
 
     socket.on('data', (chunk) => this.feed(chunk));
     socket.on('close', () => this.cleanup());
@@ -138,22 +143,44 @@ class WebSocketConnection {
       try {
         this.onMessage?.(JSON.parse(payload.toString('utf8')));
       } catch {
+        console.log(`[proxy] bad control message from ${this.remote}: ${payload.toString('utf8').slice(0, 200)}`);
         this.sendJSON({ type: 'error', message: 'Bad JSON control message' });
       }
     } else if (opcode === 0x2) {
-      if (this.tcp && !this.tcp.destroyed) this.tcp.write(payload);
+      if (this.tcp && !this.tcp.destroyed) {
+        this.tcp.outBytes = (this.tcp.outBytes || 0) + payload.length;
+        if (!this.tcp.loggedFirstOut) {
+          this.tcp.loggedFirstOut = true;
+          console.log(
+            `[proxy] tcp first outbound ${this.tcpLabel}: ${payload.length} bytes, starts ${payload.subarray(0, 8).toString('hex')}`
+          );
+        }
+        this.tcp.write(payload);
+      } else if (!this.warnedNoTcp) {
+        this.warnedNoTcp = true;
+        console.log(`[proxy] dropping ${payload.length} binary bytes from ${this.remote}: no TCP connection open`);
+      }
     }
   }
 }
 
+function allowedHosts(options) {
+  const allowed = new Set((options.allowProxyHosts || []).map((x) => String(x).toLowerCase()));
+  if (options.defaultLoginHost) allowed.add(String(options.defaultLoginHost).toLowerCase());
+  return [...allowed];
+}
+
 export function attachWebSocketServer(httpServer, options = {}) {
   httpServer.on('upgrade', (req, socket) => {
+    const remote = req.socket.remoteAddress || 'unknown';
     if (!req.url || !req.url.startsWith('/proxy')) {
+      console.log(`[proxy] rejected WebSocket upgrade ${req.url || '(no url)'} from ${remote}`);
       socket.destroy();
       return;
     }
     const key = req.headers['sec-websocket-key'];
     if (!key) {
+      console.log(`[proxy] rejected WebSocket upgrade from ${remote}: missing Sec-WebSocket-Key`);
       socket.destroy();
       return;
     }
@@ -165,17 +192,20 @@ export function attachWebSocketServer(httpServer, options = {}) {
         `Sec-WebSocket-Accept: ${accept}\r\n\r\n`
     );
 
+    console.log(`[proxy] WebSocket open from ${remote}${req.headers.origin ? ` (${req.headers.origin})` : ''}`);
+
     const ws = new WebSocketConnection(socket, req);
+    ws.onClose = () => {
+      console.log(`[proxy] WebSocket closed from ${remote}`);
+    };
 
     const denyHost = (host) => {
+      const allowed = allowedHosts(options);
       if (options.defaultLoginHost) {
-        const allowed = new Set([String(options.defaultLoginHost).toLowerCase()]);
-        for (const extra of options.allowProxyHosts || []) allowed.add(String(extra).toLowerCase());
-        return !allowed.has(String(host).toLowerCase());
+        return !allowed.includes(String(host).toLowerCase());
       }
-      const allow = options.allowProxyHosts || [];
-      if (!allow.length) return false;
-      return !allow.map((x) => String(x).toLowerCase()).includes(String(host).toLowerCase());
+      if (!allowed.length) return false;
+      return !allowed.includes(String(host).toLowerCase());
     };
 
     ws.onMessage = (msg) => {
@@ -183,15 +213,20 @@ export function attachWebSocketServer(httpServer, options = {}) {
       if (msg.type === 'connect') {
         const host = String(msg.host || options.defaultLoginHost || '');
         const port = Number(msg.port || 2593);
+        console.log(`[proxy] connect request from ${ws.remote}: ${host || '(no host)'}:${port}`);
         if (!host || !Number.isInteger(port) || port < 1 || port > 65535) {
+          console.log(`[proxy] rejected invalid host/port: ${JSON.stringify({ host, port })}`);
           ws.sendJSON({ type: 'error', message: 'Invalid host or port' });
           return;
         }
         if (denyHost(host)) {
+          const allowed = allowedHosts(options);
+          console.log(`[proxy] rejected host ${host}: not in allow-list [${allowed.join(', ') || 'none'}]`);
           ws.sendJSON({ type: 'error', message: `Host not allowed: ${host}` });
           return;
         }
         if (ws.tcp) {
+          console.log(`[proxy] closing previous TCP connection to ${ws.tcpLabel}`);
           try {
             ws.tcp.destroy();
           } catch {
@@ -199,31 +234,68 @@ export function attachWebSocketServer(httpServer, options = {}) {
           }
           ws.tcp = null;
         }
+
+        const label = `${host}:${port}`;
+        ws.tcpLabel = label;
+        ws.warnedNoTcp = false;
+        let tcpBytes = 0;
+        let loggedFirstData = false;
+        const started = Date.now();
+        console.log(`[proxy] tcp connecting ${label}`);
+
         const tcp = net.connect({ host, port });
         ws.tcp = tcp;
         tcp.setNoDelay(true);
+
+        tcp.on('lookup', (err, address, family) => {
+          if (err) console.log(`[proxy] dns lookup failed for ${host}: ${err.code || ''} ${err.message}`);
+          else console.log(`[proxy] dns ${host} -> ${address} (IPv${family})`);
+        });
+
         const connectTimer = setTimeout(() => {
           if (tcp.connecting) {
-            console.log(`[proxy] tcp connect timeout ${host}:${port}`);
+            console.log(`[proxy] tcp connect timeout ${label} after ${Date.now() - started}ms`);
             tcp.destroy(new Error('Connection timed out'));
           }
         }, 10000);
+
         tcp.on('connect', () => {
           clearTimeout(connectTimer);
+          console.log(`[proxy] tcp connected ${label} (${tcp.remoteAddress}:${tcp.remotePort}) in ${Date.now() - started}ms`);
           ws.sendJSON({ type: 'open', host, port });
         });
-        tcp.on('data', (data) => ws.send(data));
-        tcp.on('error', (err) => {
-          console.log(`[proxy] tcp error ${host}:${port}: ${err.message}`);
-          ws.sendJSON({ type: 'error', message: err.message });
+
+        tcp.on('data', (data) => {
+          tcpBytes += data.length;
+          if (!loggedFirstData) {
+            loggedFirstData = true;
+            console.log(
+              `[proxy] tcp first data ${label}: ${data.length} bytes, starts ${data.subarray(0, 8).toString('hex')}`
+            );
+          }
+          ws.send(data);
         });
+
+        tcp.on('error', (err) => {
+          const detail = [err.code, err.syscall].filter(Boolean).join('/');
+          console.log(`[proxy] tcp error ${label}${detail ? ` [${detail}]` : ''}: ${err.message}`);
+          if (ws.tcp === tcp) ws.sendJSON({ type: 'error', message: err.message });
+        });
+
         tcp.on('close', (hadError) => {
           clearTimeout(connectTimer);
-          ws.tcp = null;
-          console.log(`[proxy] tcp closed ${host}:${port}${hadError ? ' (error)' : ''}`);
-          ws.sendJSON({ type: 'close', hadError: !!hadError });
+          console.log(
+            `[proxy] tcp closed ${label} after ${Date.now() - started}ms, ${tcpBytes} bytes received, ${
+              tcp.outBytes || 0
+            } bytes sent${hadError ? ' (error)' : ''}`
+          );
+          if (ws.tcp === tcp) {
+            ws.tcp = null;
+            ws.sendJSON({ type: 'close', hadError: !!hadError });
+          }
         });
       } else if (msg.type === 'disconnect') {
+        console.log(`[proxy] disconnect requested from ${ws.remote}${ws.tcp ? ` (closing ${ws.tcpLabel})` : ''}`);
         if (ws.tcp) {
           try {
             ws.tcp.destroy();
@@ -234,6 +306,8 @@ export function attachWebSocketServer(httpServer, options = {}) {
         }
       } else if (msg.type === 'ping') {
         ws.sendJSON({ type: 'pong', time: Date.now() });
+      } else {
+        console.log(`[proxy] unknown control message type from ${ws.remote}: ${String(msg.type)}`);
       }
     };
   });

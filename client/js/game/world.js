@@ -792,7 +792,7 @@ export class World {
     if (this.blockPromises.has(key)) return this.blockPromises.get(key);
     this.mapPending.add(key);
     const xQuery = useX ? '?x=1' : '';
-    const promise = fetch(`/api/map/${mapIndex}/${bx}/${by}${xQuery}`)
+    const promise = fetch(this.assets.url(`/api/map/${mapIndex}/${bx}/${by}${xQuery}`))
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         data = this.uolive.applyToBlock(data, mapIndex, bx, by);

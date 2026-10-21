@@ -1,3 +1,5 @@
+import { serverCacheId, withServerParam } from './serverCache.js';
+
 function opaqueBounds(img) {
   const w = img.naturalWidth || img.width;
   const h = img.naturalHeight || img.height;
@@ -36,11 +38,14 @@ function opaqueBounds(img) {
 export class AssetManager {
   constructor(config) {
     this.config = config;
+    this.serverId = serverCacheId(config);
     this.debug = false;
     this.images = new Map();
     this.animMeta = new Map();
     this.animPromise = new Map();
     this.tileData = null;
+    this.equipConversions = null;
+    this.equipConvPromise = null;
     this.multis = new Map();
     this.multiPending = new Set();
     this.fontMeta = new Map();
@@ -51,12 +56,39 @@ export class AssetManager {
     this.debug = !!enabled;
   }
 
+  setConfig(config) {
+    const nextServerId = serverCacheId(config);
+    this.config = config;
+    if (nextServerId === this.serverId) return false;
+    this.serverId = nextServerId;
+    this.images.clear();
+    this.animMeta.clear();
+    this.animPromise.clear();
+    this.tileData = null;
+    this.equipConversions = null;
+    this.equipConvPromise = null;
+    this.multis.clear();
+    this.multiPending.clear();
+    this.fontMeta.clear();
+    this.fontPromise.clear();
+    return true;
+  }
+
+  url(path) {
+    return withServerParam(path, this.config);
+  }
+
+  imageKey(key) {
+    return this.serverId ? `${this.serverId}|${key}` : key;
+  }
+
   image(key, url, computeBounds = false) {
-    let entry = this.images.get(key);
+    const cacheKey = this.imageKey(key);
+    let entry = this.images.get(cacheKey);
     if (entry) return entry.ready ? entry.img : null;
     const img = new Image();
     entry = { img, ready: false, failed: false, bounds: null };
-    this.images.set(key, entry);
+    this.images.set(cacheKey, entry);
     img.onload = () => {
       if (computeBounds) entry.bounds = opaqueBounds(img);
       entry.ready = true;
@@ -80,42 +112,61 @@ export class AssetManager {
 
   getLand(id, hue = 0) {
     if (!this.debug && this.isNoDraw(id, true)) return null;
-    return this.image(`land|${id}|${hue}`, `/api/art/land/${id}.png?hue=${hue}`);
+    return this.image(`land|${id}|${hue}`, this.url(`/api/art/land/${id}.png?hue=${hue}`));
   }
 
   getStatic(id, hue = 0) {
     if (!this.debug && this.isNoDraw(id, false)) return null;
-    return this.image(`static|${id}|${hue}`, `/api/art/static/${id}.png?hue=${hue}`, true);
+    return this.image(`static|${id}|${hue}`, this.url(`/api/art/static/${id}.png?hue=${hue}`), true);
   }
 
   staticBounds(id, hue = 0) {
-    const entry = this.images.get(`static|${id}|${hue}`);
+    const entry = this.images.get(this.imageKey(`static|${id}|${hue}`));
     return entry?.ready ? entry.bounds : null;
   }
 
   getTexmap(id, hue = 0) {
     if (!id) return null;
-    return this.image(`texmap|${id}|${hue}`, `/api/texmap/${id}.png?hue=${hue}`);
+    return this.image(`texmap|${id}|${hue}`, this.url(`/api/texmap/${id}.png?hue=${hue}`));
   }
 
   getGump(id, hue = 0) {
-    return this.image(`gump|${id}|${hue}`, `/api/gump/${id}.png?hue=${hue}`);
+    return this.image(`gump|${id}|${hue}`, this.url(`/api/gump/${id}.png?hue=${hue}`));
+  }
+
+  gumpState(id, hue = 0) {
+    const entry = this.images.get(this.imageKey(`gump|${id}|${hue}`));
+    if (!entry) return 'unknown';
+    if (entry.ready) return 'ready';
+    if (entry.failed) return 'failed';
+    return 'loading';
+  }
+
+  /**
+   * Probe whether a gump id exists. Returns true/false once the image has
+   * loaded/failed, or null while the check is still in flight.
+   */
+  gumpProbe(id, hue = 0) {
+    this.getGump(id, hue);
+    const state = this.gumpState(id, hue);
+    if (state === 'unknown' || state === 'loading') return null;
+    return state === 'ready';
   }
 
   getAnim(body, action, dir, hue = 0) {
     const key = `${body}|${action}|${dir}|${hue}`;
     const meta = this.animMeta.get(key);
     const imageKey = `animimg|${key}`;
-    this.image(imageKey, `/api/anim/${body}/${action}/${dir}.png?hue=${hue}`);
+    this.image(imageKey, this.url(`/api/anim/${body}/${action}/${dir}.png?hue=${hue}`));
     if (meta) {
-      const entry = this.images.get(imageKey);
+      const entry = this.images.get(this.imageKey(imageKey));
       if (entry && entry.ready) return { meta, img: entry.img };
       return null;
     }
     if (!this.animPromise.has(key)) {
       this.animPromise.set(
         key,
-        fetch(`/api/anim/${body}/${action}/${dir}?hue=${hue}`)
+        fetch(this.url(`/api/anim/${body}/${action}/${dir}?hue=${hue}`))
           .then((r) => (r.ok ? r.json() : null))
           .then((m) => {
             if (m) this.animMeta.set(key, m);
@@ -131,18 +182,18 @@ export class AssetManager {
   getFont(font, hue = 0) {
     const id = Math.max(0, Math.min(9, font | 0));
     const imageKey = `fontimg|${id}|${hue}`;
-    this.image(imageKey, `/api/font/${id}.png?hue=${hue}`);
+    this.image(imageKey, this.url(`/api/font/${id}.png?hue=${hue}`));
     if (this.fontMeta.has(id)) {
       const meta = this.fontMeta.get(id);
       if (!meta) return null;
-      const entry = this.images.get(imageKey);
+      const entry = this.images.get(this.imageKey(imageKey));
       if (entry?.ready) return { meta, img: entry.img };
       return null;
     }
     if (!this.fontPromise.has(id)) {
       this.fontPromise.set(
         id,
-        fetch(`/api/font/${id}`)
+        fetch(this.url(`/api/font/${id}`))
           .then((r) => (r.ok ? r.json() : null))
           .then((data) => {
             this.fontMeta.set(id, data || null);
@@ -159,7 +210,7 @@ export class AssetManager {
     if (this.multis.has(id)) return this.multis.get(id);
     if (!this.multiPending.has(id)) {
       this.multiPending.add(id);
-      fetch(`/api/multi/${id}`)
+      fetch(this.url(`/api/multi/${id}`))
         .then((r) => (r.ok ? r.json() : []))
         .then((data) => {
           this.multis.set(id, Array.isArray(data) ? data : []);
@@ -172,13 +223,41 @@ export class AssetManager {
 
   async loadTileData() {
     if (this.tileData) return this.tileData;
-    const res = await fetch('/api/tiledata?names=1&v=2');
+    const res = await fetch(this.url('/api/tiledata?names=1&v=2'));
     if (!res.ok) {
       this.tileData = { land: [], statics: [] };
       return this.tileData;
     }
     this.tileData = await res.json();
     return this.tileData;
+  }
+
+  async loadEquipConv() {
+    if (this.equipConversions) return this.equipConversions;
+    if (!this.equipConvPromise) {
+      this.equipConvPromise = fetch(this.url('/api/equipconv'))
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          this.equipConversions = data && typeof data === 'object' ? data : {};
+          return this.equipConversions;
+        })
+        .catch(() => {
+          this.equipConversions = {};
+          return this.equipConversions;
+        })
+        .finally(() => {
+          this.equipConvPromise = null;
+        });
+    }
+    return this.equipConvPromise;
+  }
+
+  equipConv(bodyType, animId) {
+    const body = this.equipConversions?.[bodyType];
+    if (!body) return null;
+    const entry = body[animId];
+    if (!entry) return null;
+    return { graphic: entry[0], gump: entry[1], color: entry[2] };
   }
 
   staticFlags(graphic) {

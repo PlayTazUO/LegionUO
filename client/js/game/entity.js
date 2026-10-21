@@ -32,9 +32,235 @@ export const Layer = {
 };
 
 const GHOST_GRAPHICS = new Set([0x0192, 0x0193, 0x02b6, 0x02b7]);
+const FEMALE_BODIES = new Set([0x0191, 0x0193, 0x025e, 0x029b, 0x02b7]);
+const MALE_BODIES = new Set([0x0190, 0x0192, 0x025d, 0x029a, 0x02b6]);
+const GARGOYLE_BODIES = new Set([0x029a, 0x029b, 0x02b6, 0x02b7]);
+const GHOST_BODY_BASE = new Map([
+  [0x0192, 0x0190],
+  [0x0193, 0x0191],
+  [0x02b6, 0x029a],
+  [0x02b7, 0x029b],
+]);
+
+// ClassicUO's default paperdoll layer table (T2) minus Backpack/Mount. It is
+// used for both the paperdoll and the layered in-world mobile rendering.
+export const EQUIPMENT_LAYER_ORDER = [
+  Layer.Cloak,
+  Layer.Shirt,
+  Layer.Pants,
+  Layer.Shoes,
+  Layer.Legs,
+  Layer.Arms,
+  Layer.Torso,
+  Layer.Tunic,
+  Layer.Ring,
+  Layer.Bracelet,
+  Layer.Face,
+  Layer.Gloves,
+  Layer.Skirt,
+  Layer.Robe,
+  Layer.Waist,
+  Layer.Necklace,
+  Layer.Hair,
+  Layer.Beard,
+  Layer.Earrings,
+  Layer.Helm,
+  Layer.OneHanded,
+  Layer.TwoHanded,
+  Layer.Talisman,
+];
+
+const LAYER_ORDER_ARMS_LATE = [
+  Layer.Cloak,
+  Layer.Shirt,
+  Layer.Pants,
+  Layer.Shoes,
+  Layer.Legs,
+  Layer.Torso,
+  Layer.Tunic,
+  Layer.Ring,
+  Layer.Bracelet,
+  Layer.Face,
+  Layer.Arms,
+  Layer.Gloves,
+  Layer.Skirt,
+  Layer.Robe,
+  Layer.Waist,
+  Layer.Necklace,
+  Layer.Hair,
+  Layer.Beard,
+  Layer.Earrings,
+  Layer.Helm,
+  Layer.OneHanded,
+  Layer.TwoHanded,
+  Layer.Talisman,
+];
+
+const LAYER_ORDER_TORSO_FRONT = [
+  Layer.Cloak,
+  Layer.Torso,
+  Layer.Shirt,
+  Layer.Pants,
+  Layer.Shoes,
+  Layer.Legs,
+  Layer.Tunic,
+  Layer.Ring,
+  Layer.Bracelet,
+  Layer.Face,
+  Layer.Arms,
+  Layer.Gloves,
+  Layer.Skirt,
+  Layer.Robe,
+  Layer.Waist,
+  Layer.Necklace,
+  Layer.Hair,
+  Layer.Beard,
+  Layer.Earrings,
+  Layer.Helm,
+  Layer.OneHanded,
+  Layer.TwoHanded,
+  Layer.Talisman,
+];
 
 export function isGhostGraphic(graphic) {
   return GHOST_GRAPHICS.has(graphic & 0x7fff);
+}
+
+export function isGargoyleBody(graphic) {
+  return GARGOYLE_BODIES.has((graphic & 0x7fff) || 0);
+}
+
+export function isFemaleMobile(mobile) {
+  if (!mobile) return false;
+  const graphic = (mobile.graphic & 0x7fff) || 0;
+  if (FEMALE_BODIES.has(graphic)) return true;
+  if (MALE_BODIES.has(graphic)) return false;
+  return !!(mobile.isFemale || (mobile.flags & 0x02));
+}
+
+export function baseBodyGraphic(mobile) {
+  const graphic = (mobile?.graphic & 0x7fff) || 0;
+  return GHOST_BODY_BASE.get(graphic) ?? graphic;
+}
+
+function indexOfLayer(order, layer) {
+  return order.indexOf(layer);
+}
+
+function moveToLayer(order, move, target) {
+  const from = indexOfLayer(order, move);
+  const to = indexOfLayer(order, target);
+  if (from < 0 || to < 0 || from === to) return;
+  order.splice(from, 1);
+  order.splice(to, 0, move);
+}
+
+function moveAfterLayer(order, move, target) {
+  const from = indexOfLayer(order, move);
+  const to = indexOfLayer(order, target);
+  if (from < 0 || to < 0 || from === to) return;
+  order.splice(from, 1);
+  const insert = indexOfLayer(order, target);
+  order.splice(insert + 1, 0, move);
+}
+
+/**
+ * Build the back-to-front equipment layer order for a mobile.
+ *
+ * Mirrors ClassicUO's PaperdollOrder: choose a base table from the arms/torso
+ * anim ids, apply the per-graphic reorder rules, then (for world rendering)
+ * move the cloak according to facing direction.
+ */
+export function buildEquipmentOrder(mobile, assets, { direction = -1, altTorso = false } = {}) {
+  const graphic = (layer) => {
+    const item = mobile?.getItem?.(layer);
+    return item ? assets.staticAnimId(item.graphic) || 0 : 0;
+  };
+
+  let order;
+  const arms = graphic(Layer.Arms);
+  const armsAlternate = arms >= 0x3d0 ? arms === 0x3dd : arms === 0x3cf || arms === 0x210 || arms === 0x3b3;
+  if (armsAlternate) {
+    order = LAYER_ORDER_ARMS_LATE.slice();
+  } else {
+    const torso = graphic(Layer.Torso);
+    if (torso === 0x21a) order = LAYER_ORDER_ARMS_LATE.slice();
+    else if (torso >= 0x399 && torso < 0x39e && altTorso) order = LAYER_ORDER_TORSO_FRONT.slice();
+    else order = EQUIPMENT_LAYER_ORDER.slice();
+  }
+
+  if (graphic(Layer.Shirt) !== 0 && graphic(Layer.Pants) === 0x398) {
+    moveToLayer(order, Layer.Pants, Layer.Shirt);
+  }
+
+  const pants = graphic(Layer.Pants);
+  let skipFinalPantsCheck = false;
+  if (pants < 0x201) {
+    if (pants === 0x200 || pants === 0x1eb || pants === 0x1fa) {
+      const shoes = indexOfLayer(order, Layer.Shoes);
+      const pantsIndex = indexOfLayer(order, Layer.Pants);
+      if (shoes >= 0 && pantsIndex >= 0 && pantsIndex < shoes) {
+        order[shoes] = Layer.Pants;
+        order[pantsIndex] = Layer.Shoes;
+      }
+    }
+  } else if (pants === 0x513 || pants === 0x514) {
+    if (graphic(Layer.Shoes) !== 0) moveToLayer(order, Layer.Pants, Layer.Shoes);
+    skipFinalPantsCheck = true;
+  }
+
+  if (!skipFinalPantsCheck && graphic(Layer.Shoes) !== 0 && graphic(Layer.Pants) === 0x3e4) {
+    moveToLayer(order, Layer.Pants, Layer.Shoes);
+  }
+
+  if (graphic(Layer.Tunic) === 0x238) {
+    moveAfterLayer(order, Layer.Tunic, Layer.Waist);
+    if (graphic(Layer.Robe) !== 0) {
+      const robe = graphic(Layer.Robe);
+      if (
+        robe === 0x4e8 ||
+        robe === 0x4e9 ||
+        robe === 0x4ea ||
+        robe === 0x4eb ||
+        robe === 0x5e2 ||
+        robe === 0x5e3 ||
+        robe === 0x5e4 ||
+        robe === 0x5e5
+      ) {
+        moveToLayer(order, Layer.Robe, Layer.Necklace);
+      }
+    }
+  }
+
+  const cloak = graphic(Layer.Cloak);
+  if (cloak === 0x380 || cloak === 0x5f3) moveAfterLayer(order, Layer.Cloak, Layer.Robe);
+
+  const helm = graphic(Layer.Helm);
+  if (helm < 0x202) {
+    const neck = graphic(Layer.Necklace);
+    if ((helm === 0x201 || helm === 0x1a9) && (neck === 0x1c8 || (neck > 0x1d6 && neck < 0x1d9))) {
+      moveAfterLayer(order, Layer.Necklace, Layer.Helm);
+    }
+  } else if (helm >= 0x5e9 && helm < 0x5eb && graphic(Layer.Robe) !== 0) {
+    const robe = graphic(Layer.Robe);
+    if (robe >= 0x5e2 && robe < 0x5e6) moveToLayer(order, Layer.Robe, Layer.Helm);
+  }
+
+  if (direction >= 0) {
+    const cloakIndex = indexOfLayer(order, Layer.Cloak);
+    if (cloakIndex >= 0) {
+      order.splice(cloakIndex, 1);
+      let insert = order.length;
+      if (direction === 3) insert = 0;
+      else if (direction !== 0) {
+        const helmIndex = indexOfLayer(order, Layer.Helm);
+        if (helmIndex >= 0) insert = helmIndex;
+      }
+      order.splice(insert, 0, Layer.Cloak);
+    }
+  }
+
+  return order;
 }
 
 export class Entity {
@@ -76,6 +302,8 @@ export class Entity {
     this.walking = false;
     this.lastStepTime = 0;
     this.moving = false;
+    this.animRender = null;
+    this.turnAnimGraceUntil = 0;
     this.moveStart = 0;
     this.moveFrom = null;
     this.renderX = 0;

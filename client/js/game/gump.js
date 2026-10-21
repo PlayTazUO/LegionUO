@@ -656,7 +656,10 @@ export class Gump {
     const width = Math.max(1, c.width);
     const height = Math.max(1, c.height);
     const key = `gumpmap|${c.mapIndex}|${x0}|${y0}|${x1}|${y1}|${width}|${height}`;
-    const img = this.world.assets.image(key, `/api/mapimage?facet=${c.mapIndex}&x0=${x0}&y0=${y0}&x1=${x1}&y1=${y1}&w=${width}&h=${height}`);
+    const img = this.world.assets.image(
+      key,
+      this.world.assets.url(`/api/mapimage?facet=${c.mapIndex}&x0=${x0}&y0=${y0}&x1=${x1}&y1=${y1}&w=${width}&h=${height}`)
+    );
     if (img) ctx.drawImage(img, this.x + c.x, this.y + c.y, width, height);
   }
 

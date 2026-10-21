@@ -1,3 +1,5 @@
+import { withServerParam } from './serverCache.js';
+
 const RADAR_STORAGE_BASE = 'legionuo.radar.v1';
 const MAP_STORAGE_BASE = 'legionuo.mapgump.v1';
 const BASE_MAP_SIZE = 200;
@@ -12,11 +14,18 @@ const FIVE_BIT = [
   0x83, 0x8b, 0x94, 0x9c, 0xa4, 0xac, 0xb4, 0xbd, 0xc5, 0xcd, 0xd5, 0xde, 0xe6, 0xee, 0xf6, 0xff,
 ];
 
-let radar16 = null;
-let radarBytes = null;
-let radarPromise = null;
-const radarWaiters = new Set();
+const radarCache = new Map();
 const staticCache = new WeakMap();
+
+function radarEntry(world) {
+  const key = world?.assets?.serverId || '';
+  let entry = radarCache.get(key);
+  if (!entry) {
+    entry = { colors: null, bytes: null, promise: null, waiters: new Set() };
+    radarCache.set(key, entry);
+  }
+  return entry;
+}
 
 function storageKey(world, base) {
   const account = (world.game?.loginCredentials?.account || '').trim().toLowerCase();
@@ -81,39 +90,43 @@ function buildRadarBytes(data) {
   return bytes;
 }
 
-function radarColorData(onReady) {
-  if (radar16 !== null) {
-    if (radar16.length) onReady?.();
-    return radar16;
+function radarColorData(world, onReady) {
+  const entry = radarEntry(world);
+  if (entry.colors !== null) {
+    if (entry.colors.length) onReady?.();
+    return entry.colors;
   }
-  if (onReady) radarWaiters.add(onReady);
-  if (!radarPromise) {
-    radarPromise = fetch('/api/radarcol')
+  if (onReady) entry.waiters.add(onReady);
+  if (!entry.promise) {
+    entry.promise = fetch(withServerParam('/api/radarcol', world?.config))
       .then((response) => (response.ok ? response.arrayBuffer() : null))
       .then((buffer) => {
+        let colors;
         if (!buffer) {
-          radar16 = new Uint16Array(0);
+          colors = new Uint16Array(0);
         } else {
           const view = new DataView(buffer);
-          radar16 = new Uint16Array(Math.floor(buffer.byteLength / 2));
-          for (let i = 0; i < radar16.length; i++) radar16[i] = view.getUint16(i * 2, true);
+          colors = new Uint16Array(Math.floor(buffer.byteLength / 2));
+          for (let i = 0; i < colors.length; i++) colors[i] = view.getUint16(i * 2, true);
         }
-        radarBytes = buildRadarBytes(radar16);
+        entry.colors = colors;
+        entry.bytes = buildRadarBytes(colors);
       })
       .catch(() => {
-        radar16 = new Uint16Array(0);
-        radarBytes = buildRadarBytes(radar16);
+        entry.colors = new Uint16Array(0);
+        entry.bytes = buildRadarBytes(entry.colors);
       })
       .finally(() => {
-        for (const callback of radarWaiters) callback();
-        radarWaiters.clear();
+        for (const callback of entry.waiters) callback();
+        entry.waiters.clear();
       });
   }
-  return radar16 || new Uint16Array(0);
+  return entry.colors || new Uint16Array(0);
 }
 
-function hasRadarColor(index) {
-  return !!radar16 && index < radar16.length && radar16[index] !== 0;
+function hasRadarColor(world, index) {
+  const entry = radarEntry(world);
+  return !!entry.colors && index < entry.colors.length && entry.colors[index] !== 0;
 }
 
 function fallbackColor(index, isStatic) {
@@ -124,10 +137,11 @@ function fallbackColor(index, isStatic) {
   return [45 + (hash & 0x1f), 80 + ((hash >> 8) & 0x3f), 45 + ((hash >> 16) & 0x1f)];
 }
 
-function colorFor(index, isStatic) {
-  if (hasRadarColor(index)) {
+function colorFor(world, index, isStatic) {
+  if (hasRadarColor(world, index)) {
     const p = index * 3;
-    return [radarBytes[p], radarBytes[p + 1], radarBytes[p + 2]];
+    const bytes = radarEntry(world).bytes;
+    return [bytes[p], bytes[p + 1], bytes[p + 2]];
   }
   return fallbackColor(index, isStatic);
 }
@@ -211,7 +225,7 @@ export class MinimapWindow {
     this.buffer.height = BASE_MAP_SIZE;
     this.bufferCtx = this.buffer.getContext('2d');
     this.clampPosition();
-    radarColorData(() => {
+    radarColorData(this.world, () => {
       this.dirty = true;
     });
   }
@@ -364,12 +378,12 @@ export class MinimapWindow {
           let isStatic = false;
           if (statics) {
             const staticIndex = statics.colors[i];
-            if (staticIndex && statics.zs[i] >= cell.z && hasRadarColor(staticIndex)) {
+            if (staticIndex && statics.zs[i] >= cell.z && hasRadarColor(this.world, staticIndex)) {
               index = staticIndex;
               isStatic = true;
             }
           }
-          const [r, g, b] = colorFor(index, isStatic);
+          const [r, g, b] = colorFor(this.world, index, isStatic);
           const p = (gy * size + gx) * 4;
           pixels[p] = r;
           pixels[p + 1] = g;
@@ -402,7 +416,7 @@ export class MinimapWindow {
         const gx = cx + (dx - dy) * scale;
         const gy = cy + (dx + dy) * scale;
         if (gx < area.x || gy < area.y || gx >= area.x + area.w || gy >= area.y + area.h) continue;
-        const [r, g, b] = colorFor(0x4000 + (part.graphic || 0), true);
+        const [r, g, b] = colorFor(this.world, 0x4000 + (part.graphic || 0), true);
         ctx.fillStyle = `rgb(${r},${g},${b})`;
         ctx.fillRect(Math.round(gx), Math.round(gy), 2, 2);
       }
@@ -553,7 +567,7 @@ export class MapGumpWindow {
       this.loading = false;
       this.failed = true;
     };
-    image.src = `/api/mapimage?${params}`;
+    image.src = this.world.assets.url(`/api/mapimage?${params}`);
   }
 
   addPin(x, y) {
@@ -912,7 +926,7 @@ export class WorldMapWindow {
       this.loading = false;
       this.failed = true;
     };
-    image.src = `/api/mapimage?${params}`;
+    image.src = this.world.assets.url(`/api/mapimage?${params}`);
   }
 
   centerOnPlayer() {

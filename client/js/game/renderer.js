@@ -1,28 +1,29 @@
-import { Layer, animDirection } from './entity.js';
+import {
+  Layer,
+  animDirection,
+  baseBodyGraphic,
+  buildEquipmentOrder,
+  isFemaleMobile,
+  isGargoyleBody,
+} from './entity.js';
 import { hasUoHtmlMarkup, drawServerText, measureUoHtml } from './html.js';
 import { settings } from './settings.js';
 
 const ANIM_FRAME_MS = 80;
 const CORPSE_Z_BUMP = 1;
 
-const PEOPLE_LAYERS = [
-  Layer.Cloak,
-  Layer.Torso,
-  Layer.Arms,
-  Layer.Legs,
-  Layer.Shoes,
-  Layer.Skirt,
-  Layer.Robe,
-  Layer.Helm,
-  Layer.Gloves,
-  Layer.Necklace,
-  Layer.Ring,
-  Layer.Bracelet,
-  Layer.TwoHanded,
-  Layer.OneHanded,
-  Layer.Hair,
-  Layer.Beard,
-];
+const GARGOYLE_EQUIPMENT = new Map([
+  [0x01d5, 0x0156],
+  [0x03ca, 0x0223],
+  [0x03d8, 329],
+  [0x0372, 330],
+  [0x0374, 328],
+  [0x036f, 327],
+  [0x036e, 328],
+  [0x0426, 0x042b],
+  [1529, 1531],
+  [1530, 1532],
+]);
 
 export class Renderer {
   constructor(canvas, world, assets, effects, game) {
@@ -392,23 +393,41 @@ export class Renderer {
     const serverPlaying = anim?.fromServer && sinceStart < Math.max(400, (anim.frameCount || 5) * ANIM_FRAME_MS);
     const idleGroup = type === 'people' ? (mobile.inWarMode && !mobile.isDead ? 7 : 4) : type === 'low' ? 2 : 1;
     const walkGroup = type === 'people' ? (mobile.inWarMode ? 15 : 0) : 0;
+
+    const gameDir = mobile.direction & 7;
+    const { dir, mirror } = animDirection(gameDir);
+    const gargoyle = isGargoyleBody(mobile.graphic);
+    const equipmentLayers =
+      type === 'people'
+        ? buildEquipmentOrder(mobile, this.assets, {
+            direction: gameDir,
+            altTorso: isFemaleMobile(mobile) || gargoyle,
+          })
+        : [];
+    const previous = mobile.animRender;
+    if (previous && previous.gameDir !== gameDir && previous.walking) {
+      // A turn interrupts the next step by a few frames. Hold the walk group
+      // through that gap instead of flashing idle and restarting at frame 0.
+      mobile.turnAnimGraceUntil = now + 150;
+    }
+    const turning = (mobile.turnAnimGraceUntil || 0) > now;
+    const walking = mobile.moving || turning;
+
     let group;
     if (serverPlaying) group = anim.group;
-    else if (mobile.moving) group = walkGroup;
+    else if (walking) group = walkGroup;
     else group = idleGroup;
-
-    const { dir, mirror } = animDirection(mobile.direction);
 
     // Warm the cache for the group we are about to switch to, so the first
     // idle <-> walk transition does not have to wait on a fetch.
-    const prefetchGroup = mobile.moving ? idleGroup : walkGroup;
+    const prefetchGroup = walking ? idleGroup : walkGroup;
     this.assets.getAnim(mobile.graphic, prefetchGroup, dir, mobile.hue || 0);
     if (type === 'people' && !mobile.isGhost && this.assets.tileData) {
-      for (const layer of PEOPLE_LAYERS) {
+      for (const layer of equipmentLayers) {
         const item = mobile.getItem(layer);
         if (!item) continue;
-        const animId = this.assets.staticAnimId(item.graphic);
-        if (animId) this.assets.getAnim(animId, prefetchGroup, dir, item.hue || 0);
+        const equipment = this.equipmentGraphics(mobile, item, gargoyle);
+        if (equipment) this.assets.getAnim(equipment.animId, prefetchGroup, dir, equipment.hue);
       }
     }
     // The player turns constantly; load the body for every isometric
@@ -433,7 +452,9 @@ export class Renderer {
     let bodyFrame = null;
     if (animData && animData.meta.frames.length) {
       const frames = animData.meta.frames;
-      const frameIndex = this.animFrameIndex(mobile, anim, frames.length, sinceStart, serverPlaying, now);
+      const source = this.animFrameSource(mobile, serverPlaying, walking);
+      const baseFrame = this.animFrameIndex(mobile, anim, frames.length, sinceStart, serverPlaying, now, walking);
+      const frameIndex = this.applyAnimContinuity(mobile, group, dir, baseFrame, frames.length, walking, source);
       bodyFrame = frames[Math.min(frameIndex, frames.length - 1)];
       this.drawAnimFrame(ctx, animData, bodyFrame, pos.sx, pos.sy, mirror, 1);
       drewBody = true;
@@ -446,7 +467,7 @@ export class Renderer {
       }
     }
 
-    if (!mobile.moving) mobile.animPhaseStart = null;
+    if (!walking) mobile.animPhaseStart = null;
 
     // Equipment layers for humanoid bodies.
     if (drewBody) {
@@ -455,12 +476,14 @@ export class Renderer {
         (mobile.lastFrameSet?.equipment || []).filter((entry) => entry.animId != null).map((entry) => [entry.animId, entry])
       );
       if (type === 'people' && !mobile.isGhost && this.assets.tileData) {
-        for (const layer of PEOPLE_LAYERS) {
+        for (const layer of equipmentLayers) {
           const item = mobile.getItem(layer);
           if (!item) continue;
-          const animId = this.assets.staticAnimId(item.graphic);
-          if (!animId) continue;
-          const equip = this.assets.getAnim(animId, group, dir, item.hue || 0);
+          if (mobile.isDead && (layer === Layer.Hair || layer === Layer.Beard)) continue;
+          const equipment = this.equipmentGraphics(mobile, item, gargoyle);
+          if (!equipment) continue;
+          const { animId, hue } = equipment;
+          const equip = this.assets.getAnim(animId, group, dir, hue);
           if (!equip || !equip.meta.frames.length) {
             // Hold the previous pose for this layer while it streams in.
             const previous = previousEquipment.get(animId);
@@ -471,7 +494,11 @@ export class Renderer {
             continue;
           }
           const frames = equip.meta.frames;
-          const fi = this.animFrameIndex(mobile, anim, frames.length, sinceStart, serverPlaying, now);
+          let fi = this.animFrameIndex(mobile, anim, frames.length, sinceStart, serverPlaying, now, walking);
+          const state = mobile.animRender;
+          if (state && state.group === group && state.dir === dir && state.shift) {
+            fi = (fi + state.shift) % frames.length;
+          }
           const frame = frames[Math.min(fi, frames.length - 1)];
           this.drawAnimFrame(ctx, equip, frame, pos.sx, pos.sy, mirror, 1);
           frameSet.equipment.push({ data: equip, frame, mirror, animId });
@@ -481,14 +508,54 @@ export class Renderer {
     }
   }
 
-  animFrameIndex(mobile, anim, count, sinceStart, serverPlaying, now) {
+  equipmentGraphics(mobile, item, gargoyle) {
+    let animId = this.assets.staticAnimId(item.graphic) || 0;
+    if (!animId) return null;
+    const conv = this.assets.equipConv(baseBodyGraphic(mobile), animId);
+    if (gargoyle) animId = GARGOYLE_EQUIPMENT.get(animId) ?? animId;
+    if (conv && conv.graphic > 0 && conv.graphic < 0x8000) animId = conv.graphic;
+    return { animId, hue: item.hue || conv?.color || 0 };
+  }
+
+  animFrameSource(mobile, serverPlaying, walking) {
+    if (serverPlaying) return 'server';
+    if (!walking) return 'idle';
+    if (Number.isFinite(mobile.stepProgress) && Number.isFinite(mobile.walkStepIndex) && mobile.walkStepIndex >= 0) {
+      return 'step';
+    }
+    return 'phase';
+  }
+
+  applyAnimContinuity(mobile, group, dir, baseIndex, count, walking, source) {
+    const previous = mobile.animRender;
+    let shift = 0;
+    if (previous && previous.group === group) {
+      if (previous.dir !== dir) {
+        // Turning uses a different sheet, so start the new direction at the
+        // frame the old one was showing instead of jumping back to frame 0.
+        shift = previous.frame - baseIndex;
+      } else if (previous.source !== source) {
+        // Walk frames switch between step timing and the wall-clock fallback.
+        // Continue from the next frame instead of jumping to the new base.
+        shift = previous.frame + 1 - baseIndex;
+      } else {
+        shift = previous.shift || 0;
+      }
+    }
+    shift = ((shift % count) + count) % count;
+    const frame = (baseIndex + shift) % count;
+    mobile.animRender = { group, dir, gameDir: mobile.direction & 7, frame, count, shift, walking, source };
+    return frame;
+  }
+
+  animFrameIndex(mobile, anim, count, sinceStart, serverPlaying, now, walking = mobile.moving) {
     if (!count) return 0;
     if (serverPlaying) {
       const frameDelay = ANIM_FRAME_MS * (1 + (anim.delay || 0));
       const index = Math.floor(sinceStart / frameDelay) % count;
       return anim.forward ? index : count - 1 - index;
     }
-    if (mobile.moving) {
+    if (walking) {
       if (Number.isFinite(mobile.stepProgress) && Number.isFinite(mobile.walkStepIndex) && mobile.walkStepIndex >= 0) {
         // UO walk/run sheets interleave two steps: the first half of the
         // frames is one foot, the second half is the other. Alternate halves

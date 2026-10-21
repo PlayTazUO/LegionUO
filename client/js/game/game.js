@@ -25,11 +25,15 @@ export class Game {
     setRawText(this.debug);
     this.assets = new AssetManager(config);
     this.assets.setDebug(this.debug);
-    this.socket = new UOSocket({ clientVersion: config.clientVersion });
+    this.socket = new UOSocket({
+      clientVersion: config.clientVersion,
+      loginEncryption: config.loginEncryption,
+      gameEncryption: config.gameEncryption,
+    });
     this.world = new World(config, this.assets, this.socket);
     this.world.game = this;
     this.effects = new EffectsManager(this.world, this.assets);
-    this.audio = new AudioManager();
+    this.audio = new AudioManager(config);
     this.outgoing = new Outgoing(this.socket, config.clientVersion);
     this.socket.out = this.outgoing;
     this.handlers = new Handlers(this);
@@ -98,7 +102,7 @@ export class Game {
 
   async loadClilocs() {
     try {
-      const res = await fetch('/api/cliloc/all');
+      const res = await fetch(this.assets.url('/api/cliloc/all'));
       if (!res.ok) return;
       const obj = await res.json();
       for (const [id, text] of Object.entries(obj)) this.clilocs.set(Number(id), text);
@@ -112,7 +116,7 @@ export class Game {
     if (text == null) {
       if (!this._clilocPending.has(id)) {
         this._clilocPending.add(id);
-        fetch(`/api/cliloc/${id}`)
+        fetch(this.assets.url(`/api/cliloc/${id}`))
           .then((r) => (r.ok ? r.json() : null))
           .then((data) => {
             if (data && data.text != null) this.clilocs.set(id, data.text);
@@ -152,8 +156,32 @@ export class Game {
     return 'people';
   }
 
-  connect(account, password, host, port) {
+  async refreshAssetServer() {
+    try {
+      const next = await fetch('/api/config', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null));
+      if (!next) return;
+      const clientVersion = this.config.clientVersion;
+      Object.assign(this.config, next, { clientVersion });
+      this.ui.config = this.config;
+      if (!this.assets.setConfig(this.config)) return;
+      this.clilocs.clear();
+      this.loadClilocs();
+      this.assets.loadTileData();
+      this.assets.loadEquipConv();
+      const [hues, skills] = await Promise.all([
+        fetch(this.assets.url('/api/hues')).then((r) => (r.ok ? r.json() : null)),
+        fetch(this.assets.url('/api/skills')).then((r) => (r.ok ? r.json() : null)),
+      ]).catch(() => [null, null]);
+      if (hues) this.ui.hues = hues;
+      if (skills) this.ui.skillInfo = skills;
+    } catch {
+      /* keep the current asset server config */
+    }
+  }
+
+  async connect(account, password, host, port) {
     this.loginCredentials = { account, password, host, port };
+    await this.refreshAssetServer();
     this.world.resetWorld();
     this.world.resetLogin();
     this.ui.windows = [];
@@ -168,6 +196,8 @@ export class Game {
     this.socket.clientVersion = this.config.clientVersion;
     this.socket.clientVersionValue = versionValue(this.config.clientVersion);
     this.socket.lengthTable = buildLengthTable(this.config.clientVersion);
+    this.socket.loginEncryption = this.config.loginEncryption !== false;
+    this.socket.gameEncryption = this.config.gameEncryption !== false;
     this.outgoing.setVersion(this.config.clientVersion);
     this.ui.setLoginStatus('Connecting...');
     this.startLoginWatchdog();
