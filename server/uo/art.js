@@ -10,6 +10,7 @@ export class ArtManager {
     this.files = files;
     this.hues = hues;
     this.loaded = false;
+    this.filesList = [];
     this.file = null;
     this.isUop = false;
     this.ourLand = new Map();
@@ -21,16 +22,12 @@ export class ArtManager {
     if (this.loaded) return;
     this.loaded = true;
     const uop = this.files.uop('artLegacyMUL.uop', 'build/artlegacymul/{0:D8}.tga', false);
-    if (uop) {
-      this.file = uop;
-      this.isUop = true;
-    } else {
-      const mul = this.files.mul('art.mul', 'artidx.mul');
-      if (mul) {
-        this.file = mul;
-        this.isUop = false;
-      }
-    }
+    const mul = this.files.mul('art.mul', 'artidx.mul');
+    // Individual entries can be missing from a UOP while the legacy MUL still
+    // contains them, so keep both archives and fall through per entry.
+    this.filesList = [uop, mul].filter(Boolean);
+    this.file = this.filesList[0] || null;
+    this.isUop = this.file === uop && !!uop;
     this.scanOurs();
   }
 
@@ -53,10 +50,17 @@ export class ArtManager {
     scan('Art/Statics', this.ourStatics, MAX_STATIC - MAX_LAND);
   }
 
-  entry(index) {
+  entryFor(index) {
     this.load();
-    if (!this.file) return null;
-    return this.file.entries[index] || null;
+    for (const file of this.filesList) {
+      const entry = file.entries[index];
+      if (entry && entry.length > 0) return { file, entry };
+    }
+    return null;
+  }
+
+  entry(index) {
+    return this.entryFor(index)?.entry || null;
   }
 
   getLand(id, hue = 0) {
@@ -65,11 +69,13 @@ export class ArtManager {
       const raw = readFileSafe(this.ourLand.get(id));
       if (raw && raw.length >= 2024) return makeLand(raw.subarray(0, 2024), this.hues, hue);
     }
-    const entry = this.entry(id);
-    if (!entry) return this.empty;
-    const raw = this.files.readEntry(this.file, { ...entry, compression: 0 });
-    if (!raw || raw.length < 2024) return this.empty;
-    return makeLand(raw.subarray(0, 2024), this.hues, hue);
+    for (const file of this.filesList) {
+      const entry = file.entries[id];
+      if (!entry || entry.length <= 0) continue;
+      const raw = this.files.readEntry(file, { ...entry, compression: 0 });
+      if (raw && raw.length >= 2024) return makeLand(raw.subarray(0, 2024), this.hues, hue);
+    }
+    return this.empty;
   }
 
   getStatic(id, hue = 0) {
@@ -82,15 +88,19 @@ export class ArtManager {
         if (width > 0 && height > 0) return runs(raw.subarray(8), width, height, this.hues, hue);
       }
     }
-    const entry = this.entry(id + MAX_LAND);
-    if (!entry) return this.empty;
-    const raw = this.files.readEntry(this.file, entry);
-    if (!raw || raw.length < 8) return this.empty;
-    const width = raw.readInt16LE(4);
-    const height = raw.readInt16LE(6);
-    if (width <= 0 || height <= 0 || width > 4096 || height > 4096) return this.empty;
-    if (raw.length < 8 + height * 2 + 4) return this.empty;
-    return runs(raw.subarray(8), width, height, this.hues, hue);
+    const index = id + MAX_LAND;
+    for (const file of this.filesList) {
+      const entry = file.entries[index];
+      if (!entry || entry.length <= 0) continue;
+      const raw = this.files.readEntry(file, entry);
+      if (!raw || raw.length < 8) continue;
+      const width = raw.readInt16LE(4);
+      const height = raw.readInt16LE(6);
+      if (width <= 0 || height <= 0 || width > 4096 || height > 4096) continue;
+      if (raw.length < 8 + height * 2 + 4) continue;
+      return runs(raw.subarray(8), width, height, this.hues, hue);
+    }
+    return this.empty;
   }
 }
 

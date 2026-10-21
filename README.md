@@ -44,6 +44,7 @@ Then open <http://127.0.0.1:8080>.
   "cacheMb": 256,
   "allowProxyHosts": [],
   "defaultLoginHost": "",
+  "defaultLoginPort": 2593,
   "loginEncryption": true,
   "gameEncryption": true
 }
@@ -54,7 +55,8 @@ Then open <http://127.0.0.1:8080>.
   encryption keys.
 - `allowProxyHosts` - optional host allow-list for the relay. Empty means any
   host is allowed; set this if the server is exposed beyond localhost.
-- `defaultLoginHost` - prefilled login host in the client.
+- `defaultLoginHost` - login server host used by the client.
+- `defaultLoginPort` - login server port used by the client (default `2593`).
 - `loginEncryption` / `gameEncryption` - set to `false` for shards that accept
   unencrypted login or game traffic. Some shards disable one or both; if the
   shard closes the connection silently right after a login packet, try turning

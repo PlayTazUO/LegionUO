@@ -3,6 +3,7 @@ export class MultiManager {
     this.files = files;
     this.version = version;
     this.loaded = false;
+    this.filesList = [];
     this.file = null;
     this.isUop = false;
   }
@@ -11,25 +12,30 @@ export class MultiManager {
     if (this.loaded) return;
     this.loaded = true;
     const uop = this.files.uop('MultiCollection.uop', 'build/multicollection/{0:D6}.bin', false);
-    if (uop) {
-      this.file = uop;
-      this.isUop = true;
-    } else {
-      const mul = this.files.mul('multi.mul', 'multi.idx');
-      if (mul) this.file = mul;
-    }
+    const mul = this.files.mul('multi.mul', 'multi.idx');
+    this.filesList = [
+      uop ? { file: uop, isUop: true } : null,
+      mul ? { file: mul, isUop: false } : null,
+    ].filter(Boolean);
+    this.file = this.filesList[0]?.file || null;
+    this.isUop = !!this.filesList[0]?.isUop;
   }
 
   get(id) {
     this.load();
-    if (!this.file) return [];
-    const entry = this.file.entries[id];
-    if (!entry || entry.length <= 0) return [];
-    const data = this.files.readEntry(this.file, entry);
-    if (!data) return [];
+    for (const source of this.filesList) {
+      const entry = source.file.entries[id];
+      if (!entry || entry.length <= 0) continue;
+      const data = this.files.readEntry(source.file, entry);
+      if (!data) continue;
+      return this.readMulti(data, entry, source.isUop);
+    }
+    return [];
+  }
 
+  readMulti(data, entry, isUop) {
     const list = [];
-    if (this.isUop || entry.compression >= 1) {
+    if (isUop || entry.compression >= 1) {
       if (data.length < 8) return [];
       const count = data.readInt32LE(4);
       let ptr = 8;

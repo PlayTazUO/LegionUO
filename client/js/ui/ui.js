@@ -148,6 +148,7 @@ export class UI {
     this.gumpDebugWindow = null;
     this.contextMenu = null;
     this.contextMenuRequest = null;
+    this.contextMenuTimer = null;
     this.focusedGumpEntry = null;
     this.modalOk = null;
     this.modalCancel = null;
@@ -265,37 +266,14 @@ export class UI {
       this.hues = hues;
       this.skillInfo = skills;
       this.game.config = Object.assign(this.game.config, config);
-      if ($('clientVersion')) $('clientVersion').value = config.clientVersion || '7.0.116.0';
-      if (config.defaultLoginHost && !$('host').value) $('host').value = config.defaultLoginHost;
       const saved = this.loadSavedLogin();
-      if (saved) {
-        $('host').value = saved.host || $('host').value;
-        $('port').value = saved.port || $('port').value;
-        if ($('clientVersion') && saved.version) $('clientVersion').value = saved.version;
-        if (saved.remember) {
-          if (saved.account) $('account').value = saved.account;
-          if (saved.password) $('password').value = saved.password;
-          if ($('rememberLogin')) $('rememberLogin').checked = true;
-        }
+      if (saved?.remember) {
+        if (saved.account) $('account').value = saved.account;
+        if (saved.password) $('password').value = saved.password;
+        if ($('rememberLogin')) $('rememberLogin').checked = true;
       }
       this.game.assets.loadTileData();
       this.game.assets.loadEquipConv();
-      const meta = $('assetMeta');
-      if (meta) {
-        const f = config.files || {};
-        const art = f.art ? (f.artUop ? 'UOP' : 'MUL') : 'NOT FOUND';
-        const gumps = f.gumps ? (f.gumpUop ? 'UOP' : 'MUL') : 'NOT FOUND';
-        const anim = f.anim ? (f.animUop ? 'UOP' : 'MUL') : 'NOT FOUND';
-        const map = f.map0 ? 'ok' : 'NOT FOUND';
-        meta.textContent = `UO data: ${config.uoDir || 'not configured'} · art: ${art} · gumps: ${gumps} · anim: ${anim} · map: ${map}`;
-        meta.title = Object.entries(config.paths || {})
-          .map(([k, v]) => `${k}: ${v || 'not found'}`)
-          .join('\n');
-        if (!f.art || !f.gumps) {
-          meta.textContent += ' — check config.json uoDir / restart the server';
-        }
-      }
-      if (config.defaultLoginHost && !$('host').value) $('host').value = config.defaultLoginHost;
     } catch (err) {
       this.setLoginStatus(`Could not reach asset server: ${err.message}`);
     }
@@ -344,9 +322,9 @@ export class UI {
   connect() {
     const account = $('account').value.trim();
     const password = $('password').value;
-    const host = $('host').value.trim() || this.config?.defaultLoginHost || '127.0.0.1';
-    const port = parseInt($('port').value, 10) || 2593;
-    const version = ($('clientVersion')?.value || this.config?.clientVersion || '7.0.116.0').trim();
+    const host = this.config?.defaultLoginHost || '127.0.0.1';
+    const port = Number(this.config?.defaultLoginPort) || 2593;
+    const version = (this.config?.clientVersion || '7.0.116.0').trim();
     if (!account || !password) {
       this.setLoginStatus('Enter an account and password.');
       return;
@@ -354,12 +332,8 @@ export class UI {
     this.config.clientVersion = version;
     this.game.config.clientVersion = version;
     const remember = !!$('rememberLogin')?.checked;
-    this.saveLogin(
-      remember
-        ? { account, password, host, port: String(port), version, remember: true }
-        : { host, port: String(port), version, remember: false }
-    );
-    this.setLoginStatus(`Connecting with client ${version}...`);
+    this.saveLogin(remember ? { account, password, remember: true } : { remember: false });
+    this.setLoginStatus('Connecting...');
     $('loginForm').classList.add('hidden');
     if (document.activeElement && typeof document.activeElement.blur === 'function') document.activeElement.blur();
     this.game.connect(account, password, host, port);
@@ -2323,6 +2297,21 @@ export class UI {
     this.world.socket.out.requestPopupMenu(serial);
   }
 
+  requestContextMenu(serial, x, y) {
+    this.cancelContextMenuRequest();
+    this.contextMenuTimer = setTimeout(() => {
+      this.contextMenuTimer = null;
+      if (!this.world.inGame || this.world.held) return;
+      this.openContextMenu(serial, x, y);
+    }, 300);
+  }
+
+  cancelContextMenuRequest() {
+    if (!this.contextMenuTimer) return;
+    clearTimeout(this.contextMenuTimer);
+    this.contextMenuTimer = null;
+  }
+
   showContextMenu(serial, items, onSelect = null) {
     const request = this.contextMenuRequest;
     const at = request && request.serial === (serial >>> 0) ? request : this.mouse;
@@ -2359,6 +2348,7 @@ export class UI {
   }
 
   closeContextMenu() {
+    this.cancelContextMenuRequest();
     if (!this.contextMenu) return;
     this.removeWindow('contextmenu', 'menu');
     this.contextMenu = null;
@@ -3080,6 +3070,7 @@ export class UI {
   }
 
   onMouseDown(e) {
+    this.cancelContextMenuRequest();
     if (this.isDomUiTarget(e.target)) return;
     this.hideTooltip();
     if (!$('loginScreen').classList.contains('hidden') || !$('modalBackdrop').classList.contains('hidden')) return;
@@ -3138,6 +3129,7 @@ export class UI {
         return;
       }
       this.world.socket.out.singleClick(entity.serial);
+      if (e.detail < 2) this.requestContextMenu(entity.serial, ui.x, ui.y);
       return;
     }
     if (button === 2) {
@@ -3146,12 +3138,6 @@ export class UI {
         return;
       }
       if (this.world.held) return;
-      const tile = this.game.renderer.screenToTile(game.x, game.y);
-      const entity = this.game.renderer.entityAt?.(game.x, game.y) || this.findEntityAt(tile.x, tile.y);
-      if (entity) {
-        this.openContextMenu(entity.serial, ui.x, ui.y);
-        return;
-      }
       if (e.ctrlKey) {
         this.openGroundMenu(game.x, game.y);
         return;
@@ -3270,6 +3256,7 @@ export class UI {
       const item = this.worldItemPress.item;
       this.worldItemPress = null;
       this.world.socket.out.singleClick(item.serial);
+      this.requestContextMenu(item.serial, ui.x, ui.y);
     }
     if (this.isDomUiTarget(e.target) || !this.world.held) return;
     const hit = this.hitTest(ui.x, ui.y);
@@ -3298,6 +3285,7 @@ export class UI {
   }
 
   onDoubleClick(e) {
+    this.cancelContextMenuRequest();
     if (this.isDomUiTarget(e.target)) return;
     if (!$('modalBackdrop').classList.contains('hidden')) return;
     this.worldItemPress = null;

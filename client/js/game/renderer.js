@@ -7,6 +7,7 @@ import {
   isGargoyleBody,
 } from './entity.js';
 import { hasUoHtmlMarkup, drawServerText, measureUoHtml } from './html.js';
+import { MOUNTS } from './mounts.js';
 import { settings } from './settings.js';
 import { notorietyColor } from '../util/ui.js';
 
@@ -501,9 +502,17 @@ export class Renderer {
     this.drawAnimFrame(ctx, animData, f, p.sx + 22, p.sy + 22, mirror, 1);
   }
 
+  mobileMount(mobile) {
+    return mobile?.mount || mobile?.getItem?.(Layer.Mount) || null;
+  }
+
   mobileAnimGroups(mobile) {
     const type = this.game.getAnimType(mobile.graphic);
     if (type === 'people') {
+      if (this.mobileMount(mobile) && !mobile.isDead) {
+        // TazUO's PeopleAnimationGroup: OnmountStand/RideSlow/RideFast.
+        return { type, idleGroup: 25, walkGroup: 23, runGroup: 24 };
+      }
       return {
         type,
         idleGroup: mobile.inWarMode && !mobile.isDead ? 7 : 4,
@@ -517,8 +526,24 @@ export class Renderer {
     return { type, idleGroup: 1, walkGroup: 0, runGroup: 0 };
   }
 
+  mountGraphics(mount) {
+    if (!mount) return null;
+    const known = MOUNTS.get(mount.graphic);
+    const animId = known?.graphic || this.assets.staticAnimId(mount.graphic) || mount.graphic;
+    if (!animId) return null;
+    return { animId, offsetY: known?.offsetY || 0, hue: mount.hue || 0 };
+  }
+
+  mountAnimGroups(animId) {
+    const type = this.assets.animType(animId) || this.game.getAnimType(animId);
+    if (type === 'low') return { idleGroup: 2, walkGroup: 0, runGroup: 1 };
+    if (type === 'high') return { idleGroup: 1, walkGroup: 0, runGroup: 0 };
+    return { idleGroup: 4, walkGroup: 0, runGroup: 2 };
+  }
+
   drawMobile(ctx, mobile, now) {
     const { type, idleGroup, walkGroup, runGroup } = this.mobileAnimGroups(mobile);
+    const mount = type === 'people' && !mobile.isDead ? this.mountGraphics(this.mobileMount(mobile)) : null;
     const anim = mobile.animation;
     const sinceStart = now - (anim?.start || 0);
     const serverPlaying = anim?.fromServer && sinceStart < Math.max(400, (anim.frameCount || 5) * ANIM_FRAME_MS);
@@ -555,12 +580,18 @@ export class Renderer {
     if (runGroup !== walkGroup) {
       this.assets.getAnim(mobile.graphic, runGroup, dir, mobile.hue || 0);
     }
+    if (mount) {
+      const mg = this.mountAnimGroups(mount.animId);
+      this.assets.getAnim(mount.animId, mg.idleGroup, dir, mount.hue);
+      this.assets.getAnim(mount.animId, mg.walkGroup, dir, mount.hue);
+      if (mg.runGroup !== mg.walkGroup) this.assets.getAnim(mount.animId, mg.runGroup, dir, mount.hue);
+    }
     if (type === 'people' && !mobile.isGhost && this.assets.tileData) {
       for (const layer of equipmentLayers) {
         const item = mobile.getItem(layer);
         if (!item) continue;
         const equipment = this.equipmentGraphics(mobile, item, gargoyle);
-        if (equipment) this.assets.getAnim(equipment.animId, prefetchGroup, dir, equipment.hue);
+        if (equipment) this.assets.getAnim(equipment.animId, prefetchGroup, dir, equipment.hue, true);
       }
     }
     // The player turns constantly; load the body for every isometric
@@ -581,6 +612,19 @@ export class Renderer {
     const pos = this.screenFor(mobile.renderX, mobile.renderY, mobile.renderZ);
     pos.sx += 22;
     pos.sy += 22;
+
+    if (mount) {
+      const mg = this.mountAnimGroups(mount.animId);
+      const mountGroup = walking ? (running ? mg.runGroup : mg.walkGroup) : mg.idleGroup;
+      const mountAnim = this.assets.getAnim(mount.animId, mountGroup, dir, mount.hue);
+      if (mountAnim && mountAnim.meta.frames.length) {
+        const frames = mountAnim.meta.frames;
+        let index = this.animFrameIndex(mobile, anim, frames.length, sinceStart, serverPlaying, now, walking);
+        index = Math.min(index, frames.length - 1);
+        this.drawAnimFrame(ctx, mountAnim, frames[index], pos.sx, pos.sy, mirror, 1);
+      }
+      pos.sy += mount.offsetY;
+    }
 
     let drewBody = false;
     let bodyFrame = null;
@@ -617,7 +661,7 @@ export class Renderer {
           const equipment = this.equipmentGraphics(mobile, item, gargoyle);
           if (!equipment) continue;
           const { animId, hue } = equipment;
-          const equip = this.assets.getAnim(animId, group, dir, hue);
+          const equip = this.assets.getAnim(animId, group, dir, hue, true);
           if (!equip || !equip.meta.frames.length) {
             // Hold the previous pose for this layer while it streams in.
             const previous = previousEquipment.get(animId);

@@ -266,7 +266,9 @@ export class World {
       if (direction !== undefined) entity.direction = direction & 7;
       entity.amount = Math.max(1, amount || 1);
       entity.isCorpse = graphic === 0x2006;
-      entity.isMulti = type === 2 || (graphic & 0x4000) !== 0;
+      // Only the packet's type byte marks a multi. Item graphics above 0x3FFF
+      // are legal (custom art), so the high bit must not be treated as one.
+      entity.isMulti = type === 2;
       if (entity.isMulti) entity.graphic = graphic & 0x3fff;
       entity.layer = Layer.Invalid;
     } else {

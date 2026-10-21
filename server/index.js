@@ -84,6 +84,7 @@ function loadConfig() {
     cacheMb: 256,
     allowProxyHosts: [],
     defaultLoginHost: '',
+    defaultLoginPort: 2593,
     loginEncryption: true,
     gameEncryption: true,
     language: 'enu',
@@ -246,6 +247,7 @@ const server = http.createServer((req, res) => {
         ...assets.info(),
         wsPath: '/proxy',
         defaultLoginHost: config.defaultLoginHost || '',
+        defaultLoginPort: config.defaultLoginPort || 2593,
         allowProxyHosts: config.allowProxyHosts || [],
         loginEncryption: config.loginEncryption !== false,
         gameEncryption: config.gameEncryption !== false,
@@ -354,6 +356,14 @@ const server = http.createServer((req, res) => {
       return;
     }
 
+    m = pathname.match(/^\/api\/tileart\/(\d+)$/);
+    if (m) {
+      const appearances = assets.tileArtAppearances(Number(m[1]));
+      if (!appearances) sendJSON(res, 404, { error: 'no tile art appearance' });
+      else sendJSON(res, 200, { appearances }, 'public, max-age=86400');
+      return;
+    }
+
     m = pathname.match(/^\/api\/gump\/(\d+)\.png$/);
     if (m) {
       const id = Number(m[1]);
@@ -372,11 +382,12 @@ const server = http.createServer((req, res) => {
       const action = Number(m[2]);
       const dir = Number(m[3]);
       const hue = Number(url.searchParams.get('hue') || 0);
+      const equip = url.searchParams.get('equip') === '1';
       if (action >= 80 || dir >= 5) {
         sendJSON(res, 400, { error: 'invalid animation' });
         return;
       }
-      const result = assets.animation(body, action, dir, hue);
+      const result = assets.animation(body, action, dir, hue, equip);
       if (m[4]) sendBuffer(res, 200, result.png, 'image/png', 'public, max-age=86400');
       else sendJSON(res, 200, result.meta);
       return;

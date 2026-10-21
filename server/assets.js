@@ -8,6 +8,7 @@ import { GumpsManager } from './uo/gumps.js';
 import { MapManager, MAP_SIZES } from './uo/map.js';
 import { TileDataManager } from './uo/tiledata.js';
 import { EquipConvManager } from './uo/equipconv.js';
+import { TileArtManager } from './uo/tileart.js';
 import { AnimationsManager, MAX_DIRECTIONS, MAX_ACTIONS } from './uo/anim.js';
 import { ClilocManager } from './uo/cliloc.js';
 import { SkillsManager } from './uo/skills.js';
@@ -109,6 +110,7 @@ export class AssetService {
     this.maps = new MapManager(this.files, config.mapCount || 6);
     this.tiledata = new TileDataManager(this.files, config.clientVersion);
     this.equipconv = new EquipConvManager(this.files);
+    this.tileart = new TileArtManager(this.files);
     this.animations = new AnimationsManager(this.files, this.hues);
     this.clilocs = new ClilocManager(this.files, config.language || 'enu');
     this.skills = new SkillsManager(this.files);
@@ -246,13 +248,14 @@ export class AssetService {
     });
   }
 
-  animation(body, action, direction, hue) {
-    const key = this.cacheKey(`anim|${body}|${action}|${direction}|${hue}`);
+  animation(body, action, direction, hue, equip = false) {
+    const key = this.cacheKey(`anim|${body}|${action}|${direction}|${hue}|${equip ? 'e' : ''}`);
     const cached = this.cache.get(key);
     if (cached) return cached;
-    const frames = this.animations.getFrames(body, action, direction, hue) || [];
+    const frames = this.animations.getFrames(body, action, direction, hue, equip) || [];
+    const type = this.animations.resolve(body).type;
     if (!frames.length) {
-      const result = { meta: { frames: [], sheet: { width: 0, height: 0 } }, png: TRANSPARENT_PNG };
+      const result = { meta: { frames: [], sheet: { width: 0, height: 0 }, type }, png: TRANSPARENT_PNG };
       this.cache.set(key, result);
       return result;
     }
@@ -275,7 +278,7 @@ export class AssetService {
       x += f.width;
     }
     const result = {
-      meta: { frames: meta, sheet: { width: sheetWidth, height: sheetHeight } },
+      meta: { frames: meta, sheet: { width: sheetWidth, height: sheetHeight }, type },
       png: encodePNG(sheetWidth, sheetHeight, applyBlackTransparency(sheet)),
     };
     this.cache.set(key, result);
@@ -356,6 +359,10 @@ export class AssetService {
     const buf = Buffer.from(JSON.stringify(data));
     this.cache.set(key, buf);
     return buf;
+  }
+
+  tileArtAppearances(id) {
+    return this.tileart.get(id);
   }
 
   equipConvJSON() {

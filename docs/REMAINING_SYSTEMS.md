@@ -31,9 +31,9 @@ Implemented today:
   walk tile-by-tile to position updates via a chained motion queue.
 - Death shifts the player to a ghost body and allows ghost movement; resurrection
   restores the living body from `0x2C` or the next mobile update.
-- Left-click selects world objects (single click); double-click uses them. Dragging a
-  ground item picks it up, and releasing drops it at the cursor or into a container.
-  Shift-click picks up immediately.
+- Left-click requests world object context menus (and sends a single click); double-click
+  uses them. Dragging a ground item picks it up, and releasing drops it at the cursor or
+  into a container. Shift-click picks up immediately.
 - Buff/debuff bar (`client/js/game/buffs.js`) shows active effects as draggable icons
   with duration countdowns, hover tooltips, expiry filtering, and saved position.
 - Containers support wheel/scrollbar paging, server and grid item layouts, stacked
@@ -49,9 +49,9 @@ Implemented today:
   bound to keys `1`-`0`, `-`, and `=`, drag-to-bind items, `-hotbar set` bindings for
   items, spells, skills, and commands, right-click clearing, tooltips, and per-account
   position and slot persistence.
-- Context menus (`0xBF 0x14`) open on right-click over world and container items, show
-  cliloc entries with hue/arrow flags, and reply with `0xBF 0x15`. Right-clicking empty
-  ground still starts mouse-walk.
+- Context menus (`0xBF 0x14`) open on single-click over world and container items, show
+  cliloc entries with hue/arrow flags, and reply with `0xBF 0x15`. Right-clicking ground
+  still starts mouse-walk.
 - Shops (`0x74`/`0x9E`) have per-item quantity controls, per-unit and line totals, a
   gold check, Clear/All helpers, confirm buy/sell, item tooltips and context menus,
   scrolling, and a saved window position.
@@ -156,8 +156,8 @@ The remaining items are mostly polish or shard-dependent features.
 **Input**
 
 - Hold WASD/arrow keys to continue walking; support diagonals.
-- Hold the right mouse button to walk toward the cursor; left-click selects
-  objects (single click) and double-click uses them.
+- Hold the right mouse button to walk toward the cursor; left-click requests object
+  context menus and selects (single click), and double-click uses them.
 - Running: Shift or the client's run toggle (match UO behavior).
 - Turn-in-place when the direction changes but movement is blocked.
 - Do not move while dead, frozen, stunned, or while a blocking gump/modal is open.
@@ -364,7 +364,7 @@ Current status at a glance:
 | Gump | Status | Notes |
 | --- | --- | --- |
 | Paperdoll | Implemented | Real gump art, animated doll with equipment layers, per-layer sidebar slots, tooltips, durability bars, drag/drop equip, lifting other mobiles' equipment, virtue and equipment-book buttons, action buttons, title/name, and saved position. |
-| Container | Implemented | Gump background, server `item.x/y` layout with grid fallback, stacked item art, wheel/scrollbar scrolling, use, drag/drop with container-local coordinates, shift-click/drag stack splitting, stack merging on drop, a collapsible item list view under the container, tooltips/context menu, right-click close, and saved position. |
+| Container | Implemented | Gump background, server `item.x/y` layout with grid fallback, stacked item art, wheel/scrollbar scrolling, use, drag/drop with container-local coordinates, shift-click/drag stack splitting, stack merging on drop, a collapsible item list view under the container, tooltips/single-click context menu, right-click close, and saved position. |
 | Skills | Implemented | Canvas window with value/base/cap, skill and STR/DEX/INT lock cycling, sort/filter, use button, wheel scrolling, and saved position. |
 | Spellbook | Implemented | Canvas spellbook with circle/page tabs, icons, mana/power-word tooltips, wheel paging, saved position, and double-click casting. Supports magery, necromancy, chivalry, bushido, ninjitsu, spellweaving, mysticism, and mastery books. |
 | Shop | Implemented | Buy/sell lists with per-item quantities, unit/line totals, gold check, Clear/All, confirm, tooltips, context menus, scrolling, and saved position. |
@@ -377,7 +377,7 @@ Current status at a glance:
 | Party | Implemented | Movable manifest with leader/member slots, HP bars, invite/accept/decline, tell/kick, leave/disband, loot toggle, party chat, a friend list, and saved position. |
 | Buff/debuff | Implemented | Draggable icon bar with duration countdowns, stacking counts, shrinking progress bars, audible expiry warnings, row/column and size options, tooltips, expiry filtering, and saved position; packets are parsed from `0xDF`. |
 | Tooltips / OPL | Implemented | World, container, shop, paperdoll and gump controls; `0xD6`/`0xDC` caching and throttled requests. |
-| Context menu | Implemented | Right-click world/container items requests `0xBF 0x13`; display (`0xBF 0x14`) and selection (`0xBF 0x15`) support old and new cliloc modes. |
+| Context menu | Implemented | Single-click world/container items requests `0xBF 0x13`; display (`0xBF 0x14`) and selection (`0xBF 0x15`) support old and new cliloc modes. |
 
 #### P0
 
@@ -404,9 +404,9 @@ Current status at a glance:
   to the stack size and the held-item overlay shows the selected count.
 - Dropping a stack onto a matching stack lets the server merge them.
 - The list view below the container shows a scaled item icon, name, and count; rows
-  support single click, double-click use, drag pickup, shift-split, right-click
-  context menus, OPL tooltips, and wheel/scrollbar scrolling. Its minimize button
-  collapses the list and the state persists per container.
+  support single-click context menus, double-click use, drag pickup, shift-split,
+  OPL tooltips, and wheel/scrollbar scrolling. Its minimize button collapses the list
+  and the state persists per container.
 
 **Skills** *(implemented)*
 
@@ -534,10 +534,10 @@ Current status at a glance:
 
 - `ContextMenuWindow` in `client/js/game/windows.js` renders the server popup menu
   with cliloc text, hover highlighting, hue/arrow flags, and viewport clamping.
-- Right-clicking a world mobile/item, a container item, or paperdoll equipment sends
-  `0xBF 0x13`; the display response (`0xBF 0x14`) is parsed in both old (`+3000000`)
-  and new cliloc modes, and selection sends `0xBF 0x15`.
-- Right-clicking empty ground still starts mouse-walk, and the menu closes on outside
+- Single-clicking a world mobile/item or a container item, or right-clicking paperdoll
+  equipment, sends `0xBF 0x13`; the display response (`0xBF 0x14`) is parsed in both
+  old (`+3000000`) and new cliloc modes, and selection sends `0xBF 0x15`.
+- Right-clicking ground still starts mouse-walk, and the menu closes on outside
   click, right-click, or Esc.
 - Shop item menus are available, Ctrl+right-click on empty ground opens local walk,
   waypoint, and coordinate actions, and server submenu arrows request their child menu.
@@ -649,7 +649,8 @@ Current status at a glance:
 - Receive a party invite, accept, view the manifest, chat, kick, and leave.
 - Receive speech, cliloc, system, party, and damage messages.
 - Hover an item and see name/properties.
-- Right-click an item/mobile, open the context menu, and choose an action.
+- Single-click an item/mobile, open the context menu, and choose an action; confirm
+  double-click still uses the object.
 - Open the radar and a map item; add a pin, plot/clear the route, and move the window.
 - Open waypoints, add/remove/clear a local waypoint, and double-click a row to walk.
 - Open the world map, switch facets, zoom/pan, and double-click a reachable tile to walk.

@@ -16,8 +16,14 @@ const GROUP_NAMES = {
   sea_monster: 'high',
   animal: 'low',
   human: 'people',
-  equipment: 'people',
+  equipment: 'equipment',
 };
+
+// mobtypes.txt flag that tells the client to read this graphic from the
+// AnimationFrame*.uop files instead of anim*.mul. Shards use it for custom
+// equipment and creatures, and those ids often also have a stale row in
+// bodyconv.def - the UOP data must win.
+const MOB_TYPE_USE_UOP_ANIMATION = 0x10000;
 
 export class AnimationsManager {
   constructor(files, hues) {
@@ -26,10 +32,12 @@ export class AnimationsManager {
     this.loaded = false;
     this.filesMul = [];
     this.filesUop = [];
+    this.hasUopAnimations = false;
     this.bodyConv = new Map();
     this.bodyDef = new Map();
     this.mobTypes = new Map();
     this.resolveCache = new Map();
+    this.uopGroups = new Map();
     this.frameEntryCache = new Map();
     this.empty = [];
   }
@@ -47,11 +55,53 @@ export class AnimationsManager {
     for (let i = 0; i < 10; i++) {
       const uop = this.files.getUopRaw(`AnimationFrame${i + 1}.uop`);
       this.filesUop[i] = uop;
+      if (uop) this.hasUopAnimations = true;
     }
 
     this.parseMobTypes();
     this.parseBodyConv();
     this.parseBodyDef();
+    this.parseAnimationSequence();
+  }
+
+  /**
+   * AnimationSequence.uop maps an action that has no frame of its own (for
+   * example an idle group on a weapon) onto the action the archive really
+   * contains. TazUO applies this before reading UOP frames.
+   */
+  parseAnimationSequence() {
+    const spec = this.files.uop('AnimationSequence.uop', 'build/animationsequence/{0:D8}.bin');
+    if (!spec) return;
+    for (const entry of spec.entries) {
+      if (!entry || entry.length <= 0) continue;
+      const buf = this.files.readEntry(spec, entry);
+      if (!buf || buf.length < 72) continue;
+      const animId = buf.readUInt32LE(0);
+      let ptr = 52;
+      const replaces = buf.readInt32LE(ptr);
+      ptr += 4;
+      if (replaces === 48 || replaces === 68) continue;
+      const actions = new Array(MAX_ACTIONS);
+      for (let i = 0; i < MAX_ACTIONS; i++) actions[i] = i;
+      let changed = false;
+      for (let i = 0; i < replaces && ptr + 72 <= buf.length; i++) {
+        const oldGroup = buf.readInt32LE(ptr);
+        const frameCount = buf.readUInt32LE(ptr + 4);
+        const newGroup = buf.readInt32LE(ptr + 8);
+        if (frameCount === 0 && oldGroup >= 0 && oldGroup < MAX_ACTIONS) {
+          actions[oldGroup] = newGroup;
+          changed = true;
+        }
+        ptr += 72;
+      }
+      if (changed) this.uopGroups.set(animId, actions);
+    }
+  }
+
+  mapUopAction(graphic, action) {
+    const map = this.uopGroups.get(graphic);
+    const mapped = map ? map[action] : action;
+    return mapped >= 0 && mapped < MAX_ACTIONS ? mapped : action;
   }
 
   parseMobTypes() {
@@ -106,13 +156,18 @@ export class AnimationsManager {
       for (const line of text.split(/\r?\n/)) {
         const trimmed = line.replace(/#.*/, '').trim();
         if (!trimmed) continue;
-        const parts = trimmed.split(/[\t ,]+/).map((x) => parseInt(x, 10));
-        if (parts.length < 2 || !Number.isFinite(parts[0])) continue;
-        const index = parts[0];
-        const group = parts.slice(1).filter((x) => Number.isFinite(x));
+        // Format: <orig body> {<new body>[, <new body>...]} <hue>
+        const match = trimmed.match(/^(\d+)\s*\{([^}]*)\}(?:\s+(-?\d+))?/);
+        if (!match) continue;
+        const index = Number.parseInt(match[1], 10);
+        const group = match[2]
+          .split(/[\s,]+/)
+          .map((part) => Number.parseInt(part, 10))
+          .filter((value) => Number.isFinite(value));
         if (!group.length) continue;
-        const checkIndex = group.length >= 3 ? group[2] : group[0];
-        this.bodyDef.set(index, checkIndex);
+        const graphic = group.length >= 3 ? group[2] : group[0];
+        const hue = Number.parseInt(match[3] || '0', 10) || 0;
+        this.bodyDef.set(index, { graphic, hue });
       }
     } catch {
       /* ignore */
@@ -133,23 +188,40 @@ export class AnimationsManager {
     let graphic = body;
     let fileIndex = 0;
     let type = null;
+    let bodyHue = 0;
     const mob = this.mobTypes.get(body);
     if (mob && mob.type) type = mob.type;
+    // A UseUopAnimation flag is meaningless when the install has no
+    // AnimationFrame archives (older MUL-only shards still carry the flag).
+    const useUop = this.hasUopAnimations && !!mob && (mob.flags & MOB_TYPE_USE_UOP_ANIMATION) !== 0;
 
-    if (this.filesMul[0]) {
+    // The shard's own animation is keyed by the original graphic id in the
+    // UOP archives. Applying Bodyconv.def here would replace it with the
+    // vanilla fallback (for example 585 -> 100) and lose the custom art.
+    let converted = false;
+    if (!useUop && this.filesMul[0]) {
       const conv = this.bodyConv.get(body);
-      if (conv) {
+      if (conv && this.filesMul[conv.fileIndex]) {
         graphic = conv.body;
         fileIndex = conv.fileIndex;
-        type = conv.type;
+        // TazUO keeps the mobtypes type for modern clients; Bodyconv.def only
+        // supplies its own type when the graphic is not in mobtypes.txt.
+        if (!type) type = conv.type;
+        converted = true;
       }
     }
-    if (this.bodyDef.has(body)) {
-      graphic = this.bodyDef.get(body);
-      if (!type) type = this.calcType(graphic, fileIndex);
+    // TazUO only consults Body.def when Bodyconv.def did not already supply
+    // an animation file. Applying it on top of a bodyconv result points at
+    // the wrong body (for example 746 -> 53, then 746 -> 9).
+    if (!useUop && !converted && this.bodyDef.has(body)) {
+      const replacement = this.bodyDef.get(body);
+      graphic = replacement.graphic;
+      bodyHue = replacement.hue;
+      const mapped = this.mobTypes.get(graphic);
+      type = mapped?.type || this.calcType(graphic, fileIndex);
     }
     if (!type) type = this.calcType(graphic, fileIndex);
-    const result = { graphic, fileIndex, type };
+    const result = { graphic, fileIndex, type, useUop, bodyHue };
     this.resolveCache.set(body, result);
     return result;
   }
@@ -159,7 +231,7 @@ export class AnimationsManager {
   }
 
   offsetFor(graphic, type) {
-    if (type === 'people') return ((graphic - 400) * 175 + 35000) * 12;
+    if (type === 'people' || type === 'equipment') return ((graphic - 400) * 175 + 35000) * 12;
     if (type === 'low') return ((graphic - 200) * 65 + 22000) * 12;
     return graphic * 110 * 12;
   }
@@ -168,7 +240,7 @@ export class AnimationsManager {
    * Get decoded frames for a mobile graphic/action/direction.
    * Returns [{centerX, centerY, width, height, pixels}]
    */
-  getFrames(body, action, direction, hue = 0) {
+  getFrames(body, action, direction, hue = 0, equip = false) {
     this.load();
     const resolved = this.resolve(body);
     const type = resolved.type;
@@ -178,12 +250,21 @@ export class AnimationsManager {
 
     if (action >= count || direction >= MAX_DIRECTIONS) return this.empty;
 
+    // Equipment layers must never draw a creature/animal animation (a ring
+    // whose AnimID happens to point at a zebra is the classic symptom).
+    // TazUO only accepts Equipment/Human animation types on equipment.
+    if (equip && type !== 'equipment' && type !== 'people') return this.empty;
+    if (resolved.bodyHue) hue = resolved.bodyHue;
+
     // Modern UO ships animation frames in UOP archives. They are keyed by
-    // body/action and carry every direction inside one entry.
-    const frameKey = `${graphic}|${action}`;
+    // body/action and carry every direction inside one entry. Shards can
+    // alias an action (AnimationSequence.uop) when the archive has no frame
+    // for the group the mobile is currently playing.
+    const uopAction = resolved.useUop ? this.mapUopAction(graphic, action) : action;
+    const frameKey = `${graphic}|${uopAction}`;
     if (!this.frameEntryCache.has(frameKey)) {
       let found = null;
-      const name = `build/animationlegacyframe/${String(graphic).padStart(6, '0')}/${String(action).padStart(2, '0')}.bin`;
+      const name = `build/animationlegacyframe/${String(graphic).padStart(6, '0')}/${String(uopAction).padStart(2, '0')}.bin`;
       const hash = createHash(name);
       for (let i = 0; i < 10; i++) {
         const spec = this.filesUop[i];
@@ -198,13 +279,42 @@ export class AnimationsManager {
     }
     const frameEntry = this.frameEntryCache.get(frameKey);
     if (frameEntry) {
-      return this.readUopFrames(frameEntry.spec, frameEntry.entry, action, direction, type, hue);
+      return this.readUopFrames(frameEntry.spec, frameEntry.entry, uopAction, direction, type, hue);
     }
 
+    const primary = this.readMulAt(fileIndex, graphic, type, action, direction, hue);
+    if (primary.length || equip) return primary;
+
+    // Legacy MUL installs often have a bodyconv row pointing at the wrong
+    // anim file (Memento's gargoyle 667 exists in anim4, for example), so if
+    // the mapped file has no block, try the same graphic/type in every other
+    // animation archive before giving up.
+    const seen = new Set();
+    const candidates = [];
+    const add = (index, value, valueType) => {
+      if (index < 0 || index >= this.filesMul.length || !this.filesMul[index]) return;
+      const key = `${index}|${value}|${valueType}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      candidates.push([index, value, valueType]);
+    };
+    add(fileIndex, graphic, type);
+    for (let i = 0; i < this.filesMul.length; i++) add(i, graphic, type);
+    for (let i = 0; i < this.filesMul.length; i++) add(i, body, type);
+    const rawType = this.calcType(body, 0);
+    for (let i = 0; i < this.filesMul.length; i++) add(i, body, rawType);
+    for (const [index, value, valueType] of candidates) {
+      const frames = this.readMulAt(index, value, valueType, action, direction, hue);
+      if (frames.length) return frames;
+    }
+    return this.empty;
+  }
+
+  readMulAt(fileIndex, graphic, type, action, direction, hue) {
     const mul = this.filesMul[fileIndex];
-    if (!mul) return this.empty;
+    if (!mul || action >= this.actionCount(type)) return this.empty;
     const offset = this.offsetFor(graphic, type) + (action * MAX_DIRECTIONS + direction) * 12;
-    if (offset + 12 > mul.idx.length) return this.empty;
+    if (offset < 0 || offset + 12 > mul.idx.length) return this.empty;
     mul.idx.seek(offset);
     const position = mul.idx.readU32();
     const size = mul.idx.readU32();
@@ -252,7 +362,7 @@ export class AnimationsManager {
       const start = ptr;
       const group = buf.readUInt16LE(ptr);
       const frameId = buf.readUInt16LE(ptr + 2);
-      ptr += 8;
+      ptr += 12;
       const pixelOffset = buf.readUInt32LE(ptr);
       ptr += 4;
       raw.push({ start, group, frameId, pixelOffset });

@@ -43,9 +43,13 @@ export class AssetManager {
     this.images = new Map();
     this.animMeta = new Map();
     this.animPromise = new Map();
+    this.animTypes = new Map();
     this.tileData = null;
+    this.tileDataPromise = null;
     this.equipConversions = null;
     this.equipConvPromise = null;
+    this.tileArt = new Map();
+    this.tileArtPromise = new Map();
     this.multis = new Map();
     this.multiPending = new Set();
     this.fontMeta = new Map();
@@ -64,9 +68,13 @@ export class AssetManager {
     this.images.clear();
     this.animMeta.clear();
     this.animPromise.clear();
+    this.animTypes.clear();
     this.tileData = null;
+    this.tileDataPromise = null;
     this.equipConversions = null;
     this.equipConvPromise = null;
+    this.tileArt.clear();
+    this.tileArtPromise.clear();
     this.multis.clear();
     this.multiPending.clear();
     this.fontMeta.clear();
@@ -161,11 +169,11 @@ export class AssetManager {
     return state === 'ready';
   }
 
-  getAnim(body, action, dir, hue = 0) {
-    const key = `${body}|${action}|${dir}|${hue}`;
+  getAnim(body, action, dir, hue = 0, equip = false) {
+    const key = `${body}|${action}|${dir}|${hue}|${equip ? 'e' : ''}`;
     const meta = this.animMeta.get(key);
     const imageKey = `animimg|${key}`;
-    this.image(imageKey, this.url(`/api/anim/${body}/${action}/${dir}.png?hue=${hue}`));
+    this.image(imageKey, this.url(`/api/anim/${body}/${action}/${dir}.png?hue=${hue}${equip ? '&equip=1' : ''}`));
     if (meta) {
       const entry = this.images.get(this.imageKey(imageKey));
       if (entry && entry.ready) return { meta, img: entry.img };
@@ -174,10 +182,13 @@ export class AssetManager {
     if (!this.animPromise.has(key)) {
       this.animPromise.set(
         key,
-        fetch(this.url(`/api/anim/${body}/${action}/${dir}?hue=${hue}`))
+        fetch(this.url(`/api/anim/${body}/${action}/${dir}?hue=${hue}${equip ? '&equip=1' : ''}`))
           .then((r) => (r.ok ? r.json() : null))
           .then((m) => {
-            if (m) this.animMeta.set(key, m);
+            if (m) {
+              this.animMeta.set(key, m);
+              if (m.type) this.animTypes.set(body, m.type);
+            }
             return m;
           })
           .catch(() => null)
@@ -185,6 +196,10 @@ export class AssetManager {
       );
     }
     return null;
+  }
+
+  animType(body) {
+    return this.animTypes.get(body) || null;
   }
 
   getFont(font, hue = 0) {
@@ -231,13 +246,24 @@ export class AssetManager {
 
   async loadTileData() {
     if (this.tileData) return this.tileData;
-    const res = await fetch(this.url('/api/tiledata?names=1&v=2'));
-    if (!res.ok) {
-      this.tileData = { land: [], statics: [] };
-      return this.tileData;
-    }
-    this.tileData = await res.json();
-    return this.tileData;
+    if (this.tileDataPromise) return this.tileDataPromise;
+    this.tileDataPromise = fetch(this.url('/api/tiledata?names=1&v=4'))
+      .then((res) => {
+        if (!res.ok) throw new Error(`tiledata HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        if (data && Array.isArray(data.statics) && data.statics.length) this.tileData = data;
+        return this.tileData;
+      })
+      .catch((err) => {
+        console.warn('[assets] tiledata load failed, will retry:', err);
+        return null;
+      })
+      .finally(() => {
+        this.tileDataPromise = null;
+      });
+    return this.tileDataPromise;
   }
 
   async loadEquipConv() {
@@ -258,6 +284,34 @@ export class AssetManager {
         });
     }
     return this.equipConvPromise;
+  }
+
+  getTileArt(graphic) {
+    if (this.tileArt.has(graphic)) return this.tileArt.get(graphic);
+    if (!this.tileArtPromise.has(graphic)) {
+      this.tileArtPromise.set(
+        graphic,
+        fetch(this.url(`/api/tileart/${graphic}`))
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => {
+            const appearances = data && typeof data.appearances === 'object' ? data.appearances : null;
+            this.tileArt.set(graphic, appearances);
+            return appearances;
+          })
+          .catch(() => {
+            this.tileArt.set(graphic, null);
+            return null;
+          })
+          .finally(() => this.tileArtPromise.delete(graphic))
+      );
+    }
+    return null;
+  }
+
+  tileArtAppearance(graphic, body) {
+    const appearances = this.tileArt.get(graphic);
+    if (!appearances) return 0;
+    return appearances[body] || 0;
   }
 
   equipConv(bodyType, animId) {

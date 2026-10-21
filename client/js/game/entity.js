@@ -355,6 +355,7 @@ export class Entity {
       const existing = this.equipment.get(item.layer);
       if (existing && existing.serial === item.serial) this.equipment.delete(item.layer);
     }
+    if (item.layer === Layer.Mount && this.mount === item) this.mount = null;
   }
 
   getItem(layer) {

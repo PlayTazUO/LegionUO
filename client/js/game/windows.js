@@ -358,11 +358,7 @@ export class ContainerWindow {
     this.press = null;
     if (button === 2) {
       const item = this.listItemAt(mx, my) || this.itemAt(mx, my);
-      if (item) {
-        this.world.game.ui.openContextMenu(item.serial, mx, my);
-      } else if (!this.pointInList(mx, my)) {
-        this.close();
-      }
+      if (!item && !this.pointInList(mx, my)) this.close();
       return true;
     }
     if (button === 0 && this.listScrollMax > 0) {
@@ -430,12 +426,18 @@ export class ContainerWindow {
     this.dragging = false;
     if (this.listPress && !this.listPress.moved) {
       if (this.listPress.split && this.listPress.item.amount > 1) this.promptSplit(this.listPress.item);
-      else this.world.socket.out.singleClick(this.listPress.item.serial);
+      else {
+        this.world.socket.out.singleClick(this.listPress.item.serial);
+        this.world.game.ui.requestContextMenu(this.listPress.item.serial, mx, my);
+      }
     }
     this.listPress = null;
     if (this.press && !this.press.moved) {
       if (this.press.split && this.press.item.amount > 1) this.promptSplit(this.press.item);
-      else this.world.socket.out.singleClick(this.press.item.serial);
+      else {
+        this.world.socket.out.singleClick(this.press.item.serial);
+        this.world.game.ui.requestContextMenu(this.press.item.serial, mx, my);
+      }
     }
     this.press = null;
     if (this.world.held && this.contains(mx, my)) this.dropHeld(mx, my);
@@ -2301,9 +2303,19 @@ export class PaperdollWindow {
       }
       if (!animId) return 0;
     }
+    const hue = (item.hue || 0) & 0x3fff;
+
+    // Some shards (UOAlive, Enhanced Client art) map an item graphic and body
+    // to a newer appearance id in tileart.uop. TazUO checks this before the
+    // normal anim id + gender gump offset.
+    const appearance = assets.tileArtAppearance(item.graphic, baseBodyGraphic(this.mobile));
+    if (appearance) {
+      const tileArtGump = PAPERDOLL_MALE_GUMP_OFFSET + appearance;
+      if (assets.gumpProbe(tileArtGump, hue) !== false) return tileArtGump;
+    }
+
     const offset = female ? PAPERDOLL_FEMALE_GUMP_OFFSET : PAPERDOLL_MALE_GUMP_OFFSET;
     const alternateOffset = female ? PAPERDOLL_MALE_GUMP_OFFSET : PAPERDOLL_FEMALE_GUMP_OFFSET;
-    const hue = (item.hue || 0) & 0x3fff;
     const primary = animId + offset;
     if (assets.gumpProbe(primary, hue) === false) {
       const alternate = animId + alternateOffset;
@@ -2347,6 +2359,7 @@ export class PaperdollWindow {
     for (const layer of layerOrder) {
       const item = m.getItem(layer);
       if (!item) continue;
+      this.world.assets.getTileArt(item.graphic);
       const gumpId = this.equipGump(item);
       if (!gumpId) continue;
       const img = this.world.assets.getGump(gumpId, (item.hue || 0) & 0x3fff);

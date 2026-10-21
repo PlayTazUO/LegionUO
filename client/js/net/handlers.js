@@ -938,24 +938,78 @@ export class Handlers {
         if (obj && obj.isMobile) obj.notoriety = notoriety;
       }
       if (!is078) r.skip(6);
-      let itemSerial = r.readU32BE();
-      while (itemSerial !== 0 && r.remaining() > 0) {
-        const itemGraphic = r.readU16BE();
-        const layer = r.readU8();
-        const itemHue = r.readU16BE();
-        const item = world.getOrCreateItem(itemSerial);
-        item.graphic = itemGraphic;
-        item.hue = itemHue;
+      const equipStart = r.position;
+      const parseEquipment = (legacyHue) => {
+        r.seek(equipStart);
+        const list = [];
+        let valid = true;
+        let itemSerial = r.readU32BE();
+        while (itemSerial !== 0 && r.remaining() > 0) {
+          if (r.remaining() < 5) {
+            valid = false;
+            break;
+          }
+          let graphic = r.readU16BE();
+          const layer = r.readU8();
+          let hue = 0;
+          if (!legacyHue) {
+            if (r.remaining() < 2) {
+              valid = false;
+              break;
+            }
+            hue = r.readU16BE();
+          } else if (graphic & 0x8000) {
+            if (r.remaining() < 2) {
+              valid = false;
+              break;
+            }
+            graphic &= 0x7fff;
+            hue = r.readU16BE();
+          }
+          if (layer > 0x3f) valid = false;
+          list.push({ serial: itemSerial, graphic, layer, hue });
+          if (r.remaining() < 4) {
+            valid = false;
+            break;
+          }
+          itemSerial = r.readU32BE();
+        }
+        if (itemSerial !== 0) valid = false;
+        if (valid && is078) {
+          for (let i = r.position; i < r.length; i++) {
+            const byte = r.data[i];
+            if (byte === 0) break;
+            if (byte < 0x20) {
+              valid = false;
+              break;
+            }
+          }
+        } else if (valid && !is078 && r.remaining() > 0) {
+          valid = false;
+        }
+        return { list, valid, end: r.position };
+      };
+      // Old clients encode the hue flag in the graphic's high bit and may
+      // omit the hue word. Try the modern form first, but fall back when the
+      // bytes do not form a clean item list.
+      let parsedEquipment = parseEquipment(false);
+      if (!parsedEquipment.valid) {
+        const legacy = parseEquipment(true);
+        if (legacy.valid) parsedEquipment = legacy;
+      }
+      r.seek(parsedEquipment.end);
+      for (const entry of parsedEquipment.list) {
+        const item = world.getOrCreateItem(entry.serial);
+        item.graphic = entry.graphic;
+        item.hue = entry.hue;
         item.amount = 1;
         world.removeFromContainer(item);
         item.container = serial;
-        item.layer = layer;
-        item.layer = layer;
-        item.isCorpse = itemGraphic === 0x2006;
+        item.layer = entry.layer;
+        item.isCorpse = entry.graphic === 0x2006;
         const parent = world.get(serial);
         if (parent) parent.addItem(item);
-        if (layer === Layer.Mount && parent?.isMobile) parent.mount = item;
-        itemSerial = r.readU32BE();
+        if (entry.layer === Layer.Mount && parent?.isMobile) parent.mount = item;
       }
       const mobile = world.get(serial);
       if (is078 && mobile?.isMobile && r.remaining() > 0) {
