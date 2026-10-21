@@ -137,7 +137,7 @@ Then open <http://127.0.0.1:8080>.
   backup/restore/commit/revert/clear/exit commands, and `0xD8` design updates.
 - Audio decodes real `sound.mul` effects and digital MP3 music, falling back to
   synthesis when the local data files are absent.
-- 10-second client ping keeps the connection alive during idle periods.
+- One-second client ping drives the HUD FPS/ping readout and keeps the connection alive during idle periods.
 
 ## Asset endpoints
 

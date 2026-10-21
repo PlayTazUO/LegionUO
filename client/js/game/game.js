@@ -10,8 +10,13 @@ import { Renderer } from './renderer.js';
 import { Gump } from './gump.js';
 import { findPath } from './pathfinding.js';
 import { UI } from '../ui/ui.js';
+import { GameWindow } from '../ui/gameWindow.js';
 import { Reader } from '../util/binary.js';
 import { setRawText } from './html.js';
+
+const PING_INTERVAL = 1000;
+const PING_SAMPLE_COUNT = 5;
+const PING_TIMEOUT = 10000;
 
 export class Game {
   constructor(config) {
@@ -19,6 +24,7 @@ export class Game {
     this.debug = new URLSearchParams(location.search).has('debug');
     setRawText(this.debug);
     this.assets = new AssetManager(config);
+    this.assets.setDebug(this.debug);
     this.socket = new UOSocket({ clientVersion: config.clientVersion });
     this.world = new World(config, this.assets, this.socket);
     this.world.game = this;
@@ -27,11 +33,18 @@ export class Game {
     this.outgoing = new Outgoing(this.socket, config.clientVersion);
     this.socket.out = this.outgoing;
     this.handlers = new Handlers(this);
+    this.gameWindow = new GameWindow(this, () => this.renderer?.resize());
     this.renderer = new Renderer(document.getElementById('game'), this.world, this.assets, this.effects, this);
     this.heldCanvas = document.getElementById('heldLayer');
     this.heldCtx = this.heldCanvas?.getContext('2d') || null;
+    this.uiCanvas = document.getElementById('uiLayer');
+    this.uiCtx = this.uiCanvas?.getContext('2d') || null;
     this.resizeHeldLayer();
-    window.addEventListener('resize', () => this.resizeHeldLayer());
+    this.resizeUiLayer();
+    window.addEventListener('resize', () => {
+      this.resizeHeldLayer();
+      this.resizeUiLayer();
+    });
     this.ui = new UI(this);
     this.held = null;
     this.clilocs = new Map();
@@ -46,6 +59,14 @@ export class Game {
     this.lastFrame = performance.now();
     this.pingSeq = 0;
     this.lastPingSent = 0;
+    this.pingPending = new Map();
+    this.pingSamples = [];
+    this.ping = null;
+    this.fps = 0;
+    this.fpsFrames = 0;
+    this.fpsWindowStart = 0;
+    this.perfFpsEl = document.getElementById('perfFps');
+    this.perfPingEl = document.getElementById('perfPing');
     this.warCursor = false;
 
     this.world.onMessage((msg) => this.ui.onMessage(msg));
@@ -66,6 +87,7 @@ export class Game {
   setDebug(enabled) {
     this.debug = !!enabled;
     setRawText(this.debug);
+    this.assets.setDebug(this.debug);
   }
 
   async start() {
@@ -139,6 +161,10 @@ export class Game {
     this.pendingRelay = null;
     this.lastPingSent = 0;
     this.pingSeq = 0;
+    this.pingPending.clear();
+    this.pingSamples = [];
+    this.ping = null;
+    this.updatePerfDisplay();
     this.socket.clientVersion = this.config.clientVersion;
     this.socket.clientVersionValue = versionValue(this.config.clientVersion);
     this.socket.lengthTable = buildLengthTable(this.config.clientVersion);
@@ -423,42 +449,123 @@ export class Game {
     }
   }
 
+  measureFps(now) {
+    if (!this.fpsWindowStart) {
+      this.fpsWindowStart = now;
+      this.fpsFrames = 0;
+      return;
+    }
+    this.fpsFrames++;
+    const elapsed = now - this.fpsWindowStart;
+    if (elapsed < 500) return;
+    this.fps = Math.round((this.fpsFrames * 1000) / elapsed);
+    this.fpsFrames = 0;
+    this.fpsWindowStart = now;
+    this.updatePerfDisplay();
+  }
+
+  sendPing(now) {
+    this.lastPingSent = now;
+    this.pingSeq = (this.pingSeq + 1) & 0xff;
+    this.pingPending.set(this.pingSeq, now);
+    for (const [seq, sentAt] of this.pingPending) {
+      if (now - sentAt > PING_TIMEOUT) this.pingPending.delete(seq);
+    }
+    this.outgoing.ping(this.pingSeq);
+  }
+
+  onPingResponse(seq) {
+    let sentAt = this.pingPending.get(seq);
+    if (sentAt == null) {
+      for (const pendingAt of this.pingPending.values()) {
+        if (sentAt == null || pendingAt > sentAt) sentAt = pendingAt;
+      }
+      this.pingPending.clear();
+    } else {
+      this.pingPending.delete(seq);
+    }
+    if (sentAt == null) return;
+    const elapsed = performance.now() - sentAt;
+    if (elapsed < 0 || elapsed > 60000) return;
+    this.pingSamples.push(elapsed);
+    if (this.pingSamples.length > PING_SAMPLE_COUNT) this.pingSamples.shift();
+    const sorted = [...this.pingSamples].sort((a, b) => a - b);
+    this.ping = Math.round(sorted[(sorted.length - 1) >> 1]);
+    this.updatePerfDisplay();
+  }
+
+  updatePerfDisplay() {
+    if (this.perfFpsEl) this.perfFpsEl.textContent = `FPS ${this.fps || '--'}`;
+    if (!this.perfPingEl) return;
+    this.perfPingEl.textContent = `Ping ${this.ping == null ? '--' : `${this.ping}ms`}`;
+    this.perfPingEl.classList.toggle('good', this.ping != null && this.ping < 100);
+    this.perfPingEl.classList.toggle('warn', this.ping != null && this.ping >= 100 && this.ping < 250);
+    this.perfPingEl.classList.toggle('bad', this.ping != null && this.ping >= 250);
+  }
+
   loop(now) {
     const dt = Math.min(50, now - this.lastFrame) / 1000;
     this.lastFrame = now;
-    if (this.world.inGame && now - this.lastPingSent > 10000) {
-      this.lastPingSent = now;
-      this.pingSeq = (this.pingSeq + 1) & 0xff;
-      this.outgoing.ping(this.pingSeq);
+    this.measureFps(now);
+    if (this.world.inGame && (this.lastPingSent === 0 || now - this.lastPingSent > PING_INTERVAL)) {
+      this.sendPing(now);
     }
     this.world.update(dt);
     this.effects.update(dt);
     this.updateMovement(now);
     this.updateWarCursor();
     this.renderer.draw(now);
-    this.ui.draw(this.renderer.ctx, now);
+    this.drawUiOverlay(now);
     this.ui.update(now);
     if (this.world.target.active) this.drawTargetCursor();
     this.drawHeldOverlay();
     requestAnimationFrame((t) => this.loop(t));
   }
 
+  resizeLayer(canvas, layer) {
+    if (!canvas) return null;
+    const width = Math.max(1, Math.round(window.innerWidth));
+    const height = Math.max(1, Math.round(window.innerHeight));
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = Math.floor(width * dpr);
+    canvas.height = Math.floor(height * dpr);
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    layer.dpr = dpr;
+    layer.width = width;
+    layer.height = height;
+    return layer;
+  }
+
   resizeHeldLayer() {
     if (!this.heldCanvas || !this.heldCtx) return;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    this.heldCanvas.width = Math.floor(window.innerWidth * dpr);
-    this.heldCanvas.height = Math.floor(window.innerHeight * dpr);
-    this.heldCanvas.style.width = `${window.innerWidth}px`;
-    this.heldCanvas.style.height = `${window.innerHeight}px`;
-    this.heldDpr = dpr;
-    this.heldWidth = window.innerWidth;
-    this.heldHeight = window.innerHeight;
+    this.heldLayer = this.resizeLayer(this.heldCanvas, this.heldLayer || {});
+    this.heldDpr = this.heldLayer?.dpr || 1;
+    this.heldWidth = this.heldLayer?.width || window.innerWidth;
+    this.heldHeight = this.heldLayer?.height || window.innerHeight;
+  }
+
+  resizeUiLayer() {
+    if (!this.uiCanvas || !this.uiCtx) return;
+    this.uiLayer = this.resizeLayer(this.uiCanvas, this.uiLayer || {});
+    this.uiDpr = this.uiLayer?.dpr || 1;
+    this.uiWidth = this.uiLayer?.width || window.innerWidth;
+    this.uiHeight = this.uiLayer?.height || window.innerHeight;
+  }
+
+  drawUiOverlay(now) {
+    if (!this.uiCtx) return;
+    this.uiCtx.setTransform(this.uiDpr, 0, 0, this.uiDpr, 0, 0);
+    this.uiCtx.clearRect(0, 0, this.uiWidth, this.uiHeight);
+    this.ui.draw(this.uiCtx, now);
   }
 
   drawHeldOverlay() {
     if (!this.heldCtx) return;
     this.heldCtx.setTransform(this.heldDpr, 0, 0, this.heldDpr, 0, 0);
     this.heldCtx.clearRect(0, 0, this.heldWidth, this.heldHeight);
+    const rect = this.renderer.canvas.getBoundingClientRect();
+    this.heldCtx.translate(rect.left, rect.top);
     this.renderer.drawHeld(this.heldCtx);
   }
 

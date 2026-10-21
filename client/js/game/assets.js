@@ -1,6 +1,7 @@
 export class AssetManager {
   constructor(config) {
     this.config = config;
+    this.debug = false;
     this.images = new Map();
     this.animMeta = new Map();
     this.animPromise = new Map();
@@ -9,6 +10,10 @@ export class AssetManager {
     this.multiPending = new Set();
     this.fontMeta = new Map();
     this.fontPromise = new Map();
+  }
+
+  setDebug(enabled) {
+    this.debug = !!enabled;
   }
 
   image(key, url) {
@@ -28,10 +33,12 @@ export class AssetManager {
   }
 
   getLand(id, hue = 0) {
+    if ((id & 0xffff) === 0 && !this.debug) return null;
     return this.image(`land|${id}|${hue}`, `/api/art/land/${id}.png?hue=${hue}`);
   }
 
   getStatic(id, hue = 0) {
+    if ((id & 0xffff) === 0 && !this.debug) return null;
     return this.image(`static|${id}|${hue}`, `/api/art/static/${id}.png?hue=${hue}`);
   }
 

@@ -536,6 +536,45 @@ export class ContainerWindow {
     this.world.game.ui.closeContainer(this.serial);
   }
 
+  drawDebugHover(ctx) {
+    if (!this.world.game?.debug) return;
+    const ui = this.world.game.ui;
+    const serial = ui?.hoverSerial;
+    if (!serial) return;
+    const mx = ui.mouse?.x ?? 0;
+    const my = ui.mouse?.y ?? 0;
+    let rect = null;
+    if (this.pointInList(mx, my)) {
+      const index = this.listSortedItems.findIndex((item) => item.serial === (serial >>> 0));
+      if (index >= 0 && !this.listCollapsed) {
+        const row = this.listRowRect(index);
+        const body = this.listBodyRect;
+        if (row.y + row.h > body.y && row.y < body.y + body.h) rect = row;
+      }
+    } else if (this.contains(mx, my)) {
+      const entry = this.layoutItems().find((item) => item.item.serial === (serial >>> 0));
+      if (entry) {
+        const x = this.x + entry.x;
+        const y = this.y + entry.y - this.scroll;
+        const top = this.y + CONTAINER_MARGIN;
+        const bottom = top + this.viewHeight;
+        if (y + entry.h > top && y < bottom) rect = { x, y, w: entry.w, h: entry.h };
+      }
+    }
+    if (!rect) return;
+    ctx.save();
+    ctx.strokeStyle = '#ff5fd2';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.strokeRect(
+      Math.round(rect.x) + 0.5,
+      Math.round(rect.y) + 0.5,
+      Math.max(1, Math.round(rect.w)),
+      Math.max(1, Math.round(rect.h))
+    );
+    ctx.restore();
+  }
+
   draw(ctx, now) {
     this.requestContentsOpl();
     this.scroll = Math.max(0, Math.min(this.scroll, this.scrollMax));
@@ -591,6 +630,7 @@ export class ContainerWindow {
       ctx.fillRect(thumb.x, thumb.y, thumb.w, thumb.h);
     }
     this.drawList(ctx);
+    this.drawDebugHover(ctx);
   }
 
   drawList(ctx) {
@@ -2164,12 +2204,7 @@ export class PaperdollWindow {
   activateButton(id) {
     const ui = this.world.game.ui;
     if (id === 'help') {
-      ui.journal.show();
-      ui.addJournal(
-        'Commands: -help -skills -status -where -war -peace -run -walk -resync -logout -open backpack -profile -partywindow -radar -buffs',
-        '#c9b06c',
-        true
-      );
+      ui.command('-help');
     } else if (id === 'journal') {
       ui.journal.toggle();
     } else if (id === 'skills') {
@@ -5800,6 +5835,171 @@ export class DebugGumpWindow {
     this.onClose?.();
   }
 }
+const HELP_WIDTH = 660;
+const HELP_HEIGHT = 500;
+const HELP_HEADER = 54;
+const HELP_ROW = 42;
+
+export class HelpWindow {
+  constructor(world, commands) {
+    this.world = world;
+    this.commands = commands || [];
+    this.width = Math.min(HELP_WIDTH, Math.max(320, window.innerWidth - 40));
+    this.height = Math.min(HELP_HEIGHT, Math.max(240, window.innerHeight - 40));
+    this.x = Math.max(20, Math.round((window.innerWidth - this.width) / 2));
+    this.y = Math.max(20, Math.round((window.innerHeight - this.height) / 2));
+    this.scroll = 0;
+    this.hover = null;
+    this.dragging = false;
+    this.dragOffset = { x: 0, y: 0 };
+  }
+
+  get viewHeight() {
+    return Math.max(1, this.height - HELP_HEADER - 14);
+  }
+
+  get contentHeight() {
+    return this.commands.length * HELP_ROW + 16;
+  }
+
+  get maxScroll() {
+    return Math.max(0, this.contentHeight - this.viewHeight);
+  }
+
+  hit(rect, mx, my) {
+    return mx >= rect.x && my >= rect.y && mx < rect.x + rect.w && my < rect.y + rect.h;
+  }
+
+  contains(mx, my) {
+    return mx >= this.x && my >= this.y && mx < this.x + this.width && my < this.y + this.height;
+  }
+
+  closeRect() {
+    return { x: this.x + this.width - 26, y: this.y + 8, w: 18, h: 18 };
+  }
+
+  rows() {
+    return this.commands.map((def, index) => ({
+      def,
+      x: this.x + 10,
+      y: this.y + HELP_HEADER + 8 + index * HELP_ROW - this.scroll,
+      w: this.width - 36,
+      h: HELP_ROW - 4,
+    }));
+  }
+
+  defaultInvocation(def) {
+    const first = String(def.usage || '')
+      .split('|')[0]
+      .trim()
+      .split(/\s+/)[0];
+    return first || `-${def.name}`;
+  }
+
+  close() {
+    this.world.game.ui.removeWindow('help', 'player');
+  }
+
+  onMouseDown(mx, my, button) {
+    if (button === 2 || this.hit(this.closeRect(), mx, my)) {
+      this.close();
+      return true;
+    }
+    const contentTop = this.y + HELP_HEADER;
+    const contentBottom = contentTop + this.viewHeight;
+    if (my >= contentTop && my < contentBottom) {
+      const row = this.rows().find((rect) => this.hit(rect, mx, my));
+      if (row) {
+        const input = document.getElementById('chatInput');
+        if (input) {
+          input.value = `${this.defaultInvocation(row.def)} `;
+          input.focus();
+        }
+        return true;
+      }
+    }
+    this.dragging = true;
+    this.dragOffset = { x: mx - this.x, y: my - this.y };
+    return true;
+  }
+
+  onMouseMove(mx, my) {
+    if (this.dragging) {
+      this.x = Math.max(0, Math.min(window.innerWidth - this.width, mx - this.dragOffset.x));
+      this.y = Math.max(0, Math.min(window.innerHeight - this.height, my - this.dragOffset.y));
+      return;
+    }
+    const contentTop = this.y + HELP_HEADER;
+    const contentBottom = contentTop + this.viewHeight;
+    this.hover =
+      my >= contentTop && my < contentBottom ? this.rows().find((rect) => this.hit(rect, mx, my))?.def.name || null : null;
+  }
+
+  onMouseUp() {
+    this.dragging = false;
+  }
+
+  onWheel(mx, my, delta) {
+    if (!this.contains(mx, my)) return false;
+    this.scroll = Math.max(0, Math.min(this.maxScroll, this.scroll + delta));
+    return true;
+  }
+
+  draw(ctx) {
+    ctx.fillStyle = 'rgba(20,17,12,0.97)';
+    ctx.fillRect(this.x, this.y, this.width, this.height);
+    ctx.strokeStyle = '#8d7a52';
+    ctx.strokeRect(this.x + 0.5, this.y + 0.5, this.width - 1, this.height - 1);
+
+    ctx.fillStyle = '#e8d7a8';
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(`Commands (${this.commands.length})`, this.x + 12, this.y + 10);
+    ctx.fillStyle = '#c9b06c';
+    ctx.textAlign = 'right';
+    ctx.fillText('X', this.x + this.width - 12, this.y + 10);
+    ctx.textAlign = 'left';
+
+    ctx.fillStyle = '#7f7253';
+    ctx.font = '10px monospace';
+    ctx.fillText('Click a command to place it in chat. Scroll for more.', this.x + 12, this.y + 30);
+
+    const contentTop = this.y + HELP_HEADER;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(this.x + 1, contentTop, this.width - 2, this.viewHeight);
+    ctx.clip();
+    for (const rect of this.rows()) {
+      if (rect.y + rect.h < contentTop || rect.y > contentTop + this.viewHeight) continue;
+      const hovered = this.hover === rect.def.name;
+      ctx.fillStyle = hovered ? 'rgba(201,176,108,0.16)' : 'rgba(0,0,0,0.18)';
+      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.fillStyle = hovered ? '#f0dfa8' : '#c9b06c';
+      ctx.font = 'bold 12px monospace';
+      ctx.fillText(rect.def.usage, rect.x + 8, rect.y + 6);
+      ctx.fillStyle = '#a99a76';
+      ctx.font = '11px monospace';
+      ctx.fillText(rect.def.description, rect.x + 8, rect.y + 22);
+    }
+    ctx.restore();
+
+    if (this.maxScroll > 0) {
+      const trackX = this.x + this.width - 9;
+      const trackY = contentTop;
+      const trackH = this.viewHeight;
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillRect(trackX, trackY, 5, trackH);
+      const thumbH = Math.max(24, (trackH * trackH) / this.contentHeight);
+      const thumbY = trackY + ((trackH - thumbH) * this.scroll) / this.maxScroll;
+      ctx.fillStyle = '#8d7a52';
+      ctx.fillRect(trackX, thumbY, 5, thumbH);
+    }
+
+    ctx.textBaseline = 'top';
+  }
+}
+
 function wrap(text, width) {
   const out = [];
   for (const raw of String(text || '').split(/\r?\n/)) {

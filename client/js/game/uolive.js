@@ -38,6 +38,16 @@ function landToCells(land) {
   return cells;
 }
 
+// A fully zeroed terrain block is "nodraw" and is almost always a transient
+// or malformed map patch. Ignoring it keeps the existing ground visible
+// instead of punching an 8x8 hole under mobiles while they walk.
+function isBlankLand(land) {
+  for (let i = 0; i < land.length; i++) {
+    if (land[i] !== 0) return false;
+  }
+  return true;
+}
+
 function parseStatics(raw) {
   const statics = [];
   for (let p = 0; p + STATIC_SIZE <= raw.length; p += STATIC_SIZE) {
@@ -233,7 +243,7 @@ export class UltimaLiveManager {
     const patch = this.patches.get(`${mapId}|${bx * blocksY + by}`);
     if (!patch) return data;
 
-    if (patch.land) {
+    if (patch.land && !isBlankLand(patch.land)) {
       data.landRaw = patch.land;
       data.cells = landToCells(patch.land);
     }

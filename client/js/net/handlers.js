@@ -881,7 +881,9 @@ export class Handlers {
     });
 
     this.set(0x73, (r) => {
-      world.lastPing = r.readU8();
+      const seq = r.readU8();
+      world.lastPing = seq;
+      game.onPingResponse(seq);
     });
 
     this.set(0x74, (r) => game.ui?.onBuyList?.(r));

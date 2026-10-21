@@ -78,6 +78,7 @@ export class World {
     this.features = {};
     this.opl = new OPLManager(this);
     this.mapCache = new Map();
+    this.mapFailures = new Map();
     this.mapPending = new Set();
     this.blockPromises = new Map();
     this.mapListeners = [];
@@ -504,13 +505,22 @@ export class World {
   updatePlayerRender(now) {
     const player = this.player;
     if (!player) return;
+    if (!player.moving) {
+      player.walkStepIndex = -1;
+      player.currentStep = null;
+    }
     const step = this.playerStepAt(now);
     if (step) {
+      if (player.currentStep !== step) {
+        player.currentStep = step;
+        player.walkStepIndex = (player.walkStepIndex ?? -1) + 1;
+      }
       const pos = this.stepPosition(step, now);
       player.renderX = pos.x;
       player.renderY = pos.y;
       player.renderZ = pos.z;
       player.moving = true;
+      player.stepProgress = step.duration > 0 ? Math.max(0, Math.min(1, (now - step.startTime) / step.duration)) : 1;
       return;
     }
     const last = this.steps[this.steps.length - 1];
@@ -518,13 +528,16 @@ export class World {
     player.renderY = last ? last.toY : player.y;
     player.renderZ = last ? last.toZ : player.z;
     player.moving = false;
+    player.stepProgress = null;
   }
 
   updateEntityRender(entity, now) {
     if (!entity.motionQueue) entity.motionQueue = [];
+    if (!entity.motion) entity.walkStepIndex = -1;
     if (!entity.motion && entity.motionQueue.length) {
       entity.motion = entity.motionQueue.shift();
       entity.motion.start = now;
+      entity.walkStepIndex = (entity.walkStepIndex ?? -1) + 1;
     }
 
     let motion = entity.motion;
@@ -536,6 +549,7 @@ export class World {
         entity.renderY = motion.fromY + (motion.toY - motion.fromY) * t;
         entity.renderZ = motion.fromZ + (motion.toZ - motion.fromZ) * t;
         entity.moving = true;
+        entity.stepProgress = t;
         return;
       }
       entity.renderX = motion.toX;
@@ -545,10 +559,13 @@ export class World {
       const next = entity.motionQueue.length ? entity.motionQueue.shift() : null;
       if (!next) {
         entity.moving = false;
+        entity.stepProgress = null;
+        entity.walkStepIndex = -1;
         return;
       }
       next.start = end;
       entity.motion = next;
+      entity.walkStepIndex = (entity.walkStepIndex ?? -1) + 1;
       motion = next;
     }
 
@@ -556,6 +573,8 @@ export class World {
     entity.renderY = entity.y;
     entity.renderZ = entity.z;
     entity.moving = false;
+    entity.stepProgress = null;
+    entity.walkStepIndex = -1;
   }
 
   staticsAt(block, lx, ly) {
@@ -737,7 +756,13 @@ export class World {
 
   getBlock(bx, by) {
     const key = `${this.mapIndex}|${this.useXMapFiles ? 'x' : 'm'}|${bx}|${by}`;
-    if (this.mapCache.has(key)) return this.mapCache.get(key);
+    const cached = this.mapCache.get(key);
+    if (cached) return cached;
+    if (this.mapCache.has(key)) {
+      const retryAt = this.mapFailures.get(key) || 0;
+      if (performance.now() < retryAt) return null;
+      this.mapCache.delete(key);
+    }
     this.requestBlock(bx, by);
     return null;
   }
@@ -747,9 +772,8 @@ export class World {
     if (!Number.isFinite(mapIndex) || mapIndex < 0 || mapIndex >= mapCount) return;
     if (mapIndex === this.mapIndex) return;
     this.mapIndex = mapIndex;
-    this.mapCache.clear();
-    this.mapPending.clear();
-    if (this.blockPromises) this.blockPromises.clear();
+    // Blocks are cached per facet, so there is no need to drop the old map.
+    // Keeping it avoids a black frame while the new facet streams in.
     if (this.player) this.ensureMapAround(this.player.x, this.player.y, 4);
   }
 
@@ -757,7 +781,13 @@ export class World {
     const mapIndex = this.mapIndex;
     const useX = this.useXMapFiles;
     const key = `${mapIndex}|${useX ? 'x' : 'm'}|${bx}|${by}`;
-    if (this.mapCache.has(key)) return Promise.resolve(this.mapCache.get(key));
+    const cached = this.mapCache.get(key);
+    if (cached) return Promise.resolve(cached);
+    if (this.mapCache.has(key)) {
+      const retryAt = this.mapFailures.get(key) || 0;
+      if (performance.now() < retryAt) return Promise.resolve(null);
+      this.mapCache.delete(key);
+    }
     if (!this.blockPromises) this.blockPromises = new Map();
     if (this.blockPromises.has(key)) return this.blockPromises.get(key);
     this.mapPending.add(key);
@@ -766,11 +796,18 @@ export class World {
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         data = this.uolive.applyToBlock(data, mapIndex, bx, by);
-        this.mapCache.set(key, data);
+        if (data) {
+          this.mapCache.set(key, data);
+          this.mapFailures.delete(key);
+        } else {
+          this.mapCache.delete(key);
+          this.mapFailures.set(key, performance.now() + 2000);
+        }
         return data;
       })
       .catch(() => {
-        this.mapCache.set(key, null);
+        this.mapCache.delete(key);
+        this.mapFailures.set(key, performance.now() + 2000);
         return null;
       })
       .finally(() => {
@@ -1055,6 +1092,7 @@ export class World {
     this.useXMapFiles = false;
     this.uolive?.reset();
     this.mapCache.clear();
+    this.mapFailures.clear();
     this.mapPending.clear();
     if (this.blockPromises) this.blockPromises.clear();
     this.steps = [];

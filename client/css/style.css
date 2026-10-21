@@ -13,8 +13,60 @@ body {
   user-select: none;
 }
 
-#game {
+#gameWindow {
   position: fixed;
+  z-index: 1;
+  width: 800px;
+  height: 726px;
+  display: flex;
+  flex-direction: column;
+  background: #050505;
+  box-shadow: 0 0 0 1px #6c5c38, 0 24px 80px rgba(0, 0, 0, 0.7);
+}
+
+#gameWindow.dragging,
+#gameWindow.resizing {
+  user-select: none;
+}
+
+#gameTitleBar {
+  flex: 0 0 26px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  cursor: move;
+  background: linear-gradient(180deg, #2a2212, #17130c);
+  border-bottom: 1px solid #6c5c38;
+  color: #bfa96f;
+  font-size: 11px;
+  letter-spacing: 2px;
+}
+
+#gameTitle {
+  pointer-events: none;
+}
+
+#gameViewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+#gameResize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  z-index: 30;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 0 45%, rgba(157, 143, 107, 0.7) 46% 55%, transparent 56%),
+    linear-gradient(135deg, transparent 0 65%, rgba(157, 143, 107, 0.5) 66% 75%, transparent 76%);
+}
+
+#game {
+  position: absolute;
   inset: 0;
   display: block;
   image-rendering: auto;
@@ -35,7 +87,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 20;
+  z-index: 40;
 }
 
 .loginPanel {
@@ -181,9 +233,10 @@ button:hover {
   line-height: 1.5;
 }
 
-#hud {
+#uiLayer {
   position: fixed;
   inset: 0;
+  display: block;
   pointer-events: none;
   z-index: 10;
 }
@@ -194,6 +247,13 @@ button:hover {
   display: block;
   pointer-events: none;
   z-index: 15;
+}
+
+#hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 20;
 }
 
 .panel {
@@ -217,6 +277,31 @@ button:hover {
   min-width: 42px;
   padding: 6px 6px;
   font-size: 11px;
+}
+
+#perfStats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 4px;
+  margin: 0 2px 0 0;
+  border-right: 1px solid rgba(133, 112, 65, 0.45);
+  font: 11px/1.2 Consolas, 'SF Mono', monospace;
+  color: #cfc09a;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+#perfStats .good {
+  color: #9fd27a;
+}
+
+#perfStats .warn {
+  color: #e0c15e;
+}
+
+#perfStats .bad {
+  color: #d9705b;
 }
 
 #journalPanel {
@@ -487,7 +572,7 @@ button:hover {
 }
 
 #modalBackdrop {
-  z-index: 40;
+  z-index: 50;
   background: rgba(0, 0, 0, 0.6);
 }
 

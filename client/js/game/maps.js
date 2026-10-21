@@ -278,7 +278,34 @@ export class MinimapWindow {
     this.dragging = false;
   }
 
-  onDoubleClick() {
+  tileAt(mx, my) {
+    const area = this.mapRect;
+    const player = this.world.player;
+    if (!player) return null;
+    const scale = area.w / BASE_MAP_SIZE;
+    if (!scale) return null;
+    const cx = area.x + area.w / 2;
+    const cy = area.y + area.h / 2;
+    const a = mx - cx;
+    const b = my - cy;
+    return {
+      x: player.x + (a + b) / (2 * scale),
+      y: player.y + (b - a) / (2 * scale),
+    };
+  }
+
+  onDoubleClick(mx, my) {
+    if (inside(this.mapRect, mx, my)) {
+      const tile = this.tileAt(mx, my);
+      const player = this.world.player;
+      if (!tile || !player) return;
+      const [mapW, mapH] = this.world.uolive?.mapSize?.(this.world.mapIndex) || [7168, 4096];
+      const x = Math.round(Math.max(0, Math.min(mapW - 1, tile.x)));
+      const y = Math.round(Math.max(0, Math.min(mapH - 1, tile.y)));
+      this.world.game.walkTo(x, y);
+      this.world.game.ui?.addJournal?.(`Walking to ${x}, ${y}.`, '#b8a06a', true);
+      return;
+    }
     this.large = !this.large;
     this.clampPosition();
     this.savePosition();

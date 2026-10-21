@@ -39,17 +39,24 @@ export class Renderer {
     this.landTileCacheLimit = 16 * 1024 * 1024;
     this.resize();
     window.addEventListener('resize', () => this.resize());
+    if (typeof ResizeObserver !== 'undefined' && this.canvas.parentElement) {
+      this.resizeObserver = new ResizeObserver(() => this.resize());
+      this.resizeObserver.observe(this.canvas.parentElement);
+    }
   }
 
   resize() {
+    const parent = this.canvas.parentElement;
+    const width = Math.max(1, Math.round(parent?.clientWidth || window.innerWidth));
+    const height = Math.max(1, Math.round(parent?.clientHeight || window.innerHeight));
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    this.canvas.width = Math.floor(window.innerWidth * dpr);
-    this.canvas.height = Math.floor(window.innerHeight * dpr);
-    this.canvas.style.width = `${window.innerWidth}px`;
-    this.canvas.style.height = `${window.innerHeight}px`;
+    this.canvas.width = Math.floor(width * dpr);
+    this.canvas.height = Math.floor(height * dpr);
+    this.canvas.style.width = `${width}px`;
+    this.canvas.style.height = `${height}px`;
     this.dpr = dpr;
-    this.width = window.innerWidth;
-    this.height = window.innerHeight;
+    this.width = width;
+    this.height = height;
   }
 
   playerScreen() {
@@ -154,6 +161,7 @@ export class Renderer {
     });
     this.drawWeather(ctx, now);
     this.drawLighting(ctx);
+    this.drawDebugHover(ctx);
     this.drawQuestArrow(ctx);
     this.drawWaypoints(ctx);
   }
@@ -224,6 +232,7 @@ export class Renderer {
   }
 
   drawStretchedLand(ctx, block, x, y, cell, pos) {
+    if ((cell.tile & 0xffff) === 0 && !this.assets.debug) return false;
     const texId = this.assets.landTexId(cell.tile);
     if (!texId) return false;
     const z = cell.z;
@@ -381,53 +390,118 @@ export class Renderer {
     const anim = mobile.animation;
     const sinceStart = now - (anim?.start || 0);
     const serverPlaying = anim?.fromServer && sinceStart < Math.max(400, (anim.frameCount || 5) * ANIM_FRAME_MS);
+    const idleGroup = type === 'people' ? (mobile.inWarMode && !mobile.isDead ? 7 : 4) : type === 'low' ? 2 : 1;
+    const walkGroup = type === 'people' ? (mobile.inWarMode ? 15 : 0) : 0;
     let group;
     if (serverPlaying) group = anim.group;
-    else if (mobile.moving) group = type === 'people' ? (mobile.inWarMode ? 15 : 0) : type === 'low' ? 0 : 0;
-    else if (type === 'people') group = mobile.inWarMode && !mobile.isDead ? 7 : 4;
-    else group = type === 'low' ? 2 : 1;
+    else if (mobile.moving) group = walkGroup;
+    else group = idleGroup;
 
     const { dir, mirror } = animDirection(mobile.direction);
-    const animData = this.assets.getAnim(mobile.graphic, group, dir, mobile.hue || 0);
-    const pos = this.screenFor(mobile.renderX, mobile.renderY, mobile.renderZ);
-    pos.sx += 22;
-    pos.sy += 22;
 
-    if (animData && animData.meta.frames.length) {
-      const frames = animData.meta.frames;
-      let frameIndex = 0;
-      if (serverPlaying) {
-        const frameDelay = ANIM_FRAME_MS * (1 + (anim.delay || 0));
-        frameIndex = Math.floor(sinceStart / frameDelay) % frames.length;
-        if (!anim.forward) frameIndex = frames.length - 1 - frameIndex;
-      } else if (mobile.moving) {
-        frameIndex = Math.floor(now / ANIM_FRAME_MS) % frames.length;
-      }
-      const f = frames[Math.min(frameIndex, frames.length - 1)];
-      this.drawAnimFrame(ctx, animData, f, pos.sx, pos.sy, mirror, 1);
-    }
-
-    // Equipment layers for humanoid bodies.
+    // Warm the cache for the group we are about to switch to, so the first
+    // idle <-> walk transition does not have to wait on a fetch.
+    const prefetchGroup = mobile.moving ? idleGroup : walkGroup;
+    this.assets.getAnim(mobile.graphic, prefetchGroup, dir, mobile.hue || 0);
     if (type === 'people' && !mobile.isGhost && this.assets.tileData) {
       for (const layer of PEOPLE_LAYERS) {
         const item = mobile.getItem(layer);
         if (!item) continue;
         const animId = this.assets.staticAnimId(item.graphic);
-        if (!animId) continue;
-        const equip = this.assets.getAnim(animId, group, dir, item.hue || 0);
-        if (!equip || !equip.meta.frames.length) continue;
-        const frames = equip.meta.frames;
-        let fi = 0;
-        if (serverPlaying) {
-          const frameDelay = ANIM_FRAME_MS * (1 + (anim.delay || 0));
-          fi = Math.floor(sinceStart / frameDelay) % frames.length;
-          if (!anim.forward) fi = frames.length - 1 - fi;
-        } else if (mobile.moving) {
-          fi = Math.floor(now / ANIM_FRAME_MS) % frames.length;
-        }
-        this.drawAnimFrame(ctx, equip, frames[fi], pos.sx, pos.sy, mirror, 1);
+        if (animId) this.assets.getAnim(animId, prefetchGroup, dir, item.hue || 0);
       }
     }
+    // The player turns constantly; load the body for every isometric
+    // direction up front so turning does not flash the sprite.
+    if (mobile === this.world.player) {
+      const key = `${mobile.graphic}|${mobile.hue}|${idleGroup}|${walkGroup}`;
+      if (mobile.prefetchKey !== key) {
+        mobile.prefetchKey = key;
+        for (let d = 0; d < 5; d++) {
+          this.assets.getAnim(mobile.graphic, idleGroup, d, mobile.hue || 0);
+          this.assets.getAnim(mobile.graphic, walkGroup, d, mobile.hue || 0);
+        }
+      }
+    }
+
+    const animData = this.assets.getAnim(mobile.graphic, group, dir, mobile.hue || 0);
+    const pos = this.screenFor(mobile.renderX, mobile.renderY, mobile.renderZ);
+    pos.sx += 22;
+    pos.sy += 22;
+
+    let drewBody = false;
+    let bodyFrame = null;
+    if (animData && animData.meta.frames.length) {
+      const frames = animData.meta.frames;
+      const frameIndex = this.animFrameIndex(mobile, anim, frames.length, sinceStart, serverPlaying, now);
+      bodyFrame = frames[Math.min(frameIndex, frames.length - 1)];
+      this.drawAnimFrame(ctx, animData, bodyFrame, pos.sx, pos.sy, mirror, 1);
+      drewBody = true;
+    } else if (mobile.lastFrameSet?.body) {
+      // Keep the last loaded frame visible while the new group/direction loads.
+      const last = mobile.lastFrameSet;
+      this.drawAnimFrame(ctx, last.body.data, last.body.frame, pos.sx, pos.sy, last.body.mirror, 1);
+      for (const entry of last.equipment) {
+        this.drawAnimFrame(ctx, entry.data, entry.frame, pos.sx, pos.sy, entry.mirror, 1);
+      }
+    }
+
+    if (!mobile.moving) mobile.animPhaseStart = null;
+
+    // Equipment layers for humanoid bodies.
+    if (drewBody) {
+      const frameSet = { body: { data: animData, frame: bodyFrame, mirror }, equipment: [] };
+      const previousEquipment = new Map(
+        (mobile.lastFrameSet?.equipment || []).filter((entry) => entry.animId != null).map((entry) => [entry.animId, entry])
+      );
+      if (type === 'people' && !mobile.isGhost && this.assets.tileData) {
+        for (const layer of PEOPLE_LAYERS) {
+          const item = mobile.getItem(layer);
+          if (!item) continue;
+          const animId = this.assets.staticAnimId(item.graphic);
+          if (!animId) continue;
+          const equip = this.assets.getAnim(animId, group, dir, item.hue || 0);
+          if (!equip || !equip.meta.frames.length) {
+            // Hold the previous pose for this layer while it streams in.
+            const previous = previousEquipment.get(animId);
+            if (previous) {
+              this.drawAnimFrame(ctx, previous.data, previous.frame, pos.sx, pos.sy, previous.mirror, 1);
+              frameSet.equipment.push(previous);
+            }
+            continue;
+          }
+          const frames = equip.meta.frames;
+          const fi = this.animFrameIndex(mobile, anim, frames.length, sinceStart, serverPlaying, now);
+          const frame = frames[Math.min(fi, frames.length - 1)];
+          this.drawAnimFrame(ctx, equip, frame, pos.sx, pos.sy, mirror, 1);
+          frameSet.equipment.push({ data: equip, frame, mirror, animId });
+        }
+      }
+      mobile.lastFrameSet = frameSet;
+    }
+  }
+
+  animFrameIndex(mobile, anim, count, sinceStart, serverPlaying, now) {
+    if (!count) return 0;
+    if (serverPlaying) {
+      const frameDelay = ANIM_FRAME_MS * (1 + (anim.delay || 0));
+      const index = Math.floor(sinceStart / frameDelay) % count;
+      return anim.forward ? index : count - 1 - index;
+    }
+    if (mobile.moving) {
+      if (Number.isFinite(mobile.stepProgress) && Number.isFinite(mobile.walkStepIndex) && mobile.walkStepIndex >= 0) {
+        // UO walk/run sheets interleave two steps: the first half of the
+        // frames is one foot, the second half is the other. Alternate halves
+        // per step so the cycle follows movement timing instead of wall clock.
+        const half = Math.max(1, Math.ceil(count / 2));
+        const offset = (mobile.walkStepIndex % 2) * half;
+        const index = offset + Math.min(half - 1, Math.max(0, Math.floor(mobile.stepProgress * half)));
+        return Math.min(count - 1, index);
+      }
+      if (mobile.animPhaseStart == null) mobile.animPhaseStart = now;
+      return Math.floor((now - mobile.animPhaseStart) / ANIM_FRAME_MS) % count;
+    }
+    return 0;
   }
 
   drawAnimFrame(ctx, animData, frame, sx, sy, mirror, scale) {
@@ -676,6 +750,37 @@ export class Renderer {
     const block = this.world.getBlock(tile.x >> 3, tile.y >> 3);
     const cell = block?.cells[((tile.y & 7) << 3) | (tile.x & 7)];
     return { kind: 'land', graphic: 0, x: tile.x, y: tile.y, z: cell?.z || 0 };
+  }
+
+  drawDebugHover(ctx) {
+    if (!this.game.debug) return;
+    const serial = this.game.ui?.hoverSerial;
+    if (!serial) return;
+    const entity = this.world.get(serial);
+    if (!entity || (entity.isItem && entity.container !== 0)) return;
+    const bounds = this.entityBounds(entity);
+    if (!bounds) return;
+    ctx.save();
+    ctx.strokeStyle = '#ff5fd2';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.strokeRect(
+      Math.round(bounds.x) + 0.5,
+      Math.round(bounds.y) + 0.5,
+      Math.max(1, Math.round(bounds.w)),
+      Math.max(1, Math.round(bounds.h))
+    );
+    ctx.setLineDash([]);
+    const label = `0x${(entity.serial >>> 0).toString(16)} g:0x${(entity.graphic || 0).toString(16)}`;
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+    const labelWidth = ctx.measureText(label).width;
+    ctx.fillStyle = 'rgba(0,0,0,0.75)';
+    ctx.fillRect(bounds.x, bounds.y - 13, labelWidth + 6, 12);
+    ctx.fillStyle = '#ff9de6';
+    ctx.fillText(label, bounds.x + 3, bounds.y - 2);
+    ctx.restore();
   }
 
   entityAt(mx, my) {

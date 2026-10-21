@@ -443,11 +443,10 @@ export class Journal {
   }
 
   startDrag(event) {
-    const rect = this.root.getBoundingClientRect();
     const startX = event.clientX;
     const startY = event.clientY;
-    const originX = rect.left;
-    const originY = rect.top;
+    const originX = this.root.offsetLeft;
+    const originY = this.root.offsetTop;
     this.drag = { startX, startY, originX, originY };
     this.root.classList.add('dragging');
     const move = (ev) => {
@@ -461,9 +460,8 @@ export class Journal {
       window.removeEventListener('mouseup', up);
       this.drag = null;
       this.root.classList.remove('dragging');
-      const r = this.root.getBoundingClientRect();
-      this.settings.x = Math.round(r.left);
-      this.settings.y = Math.round(r.top);
+      this.settings.x = Math.round(this.root.offsetLeft);
+      this.settings.y = Math.round(this.root.offsetTop);
       this.save();
     };
     window.addEventListener('mousemove', move);
@@ -476,11 +474,13 @@ export class Journal {
     const startY = event.clientY;
     const originW = rect.width;
     const originH = rect.height;
+    const originX = this.root.offsetLeft;
+    const originY = this.root.offsetTop;
     this.resize = { startX, startY, originW, originH };
     this.root.classList.add('resizing');
     const move = (ev) => {
-      const w = clamp(originW + ev.clientX - startX, 280, Math.max(280, window.innerWidth - rect.left - 4));
-      const h = clamp(originH + ev.clientY - startY, 120, Math.max(120, window.innerHeight - rect.top - 4));
+      const w = clamp(originW + ev.clientX - startX, 280, Math.max(280, window.innerWidth - originX - 4));
+      const h = clamp(originH + ev.clientY - startY, 120, Math.max(120, window.innerHeight - originY - 4));
       this.root.style.width = `${w}px`;
       this.root.style.height = `${h}px`;
     };

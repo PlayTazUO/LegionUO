@@ -8,35 +8,25 @@
     <link rel="stylesheet" href="/css/style.css" />
   </head>
   <body>
-    <canvas id="game"></canvas>
-
-    <div id="loginScreen" class="screen">
-      <div class="loginPanel">
-        <div class="brand">LEGION<span>UO</span></div>
-        <div class="tagline">A browser client for Ultima Online</div>
-        <div id="loginForm">
-          <label>Account <input id="account" autocomplete="off" autocapitalize="none" spellcheck="false" /></label>
-          <label>Password <input id="password" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" /></label>
-          <label class="showPass"><input id="showPass" type="checkbox" /> Show password</label>
-          <label class="showPass"><input id="rememberLogin" type="checkbox" /> Remember account/password (stored in this browser)</label>
-          <div class="row">
-            <label>Host <input id="host" placeholder="127.0.0.1" /></label>
-            <label class="small">Port <input id="port" value="2593" /></label>
-          </div>
-          <div class="row">
-            <label class="small">Client <input id="clientVersion" value="7.0.116.0" /></label>
-          </div>
-          <button id="connectBtn">Connect</button>
-        </div>
-        <div id="loginStatus" class="status"></div>
-        <div id="serverList" class="list hidden"></div>
-        <div id="charList" class="list hidden"></div>
-        <div class="meta" id="assetMeta"></div>
+    <div id="gameWindow">
+      <div id="gameTitleBar">
+        <span id="gameTitle">LEGIONUO</span>
       </div>
+      <div id="gameViewport">
+        <canvas id="game"></canvas>
+      </div>
+      <div id="gameResize" title="Resize"></div>
     </div>
+
+    <canvas id="heldLayer"></canvas>
+    <canvas id="uiLayer"></canvas>
 
     <div id="hud" class="hidden">
       <div id="topButtons" class="panel">
+        <div id="perfStats" title="Client performance">
+          <span id="perfFps">FPS --</span>
+          <span id="perfPing">Ping --</span>
+        </div>
         <button id="btnBackpack" title="Backpack">BP</button>
         <button id="btnPaperdoll" title="Paperdoll">PD</button>
         <button id="btnSkills" title="Skills">SK</button>
@@ -98,9 +88,32 @@
       <div id="cursorHint" class="hidden">Select a target — right click to cancel</div>
     </div>
 
-    <canvas id="heldLayer"></canvas>
-
     <div id="tooltip" class="hidden"></div>
+
+    <div id="loginScreen" class="screen">
+      <div class="loginPanel">
+        <div class="brand">LEGION<span>UO</span></div>
+        <div class="tagline">A browser client for Ultima Online</div>
+        <div id="loginForm">
+          <label>Account <input id="account" autocomplete="off" autocapitalize="none" spellcheck="false" /></label>
+          <label>Password <input id="password" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" /></label>
+          <label class="showPass"><input id="showPass" type="checkbox" /> Show password</label>
+          <label class="showPass"><input id="rememberLogin" type="checkbox" /> Remember account/password (stored in this browser)</label>
+          <div class="row">
+            <label>Host <input id="host" placeholder="127.0.0.1" /></label>
+            <label class="small">Port <input id="port" value="2593" /></label>
+          </div>
+          <div class="row">
+            <label class="small">Client <input id="clientVersion" value="7.0.116.0" /></label>
+          </div>
+          <button id="connectBtn">Connect</button>
+        </div>
+        <div id="loginStatus" class="status"></div>
+        <div id="serverList" class="list hidden"></div>
+        <div id="charList" class="list hidden"></div>
+        <div class="meta" id="assetMeta"></div>
+      </div>
+    </div>
 
     <div id="modalBackdrop" class="screen hidden">
       <div class="modal">

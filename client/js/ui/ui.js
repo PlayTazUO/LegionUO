@@ -19,6 +19,7 @@ import {
   FriendListWindow,
   HouseWindow,
   HealthBarWindow,
+  HelpWindow,
   VirtueWindow,
   saveFriends,
 } from '../game/windows.js';
@@ -63,6 +64,7 @@ export class UI {
     this.nameRequestAt = new Map();
     this.lastNameSweep = 0;
     this.mouse = { x: 0, y: 0 };
+    this.gameMouse = { x: 0, y: 0 };
     this.tooltipEl = $('tooltip');
     this.hoverId = null;
     this.hoverSerial = 0;
@@ -78,6 +80,9 @@ export class UI {
     this.macroRecording = null;
     this.macros = null;
     this.pendingResource = null;
+    const commands = this.createCommands();
+    this.commandDefs = commands.defs;
+    this.commandMap = commands.map;
     this.bind();
   }
 
@@ -146,43 +151,21 @@ export class UI {
     });
 
     const canvas = $('game');
-    canvas.addEventListener('mousemove', (e) => this.onMouseMove(e));
-    canvas.addEventListener('mousedown', (e) => this.onMouseDown(e));
-    canvas.addEventListener('mouseup', (e) => this.onMouseUp(e));
-    canvas.addEventListener('dblclick', (e) => this.onDoubleClick(e));
     canvas.addEventListener('mouseleave', () => {
       this.worldItemPress = null;
       this.hideTooltip();
     });
-    canvas.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      if (this.world.target.active) {
-        this.cancelTarget();
-        return;
-      }
-    });
-    canvas.addEventListener(
-      'wheel',
-      (e) => {
-        const hit = this.hitTest(e.clientX, e.clientY);
-        if (hit?.obj.onWheel?.(e.clientX, e.clientY, e.deltaY, e)) {
-          e.preventDefault();
-        } else if (hit?.obj.scroll !== undefined) {
-          hit.obj.scroll = Math.max(0, hit.obj.scroll + (e.deltaY > 0 ? 46 : -46));
-          e.preventDefault();
-        }
-      },
-      { passive: false }
-    );
+    window.addEventListener('mousemove', (e) => this.onMouseMove(e), true);
+    window.addEventListener('mousedown', (e) => this.onMouseDown(e), true);
+    window.addEventListener('mouseup', (e) => this.onMouseUp(e), true);
+    window.addEventListener('dblclick', (e) => this.onDoubleClick(e), true);
+    window.addEventListener('contextmenu', (e) => this.onContextMenu(e), true);
+    window.addEventListener('wheel', (e) => this.onWheel(e), { capture: true, passive: false });
 
     window.addEventListener('keydown', (e) => this.onKeyDown(e));
     window.addEventListener('keyup', (e) => this.onKeyUp(e));
     window.addEventListener('compositionend', (e) => {
       if (this.focusedGumpEntry?.gump?.insertText?.(e.data)) e.preventDefault?.();
-    });
-    window.addEventListener('mouseup', (e) => {
-      if (e.button === 2) this.stopMouseWalk();
-      if (this.selection) this.finishDragSelect(e.clientX, e.clientY);
     });
     window.addEventListener('blur', () => {
       this.keyDir = {};
@@ -802,207 +785,455 @@ export class UI {
   }
 
   command(text) {
-    const [cmd, ...args] = text.slice(1).split(/\s+/);
-    const command = cmd.toLowerCase();
-    if (command === 'help') {
-      this.addJournal(
-        'Commands: -help -skills -status -options -buffs [row|column|small|large] -hotbar [set n item|spell|skill|command|macro ...|clear [n]|use n] -partywindow -friends -radar -worldmap -waypoints -waypoint add [x y] [name]|clear -profile -house <serial> -virtue -questlog -guildmenu -where -war -peace -run -walk -resync -logout -open -target [self|nearest|last|resource <type>] -lasttarget -debug -journal -clear -export -say -whisper -yell -emote -party -guild -alliance -ignore -unignore -ignorelist -timestamps -lang <code> -gumpfont <0-9> -chat <join|create|leave|msg|list|open> ... -macro <start|stop|list|play> ...',
-        '#b8a06a',
-        true
-      );
-    } else if (['say', 'whisper', 'yell', 'emote', 'party', 'guild', 'alliance'].includes(command)) {
-      this.journal.settings.mode = command;
-      this.journal.save();
-      this.journal.applySettings();
-      this.addJournal(`Speech mode: ${command}`, '#b8a06a', true);
-    } else if (command === 'journal') {
-      this.journal.toggle();
-    } else if (command === 'clear') {
-      this.journal.clear();
-    } else if (command === 'ignore') {
-      const name = args.join(' ').trim();
-      if (!name) {
-        this.command('-ignorelist');
-      } else if (this.journal.addIgnore(name)) {
-        this.addJournal(`Ignoring ${name}.`, '#b8a06a', true);
+    const trimmed = String(text || '').slice(1).trim();
+    if (!trimmed) return;
+    const [cmd, ...args] = trimmed.split(/\s+/);
+    const def = this.commandMap.get(cmd.toLowerCase());
+    if (!def) {
+      this.addJournal(`Unknown command: -${cmd}`, '#c56a4a', true);
+      return;
+    }
+    def.run(args, cmd.toLowerCase());
+  }
+
+  showHelp(args) {
+    const topic = String(args[0] || '').replace(/^-/, '').toLowerCase();
+    if (topic) {
+      const def = this.commandMap.get(topic);
+      if (!def) {
+        this.addJournal(`Unknown command: -${topic}`, '#c56a4a', true);
+        return;
       }
-    } else if (command === 'unignore') {
-      const name = args.join(' ').trim();
-      if (this.journal.removeIgnore(name)) this.addJournal(`No longer ignoring ${name}.`, '#b8a06a', true);
-    } else if (command === 'ignorelist') {
-      const list = this.journal.settings.ignore;
-      this.addJournal(list.length ? `Ignored: ${list.join(', ')}` : 'Ignore list is empty.', '#b8a06a', true);
-    } else if (command === 'export') {
-      this.journal.exportLog();
-      this.addJournal('Journal exported.', '#b8a06a', true);
-    } else if (command === 'gumpfont') {
-      const value = Number.parseInt(args[0], 10);
-      if (Number.isFinite(value)) {
-        settings.set('gumpFont', Math.max(0, Math.min(9, value)));
-        this.addJournal(`Gump font: ${settings.get('gumpFont')}`, '#b8a06a', true);
-      } else {
-        this.addJournal(`Gump font: ${settings.get('gumpFont')} (usage: -gumpfont 0-9)`, '#b8a06a', true);
-      }
-    } else if (command === 'lang' || command === 'language') {
-      const code = String(args[0] || '').toUpperCase().slice(0, 3);
-      if (!code) {
-        this.addJournal(`Language: ${this.journal.settings.language}`, '#b8a06a', true);
-      } else {
-        this.journal.settings.language = code;
-        this.journal.save();
-        this.addJournal(`Language: ${code}`, '#b8a06a', true);
-      }
-    } else if (command === 'chat') {
-      this.chatCommand(args);
-    } else if (command === 'macro') {
-      this.macroCommand(args);
-    } else if (command === 'timestamps') {
-      this.journal.settings.timestamps = !this.journal.settings.timestamps;
-      this.journal.save();
-      this.journal.applySettings();
-    } else if (command === 'debug') {
-      this.game.setDebug(!this.game.debug);
-      if (!this.game.debug) {
-        this.gumpDebugWindow?.close();
-        this.gumpDebugWindow = null;
-      }
-      for (const gump of this.world.gumps.values()) {
-        for (const control of gump.controls) {
-          control.htmlKey = null;
-          control.htmlParsed = null;
-        }
-      }
-      this.tooltipContentKey = '';
-      this.journal.rerender();
-      this.addJournal(`Debug mode: ${this.game.debug ? 'enabled' : 'disabled'}`, '#b8a06a', true);
-    } else if (command === 'skills') {
-      this.toggleSkills();
-    } else if (command === 'status') {
-      this.showStatus();
-    } else if (command === 'options' || command === 'settings') {
-      this.showOptions();
-    } else if (command === 'buffs') {
-      const option = String(args[0] || '').toLowerCase();
-      if (['row', 'column', 'small', 'large', 'normal'].includes(option)) {
-        this.showBuffs();
-        this.getWindow('buffs', 'player')?.configure(option);
-        this.addJournal(`Buffs layout: ${option}`, '#b8a06a', true);
-      } else {
-        this.toggleBuffs();
-      }
-    } else if (command === 'friends' || command === 'friend') {
-      this.friendCommand(args);
-    } else if (command === 'hotbar') {
-      this.hotbarCommand(args);
-    } else if (command === 'partywindow') {
-      this.toggleParty();
-    } else if (command === 'radar' || command === 'minimap') {
-      this.toggleRadar();
-    } else if (command === 'worldmap' || command === 'map') {
-      this.toggleWorldMap();
-    } else if (command === 'waypoints' || command === 'waypoint' || command === 'wp') {
-      const sub = (args[0] || '').toLowerCase();
-      if (sub === 'add') {
-        const rest = args.slice(1);
-        const hasCoords = rest.length >= 2 && rest[0] !== '' && rest[1] !== '' && Number.isFinite(Number(rest[0])) && Number.isFinite(Number(rest[1]));
-        const x = hasCoords ? Number(rest[0]) : null;
-        const y = hasCoords ? Number(rest[1]) : null;
-        const name = (hasCoords ? rest.slice(2) : rest).join(' ');
-        const waypoint = addLocalWaypoint(this.world, name, x, y);
-        if (waypoint) {
-          this.addJournal(`Added waypoint ${waypoint.name} at ${waypoint.x}, ${waypoint.y}.`, '#b8a06a', true);
-          this.showWaypoints();
-        }
-      } else if (sub === 'clear') {
-        clearLocalWaypoints(this.world);
-        this.addJournal('Cleared local waypoints.', '#b8a06a', true);
-      } else {
-        this.toggleWaypoints();
-      }
-    } else if (command === 'virtue') {
-      const existing = this.getWindow('virtue', 'player');
-      if (existing) this.raiseWindow(existing);
-      else this.addWindow('virtue', 'player', new VirtueWindow(this.world));
-    } else if (command === 'quest' || command === 'questlog') {
-      this.world.socket.out.questMenu();
-    } else if (command === 'guildmenu') {
-      this.world.socket.out.guildMenu();
-    } else if (command === 'house') {
-      const serial = Number.parseInt(args[0], 0);
-      if (Number.isFinite(serial)) this.showHouse(serial >>> 0);
-      else this.addJournal('Usage: -house <house sign serial>', '#c56a4a', true);
-    } else if (command === 'profile') {
-      if (this.world.player) this.world.socket.out.profileRequest(this.world.playerSerial);
-    } else if (command === 'where') {
-      this.addJournal(`Position: ${this.world.player.x}, ${this.world.player.y}, ${this.world.player.z}`, '#b8a06a', true);
-    } else if (command === 'war') {
-      this.world.player.inWarMode = true;
-      this.world.socket.out.warMode(true);
-    } else if (command === 'peace') {
-      this.world.player.inWarMode = false;
-      this.world.socket.out.warMode(false);
-    } else if (command === 'run' || command === 'walk') {
-      this.world.alwaysRun = command === 'run';
-      settings.set('alwaysRun', this.world.alwaysRun);
-      this.addJournal(`Movement: ${command === 'run' ? 'run' : 'walk'}`, '#b8a06a', true);
-    } else if (command === 'resync') {
-      this.world.socket.out.resync();
-    } else if (command === 'logout') {
-      this.logout();
-    } else if (command === 'open') {
-      const alias = args[0] || '';
-      if (alias === 'backpack') {
-        const backpack = this.world.player.getItem(Layer.Backpack);
-        if (backpack) this.world.socket.out.doubleClick(backpack.serial);
-      } else if (alias === 'worldmap' || alias === 'map') {
-        this.toggleWorldMap();
-      } else if (alias === 'radar' || alias === 'minimap') {
-        this.toggleRadar();
-      }
-    } else if (command === 'target') {
-      const sub = String(args[0] || '').toLowerCase();
-      if (sub === 'self') {
-        this.sendTargetEntity(this.world.player);
-      } else if (sub === 'last' || sub === 'lasttarget') {
-        this.useLastTarget();
-      } else if (sub === 'nearest') {
-        let best = null;
-        let bestDist = Infinity;
-        for (const entity of this.world.entities.values()) {
-          if (!entity.isMobile || entity === this.world.player) continue;
-          const dist = Math.max(Math.abs(entity.x - this.world.player.x), Math.abs(entity.y - this.world.player.y));
-          if (dist < bestDist) {
-            bestDist = dist;
-            best = entity;
+      this.addJournal(`${def.usage} — ${def.description}`, '#b8a06a', true);
+      return;
+    }
+    const existing = this.getWindow('help', 'player');
+    if (existing) {
+      existing.commands = this.commandDefs;
+      this.raiseWindow(existing);
+      return;
+    }
+    this.addWindow('help', 'player', new HelpWindow(this.world, this.commandDefs));
+  }
+
+  createCommands() {
+    const defs = [
+      {
+        name: 'help',
+        usage: '-help [command]',
+        description: 'Show all commands, or details for a single command.',
+        run: (args) => this.showHelp(args),
+      },
+      {
+        name: 'say',
+        aliases: ['whisper', 'yell', 'emote', 'party', 'guild', 'alliance'],
+        usage: '-say | -whisper | -yell | -emote | -party | -guild | -alliance',
+        description: 'Set the chat speech mode.',
+        run: (args, cmd) => {
+          this.journal.settings.mode = cmd;
+          this.journal.save();
+          this.journal.applySettings();
+          this.addJournal(`Speech mode: ${cmd}`, '#b8a06a', true);
+        },
+      },
+      {
+        name: 'journal',
+        usage: '-journal',
+        description: 'Toggle the journal window.',
+        run: () => this.journal.toggle(),
+      },
+      {
+        name: 'clear',
+        usage: '-clear',
+        description: 'Clear the journal log.',
+        run: () => this.journal.clear(),
+      },
+      {
+        name: 'ignore',
+        usage: '-ignore <name>',
+        description: 'Ignore chat from a player.',
+        run: (args) => {
+          const name = args.join(' ').trim();
+          if (!name) this.command('-ignorelist');
+          else if (this.journal.addIgnore(name)) this.addJournal(`Ignoring ${name}.`, '#b8a06a', true);
+        },
+      },
+      {
+        name: 'unignore',
+        usage: '-unignore <name>',
+        description: 'Stop ignoring a player.',
+        run: (args) => {
+          const name = args.join(' ').trim();
+          if (this.journal.removeIgnore(name)) this.addJournal(`No longer ignoring ${name}.`, '#b8a06a', true);
+        },
+      },
+      {
+        name: 'ignorelist',
+        usage: '-ignorelist',
+        description: 'Show ignored players.',
+        run: () => {
+          const list = this.journal.settings.ignore;
+          this.addJournal(list.length ? `Ignored: ${list.join(', ')}` : 'Ignore list is empty.', '#b8a06a', true);
+        },
+      },
+      {
+        name: 'export',
+        usage: '-export',
+        description: 'Export the journal log to a file.',
+        run: () => {
+          this.journal.exportLog();
+          this.addJournal('Journal exported.', '#b8a06a', true);
+        },
+      },
+      {
+        name: 'gumpfont',
+        usage: '-gumpfont <0-9>',
+        description: 'Set the gump font size.',
+        run: (args) => {
+          const value = Number.parseInt(args[0], 10);
+          if (Number.isFinite(value)) {
+            settings.set('gumpFont', Math.max(0, Math.min(9, value)));
+            this.addJournal(`Gump font: ${settings.get('gumpFont')}`, '#b8a06a', true);
+          } else {
+            this.addJournal(`Gump font: ${settings.get('gumpFont')} (usage: -gumpfont 0-9)`, '#b8a06a', true);
           }
-        }
-        if (best) {
+        },
+      },
+      {
+        name: 'lang',
+        aliases: ['language'],
+        usage: '-lang <code>',
+        description: 'Set the speech language code (e.g. ENU).',
+        run: (args) => {
+          const code = String(args[0] || '').toUpperCase().slice(0, 3);
+          if (!code) {
+            this.addJournal(`Language: ${this.journal.settings.language}`, '#b8a06a', true);
+          } else {
+            this.journal.settings.language = code;
+            this.journal.save();
+            this.addJournal(`Language: ${code}`, '#b8a06a', true);
+          }
+        },
+      },
+      {
+        name: 'chat',
+        usage: '-chat <join|create|leave|msg|list|open> ...',
+        description: 'Manage chat channels.',
+        run: (args) => this.chatCommand(args),
+      },
+      {
+        name: 'macro',
+        usage: '-macro <start|stop|list|play> ...',
+        description: 'Record and play input macros.',
+        run: (args) => this.macroCommand(args),
+      },
+      {
+        name: 'timestamps',
+        usage: '-timestamps',
+        description: 'Toggle timestamps in the journal.',
+        run: () => {
+          this.journal.settings.timestamps = !this.journal.settings.timestamps;
+          this.journal.save();
+          this.journal.applySettings();
+        },
+      },
+      {
+        name: 'debug',
+        usage: '-debug',
+        description: 'Toggle debug mode, including hovered object borders.',
+        run: () => {
+          this.game.setDebug(!this.game.debug);
+          if (!this.game.debug) {
+            this.gumpDebugWindow?.close();
+            this.gumpDebugWindow = null;
+          }
+          for (const gump of this.world.gumps.values()) {
+            for (const control of gump.controls) {
+              control.htmlKey = null;
+              control.htmlParsed = null;
+            }
+          }
+          this.tooltipContentKey = '';
+          this.journal.rerender();
+          this.addJournal(`Debug mode: ${this.game.debug ? 'enabled' : 'disabled'}`, '#b8a06a', true);
+        },
+      },
+      {
+        name: 'skills',
+        usage: '-skills',
+        description: 'Toggle the skills window.',
+        run: () => this.toggleSkills(),
+      },
+      {
+        name: 'status',
+        usage: '-status',
+        description: 'Open your status window.',
+        run: () => this.showStatus(),
+      },
+      {
+        name: 'options',
+        aliases: ['settings'],
+        usage: '-options',
+        description: 'Open the options window.',
+        run: () => this.showOptions(),
+      },
+      {
+        name: 'buffs',
+        usage: '-buffs [row|column|small|large]',
+        description: 'Toggle the buff bar or change its layout.',
+        run: (args) => {
+          const option = String(args[0] || '').toLowerCase();
+          if (['row', 'column', 'small', 'large', 'normal'].includes(option)) {
+            this.showBuffs();
+            this.getWindow('buffs', 'player')?.configure(option);
+            this.addJournal(`Buffs layout: ${option}`, '#b8a06a', true);
+          } else {
+            this.toggleBuffs();
+          }
+        },
+      },
+      {
+        name: 'friends',
+        aliases: ['friend'],
+        usage: '-friends [add|remove|list] [name]',
+        description: 'Manage your friend list.',
+        run: (args) => this.friendCommand(args),
+      },
+      {
+        name: 'hotbar',
+        usage: '-hotbar <set|clear|use> ...',
+        description: 'Configure hotbar slots, spells, skills, macros and commands.',
+        run: (args) => this.hotbarCommand(args),
+      },
+      {
+        name: 'partywindow',
+        usage: '-partywindow',
+        description: 'Toggle the party window.',
+        run: () => this.toggleParty(),
+      },
+      {
+        name: 'radar',
+        aliases: ['minimap'],
+        usage: '-radar',
+        description: 'Toggle the radar minimap.',
+        run: () => this.toggleRadar(),
+      },
+      {
+        name: 'worldmap',
+        aliases: ['map'],
+        usage: '-worldmap',
+        description: 'Toggle the world map.',
+        run: () => this.toggleWorldMap(),
+      },
+      {
+        name: 'waypoints',
+        aliases: ['waypoint', 'wp'],
+        usage: '-waypoints | -waypoint add [x y] [name] | -waypoint clear',
+        description: 'Show waypoints, or add/clear local waypoints.',
+        run: (args) => {
+          const sub = (args[0] || '').toLowerCase();
+          if (sub === 'add') {
+            const rest = args.slice(1);
+            const hasCoords =
+              rest.length >= 2 &&
+              rest[0] !== '' &&
+              rest[1] !== '' &&
+              Number.isFinite(Number(rest[0])) &&
+              Number.isFinite(Number(rest[1]));
+            const x = hasCoords ? Number(rest[0]) : null;
+            const y = hasCoords ? Number(rest[1]) : null;
+            const name = (hasCoords ? rest.slice(2) : rest).join(' ');
+            const waypoint = addLocalWaypoint(this.world, name, x, y);
+            if (waypoint) {
+              this.addJournal(`Added waypoint ${waypoint.name} at ${waypoint.x}, ${waypoint.y}.`, '#b8a06a', true);
+              this.showWaypoints();
+            }
+          } else if (sub === 'clear') {
+            clearLocalWaypoints(this.world);
+            this.addJournal('Cleared local waypoints.', '#b8a06a', true);
+          } else {
+            this.toggleWaypoints();
+          }
+        },
+      },
+      {
+        name: 'virtue',
+        usage: '-virtue',
+        description: 'Open the virtues window.',
+        run: () => {
+          const existing = this.getWindow('virtue', 'player');
+          if (existing) this.raiseWindow(existing);
+          else this.addWindow('virtue', 'player', new VirtueWindow(this.world));
+        },
+      },
+      {
+        name: 'quest',
+        aliases: ['questlog'],
+        usage: '-quest',
+        description: 'Open the quest log.',
+        run: () => this.world.socket.out.questMenu(),
+      },
+      {
+        name: 'guildmenu',
+        usage: '-guildmenu',
+        description: 'Open the guild menu.',
+        run: () => this.world.socket.out.guildMenu(),
+      },
+      {
+        name: 'house',
+        usage: '-house <serial>',
+        description: 'Open a house sign by serial.',
+        run: (args) => {
+          const serial = Number.parseInt(args[0], 0);
+          if (Number.isFinite(serial)) this.showHouse(serial >>> 0);
+          else this.addJournal('Usage: -house <house sign serial>', '#c56a4a', true);
+        },
+      },
+      {
+        name: 'profile',
+        usage: '-profile',
+        description: 'Open your character profile.',
+        run: () => {
+          if (this.world.player) this.world.socket.out.profileRequest(this.world.playerSerial);
+        },
+      },
+      {
+        name: 'where',
+        usage: '-where',
+        description: 'Print your current position.',
+        run: () =>
+          this.addJournal(
+            `Position: ${this.world.player.x}, ${this.world.player.y}, ${this.world.player.z}`,
+            '#b8a06a',
+            true
+          ),
+      },
+      {
+        name: 'war',
+        usage: '-war',
+        description: 'Enter war mode.',
+        run: () => {
+          this.world.player.inWarMode = true;
+          this.world.socket.out.warMode(true);
+        },
+      },
+      {
+        name: 'peace',
+        usage: '-peace',
+        description: 'Enter peace mode.',
+        run: () => {
+          this.world.player.inWarMode = false;
+          this.world.socket.out.warMode(false);
+        },
+      },
+      {
+        name: 'run',
+        aliases: ['walk'],
+        usage: '-run | -walk',
+        description: 'Always run or always walk.',
+        run: (args, cmd) => {
+          this.world.alwaysRun = cmd === 'run';
+          settings.set('alwaysRun', this.world.alwaysRun);
+          this.addJournal(`Movement: ${cmd === 'run' ? 'run' : 'walk'}`, '#b8a06a', true);
+        },
+      },
+      {
+        name: 'resync',
+        usage: '-resync',
+        description: 'Resync your position with the server.',
+        run: () => this.world.socket.out.resync(),
+      },
+      {
+        name: 'logout',
+        usage: '-logout',
+        description: 'Log out to the character selection screen.',
+        run: () => this.logout(),
+      },
+      {
+        name: 'open',
+        usage: '-open <backpack|worldmap|radar>',
+        description: 'Open your backpack, world map or radar.',
+        run: (args) => {
+          const alias = args[0] || '';
+          if (alias === 'backpack') {
+            const backpack = this.world.player.getItem(Layer.Backpack);
+            if (backpack) this.world.socket.out.doubleClick(backpack.serial);
+          } else if (alias === 'worldmap' || alias === 'map') {
+            this.toggleWorldMap();
+          } else if (alias === 'radar' || alias === 'minimap') {
+            this.toggleRadar();
+          }
+        },
+      },
+      {
+        name: 'target',
+        usage: '-target [self|nearest|last|resource <type>]',
+        description: 'Start a target cursor, or target self/nearest/last.',
+        run: (args) => {
+          const sub = String(args[0] || '').toLowerCase();
+          if (sub === 'self') {
+            this.sendTargetEntity(this.world.player);
+          } else if (sub === 'last' || sub === 'lasttarget') {
+            this.useLastTarget();
+          } else if (sub === 'nearest') {
+            let best = null;
+            let bestDist = Infinity;
+            for (const entity of this.world.entities.values()) {
+              if (!entity.isMobile || entity === this.world.player) continue;
+              const dist = Math.max(
+                Math.abs(entity.x - this.world.player.x),
+                Math.abs(entity.y - this.world.player.y)
+              );
+              if (dist < bestDist) {
+                bestDist = dist;
+                best = entity;
+              }
+            }
+            if (best) {
+              this.world.setTarget(1, 0, 0);
+              this.onTargetChanged();
+              this.sendTargetEntity(best);
+            } else {
+              this.addJournal('No nearby mobile.', '#c56a4a', true);
+            }
+          } else if (sub === 'resource') {
+            const type = Number.parseInt(args[1], 0) || 0;
+            this.pendingResource = type;
+            this.world.setTarget(1, 0, 0);
+            this.onTargetChanged();
+            this.addJournal(`Select a resource target (type ${type}).`, '#b8a06a', true);
+          } else {
+            this.world.setTarget(1, 0, 0);
+            this.onTargetChanged();
+          }
+        },
+      },
+      {
+        name: 'targetresource',
+        usage: '-targetresource <type>',
+        description: 'Target a resource with the given type id.',
+        run: (args) => {
+          const type = Number.parseInt(args[0], 0) || 0;
+          this.pendingResource = type;
           this.world.setTarget(1, 0, 0);
           this.onTargetChanged();
-          this.sendTargetEntity(best);
-        } else {
-          this.addJournal('No nearby mobile.', '#c56a4a', true);
-        }
-      } else if (sub === 'resource') {
-        const type = Number.parseInt(args[1], 0) || 0;
-        this.pendingResource = type;
-        this.world.setTarget(1, 0, 0);
-        this.onTargetChanged();
-        this.addJournal(`Select a resource target (type ${type}).`, '#b8a06a', true);
-      } else {
-        this.world.setTarget(1, 0, 0);
-        this.onTargetChanged();
-      }
-    } else if (command === 'targetresource') {
-      const type = Number.parseInt(args[0], 0) || 0;
-      this.pendingResource = type;
-      this.world.setTarget(1, 0, 0);
-      this.onTargetChanged();
-    } else if (command === 'lasttarget' || command === 'last') {
-      this.useLastTarget();
-    } else {
-      this.addJournal(`Unknown command: -${cmd}`, '#c56a4a', true);
+        },
+      },
+      {
+        name: 'lasttarget',
+        aliases: ['last'],
+        usage: '-lasttarget',
+        description: 'Target your last target again.',
+        run: () => this.useLastTarget(),
+      },
+    ];
+
+    const map = new Map();
+    for (const def of defs) {
+      map.set(def.name, def);
+      for (const alias of def.aliases || []) map.set(alias, def);
     }
+    return { defs, map };
   }
 
   hotbarCommand(args) {
@@ -2329,72 +2560,99 @@ export class UI {
 
   /* ----------------------------- mouse ----------------------------- */
 
-  canvasPos(e) {
+  uiPos(e) {
     return { x: e.clientX, y: e.clientY };
   }
 
+  canvasPos(e) {
+    const rect = this.game.renderer.canvas.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+
+  isDomUiTarget(target) {
+    return !!target?.closest?.('#hud, #gameTitleBar, #gameResize, #loginScreen, #modalBackdrop');
+  }
+
   onMouseMove(e) {
-    const { x, y } = this.canvasPos(e);
-    this.mouse = { x, y };
-    this.game.renderer.mouse.x = x;
-    this.game.renderer.mouse.y = y;
-    this.game.renderer.mouse.world = this.game.renderer.screenToTile(x, y);
+    const ui = this.uiPos(e);
+    const game = this.canvasPos(e);
+    this.mouse = ui;
+    this.gameMouse = game;
+    this.pointerOverDomUi = this.isDomUiTarget(e.target);
+    this.game.renderer.mouse.x = game.x;
+    this.game.renderer.mouse.y = game.y;
+    this.game.renderer.mouse.world = this.game.renderer.screenToTile(game.x, game.y);
     if (this.selection) {
-      this.selection.x = x;
-      this.selection.y = y;
-      if (Math.abs(x - this.selection.startX) > 4 || Math.abs(y - this.selection.startY) > 4) {
+      this.selection.x = ui.x;
+      this.selection.y = ui.y;
+      if (Math.abs(ui.x - this.selection.startX) > 4 || Math.abs(ui.y - this.selection.startY) > 4) {
         this.selection.moved = true;
       }
       return;
     }
     if (this.worldItemPress) {
-      const dx = x - this.worldItemPress.x;
-      const dy = y - this.worldItemPress.y;
+      const dx = game.x - this.worldItemPress.x;
+      const dy = game.y - this.worldItemPress.y;
       if (dx * dx + dy * dy >= 64) {
         const item = this.worldItemPress.item;
         this.worldItemPress = null;
         if (!this.world.held) {
           this.world.held = item;
           this.world.socket.out.pickup(item.serial, item.amount || 1);
-          this.game.renderer.mouse.world = this.game.renderer.screenToTile(x, y);
+          this.game.renderer.mouse.world = this.game.renderer.screenToTile(game.x, game.y);
         }
         return;
       }
     }
-    const hit = this.hitTest(x, y);
     if (this.dragTarget) {
-      this.dragTarget.obj.onMouseMove?.(x, y, e);
+      this.dragTarget.obj.onMouseMove?.(ui.x, ui.y, e);
       return;
     }
-    if (hit) hit.obj.onMouseMove?.(x, y, e);
-    this.updateTargetInfo(x, y);
+    if (this.isDomUiTarget(e.target)) {
+      this.refreshTooltip();
+      return;
+    }
+    const hit = this.hitTest(ui.x, ui.y);
+    if (hit) {
+      hit.obj.onMouseMove?.(ui.x, ui.y, e);
+      this.refreshTooltip();
+      return;
+    }
+    if (e.target === this.game.renderer.canvas) this.updateTargetInfo(game.x, game.y);
     this.refreshTooltip();
   }
 
   onMouseDown(e) {
+    if (this.isDomUiTarget(e.target)) return;
     this.hideTooltip();
     if (!$('loginScreen').classList.contains('hidden') || !$('modalBackdrop').classList.contains('hidden')) return;
-    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
-    const { x, y } = this.canvasPos(e);
+    const ui = this.uiPos(e);
+    const game = this.canvasPos(e);
+    const isCanvas = e.target === this.game.renderer.canvas;
     const button = e.button;
-    const hit = this.hitTest(x, y);
+    const hit = this.hitTest(ui.x, ui.y);
     if (this.contextMenu && hit?.obj !== this.contextMenu) this.closeContextMenu();
     if (this.focusedGumpEntry && (!hit || hit.obj !== this.focusedGumpEntry.gump)) this.clearGumpFocus();
     if (hit) {
+      if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+      e.preventDefault();
+      e.stopPropagation();
       if (button === 0 && this.world.target.active && !this.world.held) {
-        const target = hit.obj.targetAt?.(x, y);
+        const target = hit.obj.targetAt?.(ui.x, ui.y);
         if (target) {
           this.sendTargetEntity(target);
           return;
         }
       }
       this.raiseWindow(hit.obj);
-      hit.obj.onMouseDown?.(x, y, button, e);
+      hit.obj.onMouseDown?.(ui.x, ui.y, button, e);
       if (hit.obj.dragging || hit.obj.onMouseMove) this.dragTarget = hit;
       return;
     }
+    if (!isCanvas) return;
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
     const arrow = this.game.renderer.questArrowScreen?.();
-    if (arrow && !this.world.target.active && !this.world.held && Math.hypot(x - arrow.x, y - arrow.y) <= 12) {
+    if (arrow && !this.world.target.active && !this.world.held && Math.hypot(game.x - arrow.x, game.y - arrow.y) <= 12) {
       this.world.socket.out.clickQuestArrow(button === 2);
       if (button === 0) {
         const target = this.world.questArrow;
@@ -2404,13 +2662,13 @@ export class UI {
     }
     if (button === 0) {
       if (this.world.target.active) {
-        this.sendTarget(x, y);
+        this.sendTarget(game.x, game.y);
         return;
       }
-      const tile = this.game.renderer.screenToTile(x, y);
-      const entity = this.game.renderer.entityAt?.(x, y) || this.findEntityAt(tile.x, tile.y);
+      const tile = this.game.renderer.screenToTile(game.x, game.y);
+      const entity = this.game.renderer.entityAt?.(game.x, game.y) || this.findEntityAt(tile.x, tile.y);
       if (!entity) {
-        if (settings.get('dragSelectHealthBars') && !this.world.held) this.startDragSelect(x, y);
+        if (settings.get('dragSelectHealthBars') && !this.world.held) this.startDragSelect(ui.x, ui.y);
         return;
       }
       if (entity.isItem && entity.container === 0 && !this.world.held) {
@@ -2418,7 +2676,7 @@ export class UI {
           this.world.held = entity;
           this.world.socket.out.pickup(entity.serial, entity.amount || 1);
         } else if (e.detail < 2) {
-          this.worldItemPress = { item: entity, x, y };
+          this.worldItemPress = { item: entity, x: game.x, y: game.y };
         }
         return;
       }
@@ -2431,14 +2689,14 @@ export class UI {
         return;
       }
       if (this.world.held) return;
-      const tile = this.game.renderer.screenToTile(x, y);
-      const entity = this.game.renderer.entityAt?.(x, y) || this.findEntityAt(tile.x, tile.y);
+      const tile = this.game.renderer.screenToTile(game.x, game.y);
+      const entity = this.game.renderer.entityAt?.(game.x, game.y) || this.findEntityAt(tile.x, tile.y);
       if (entity) {
-        this.openContextMenu(entity.serial, x, y);
+        this.openContextMenu(entity.serial, ui.x, ui.y);
         return;
       }
       if (e.ctrlKey) {
-        this.openGroundMenu(x, y);
+        this.openGroundMenu(game.x, game.y);
         return;
       }
       this.startMouseWalk();
@@ -2459,7 +2717,14 @@ export class UI {
       w: Math.abs(x - selection.startX),
       h: Math.abs(y - selection.startY),
     };
-    const mobiles = this.game.renderer.mobilesInRect(rect);
+    const canvasRect = this.game.renderer.canvas.getBoundingClientRect();
+    const gameRect = {
+      x: rect.x - canvasRect.left,
+      y: rect.y - canvasRect.top,
+      w: rect.w,
+      h: rect.h,
+    };
+    const mobiles = this.game.renderer.mobilesInRect(gameRect);
     if (!mobiles.length) return;
     let barX = Math.max(8, Math.min(rect.x, window.innerWidth - 158));
     let barY = Math.max(8, Math.min(rect.y, window.innerHeight - 46));
@@ -2523,8 +2788,8 @@ export class UI {
     if (!p) return null;
     const renderer = this.game.renderer;
     const ps = renderer.playerScreen();
-    const sx = this.mouse.x - (ps.x - renderer.camera.x);
-    const sy = this.mouse.y - (ps.y - renderer.camera.y);
+    const sx = this.gameMouse.x - (ps.x - renderer.camera.x);
+    const sy = this.gameMouse.y - (ps.y - renderer.camera.y);
     if (sx * sx + sy * sy < 64) return null;
     const angle = Math.atan2(sy, sx);
     const index = Math.round((angle + Math.PI / 4) / (Math.PI / 4));
@@ -2533,58 +2798,65 @@ export class UI {
 
   onMouseUp(e) {
     if (e.button === 2) this.stopMouseWalk();
-    const { x, y } = this.canvasPos(e);
+    const ui = this.uiPos(e);
     if (this.selection) {
-      this.finishDragSelect(x, y);
+      this.finishDragSelect(ui.x, ui.y);
       return;
     }
     if (this.dragTarget) {
-      this.dragTarget.obj.onMouseUp?.(x, y);
+      this.dragTarget.obj.onMouseUp?.(ui.x, ui.y);
       this.dragTarget = null;
+      return;
     }
     if (this.worldItemPress) {
       const item = this.worldItemPress.item;
       this.worldItemPress = null;
       this.world.socket.out.singleClick(item.serial);
     }
-    if (this.world.held) {
-      const hit = this.hitTest(x, y);
-      if (hit) {
-        hit.obj.onItemDrop?.(x, y);
-      } else {
-        const tile = this.game.renderer.screenToTile(x, y);
-        let entity = this.game.renderer.entityAt?.(x, y);
-        if (!entity?.isMobile) {
-          const tileEntity = this.findEntityAt(tile.x, tile.y);
-          if (tileEntity?.isMobile) entity = tileEntity;
-        }
-        const held = this.world.held;
-        this.world.held = null;
-        if (entity?.isMobile) {
-          this.world.socket.out.drop(held.serial, entity.x, entity.y, entity.z || 0, 0, entity.serial);
-        } else {
-          const block = this.world.getBlock(tile.x >> 3, tile.y >> 3);
-          let z = 0;
-          if (block) z = block.cells[((tile.y & 7) << 3) | (tile.x & 7)].z;
-          this.world.socket.out.drop(held.serial, tile.x, tile.y, z, 0, 0);
-        }
-      }
+    if (this.isDomUiTarget(e.target) || !this.world.held) return;
+    const hit = this.hitTest(ui.x, ui.y);
+    if (hit) {
+      hit.obj.onItemDrop?.(ui.x, ui.y);
+      return;
+    }
+    if (e.target !== this.game.renderer.canvas) return;
+    const game = this.canvasPos(e);
+    const tile = this.game.renderer.screenToTile(game.x, game.y);
+    let entity = this.game.renderer.entityAt?.(game.x, game.y);
+    if (!entity?.isMobile) {
+      const tileEntity = this.findEntityAt(tile.x, tile.y);
+      if (tileEntity?.isMobile) entity = tileEntity;
+    }
+    const held = this.world.held;
+    this.world.held = null;
+    if (entity?.isMobile) {
+      this.world.socket.out.drop(held.serial, entity.x, entity.y, entity.z || 0, 0, entity.serial);
+    } else {
+      const block = this.world.getBlock(tile.x >> 3, tile.y >> 3);
+      let z = 0;
+      if (block) z = block.cells[((tile.y & 7) << 3) | (tile.x & 7)].z;
+      this.world.socket.out.drop(held.serial, tile.x, tile.y, z, 0, 0);
     }
   }
 
   onDoubleClick(e) {
+    if (this.isDomUiTarget(e.target)) return;
     if (!$('modalBackdrop').classList.contains('hidden')) return;
     this.worldItemPress = null;
-    const { x, y } = this.canvasPos(e);
-    const hit = this.hitTest(x, y);
+    const ui = this.uiPos(e);
+    const game = this.canvasPos(e);
+    const hit = this.hitTest(ui.x, ui.y);
     if (hit) {
+      e.preventDefault();
+      e.stopPropagation();
       this.raiseWindow(hit.obj);
       if (this.focusedGumpEntry && hit.obj !== this.focusedGumpEntry.gump) this.clearGumpFocus();
-      hit.obj.onDoubleClick?.(x, y);
+      hit.obj.onDoubleClick?.(ui.x, ui.y);
       return;
     }
-    const tile = this.game.renderer.screenToTile(x, y);
-    const entity = this.game.renderer.entityAt?.(x, y) || this.findEntityAt(tile.x, tile.y);
+    if (e.target !== this.game.renderer.canvas) return;
+    const tile = this.game.renderer.screenToTile(game.x, game.y);
+    const entity = this.game.renderer.entityAt?.(game.x, game.y) || this.findEntityAt(tile.x, tile.y);
     if (!entity) return;
     const attack =
       this.world.player?.inWarMode &&
@@ -2593,6 +2865,26 @@ export class UI {
       entity.notoriety !== 7;
     if (attack) this.world.socket.out.attack(entity.serial);
     else this.world.socket.out.doubleClick(entity.serial);
+  }
+
+  onWheel(e) {
+    if (this.isDomUiTarget(e.target)) return;
+    const ui = this.uiPos(e);
+    const hit = this.hitTest(ui.x, ui.y);
+    if (hit?.obj.onWheel?.(ui.x, ui.y, e.deltaY, e)) {
+      e.preventDefault();
+      e.stopPropagation();
+    } else if (hit?.obj.scroll !== undefined) {
+      hit.obj.scroll = Math.max(0, hit.obj.scroll + (e.deltaY > 0 ? 46 : -46));
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }
+
+  onContextMenu(e) {
+    e.preventDefault();
+    if (this.hitTest(e.clientX, e.clientY)) return;
+    if (e.target === this.game.renderer.canvas && this.world.target.active) this.cancelTarget();
   }
 
   findEntityAt(x, y) {
@@ -2632,22 +2924,24 @@ export class UI {
       !$('loginScreen').classList.contains('hidden') ||
       !$('modalBackdrop').classList.contains('hidden') ||
       this.dragTarget ||
-      this.world.held
+      this.world.held ||
+      this.pointerOverDomUi
     ) {
       this.hideTooltip();
       return;
     }
     const { x, y } = this.mouse;
-    if (document.elementFromPoint(x, y) !== this.game.renderer.canvas) {
-      this.hideTooltip();
-      return;
-    }
     let target = null;
     const hit = this.hitTest(x, y);
     if (hit) {
       target = hit.obj.tooltipAt?.(x, y) || null;
     } else {
-      const entity = this.game.renderer.entityAt?.(x, y);
+      if (document.elementFromPoint(x, y) !== this.game.renderer.canvas) {
+        this.hideTooltip();
+        return;
+      }
+      const game = this.gameMouse;
+      const entity = this.game.renderer.entityAt?.(game.x, game.y);
       if (entity && (entity.isMobile || entity.container === 0)) {
         target = { id: `entity:${entity.serial}`, serial: entity.serial, title: entity.name, entity };
       }
