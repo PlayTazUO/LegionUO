@@ -25,14 +25,17 @@ export class World {
     this.mapIndex = 0;
     this.useXMapFiles = false;
     this.range = 24;
-    this.light = { overall: 0, personal: 0 };
+    this.light = { overall: 0, personal: 0, displayOverall: 0, displayPersonal: 0 };
     this.realSeason = 0;
     this.season = 0;
     this.weather = { type: 0, count: 0, temp: 0, particles: [] };
+    this.lightTarget = { overall: 0, personal: 0 };
     this.messages = [];
     this.messageListeners = [];
     this.gumps = new Map();
     this.gumpPositions = new Map();
+    this.gumpScales = new Map();
+    this.gumpStateLoaded = false;
     this.gumpListeners = [];
     this.target = { active: false, type: 0, cursorId: 0, cursorType: 0, multi: null };
     this.skills = new Map();
@@ -44,6 +47,7 @@ export class World {
       canLoot: false,
     };
     this.buffs = [];
+    this.chat = { channels: [], current: '', username: '' };
     this.trade = null;
     this.containers = new Map();
     this.walkSeq = 0;
@@ -56,6 +60,7 @@ export class World {
     this.lastBlockedDirection = -1;
     this.lastBlockedTurn = 0;
     this.alwaysRun = false;
+    this.stunnedUntil = 0;
     this.maxPendingSteps = 5;
     this.stepLead = 35;
     this.moveSpeedMultiplier = Number(config.moveSpeedMultiplier) || 1;
@@ -68,6 +73,7 @@ export class World {
     this.turnDelay = Number(config.turnDelay) || 80;
     this.serverTime = 0;
     this.stats = { str: 0, dex: 0, int: 0, weight: 0, weightMax: 0, gold: 0 };
+    this.statLocks = { str: 0, dex: 0, int: 0 };
     this.resist = {};
     this.features = {};
     this.opl = new OPLManager(this);
@@ -108,6 +114,7 @@ export class World {
 
   update(dt) {
     const now = performance.now();
+    this.updateLight(dt);
     this.updateSteps(now);
     for (const entity of this.entities.values()) {
       if (entity === this.player) this.updatePlayerRender(now);
@@ -126,6 +133,33 @@ export class World {
         }
       }
     }
+  }
+
+  updateLight(dt) {
+    const target = this.lightTarget;
+    const light = this.light;
+    const speed = Math.max(0, Math.min(1, dt * 1.4));
+    light.displayOverall = (light.displayOverall ?? light.overall) + ((target.overall ?? light.overall) - (light.displayOverall ?? light.overall)) * speed;
+    light.displayPersonal = (light.displayPersonal ?? light.personal) + ((target.personal ?? light.personal) - (light.displayPersonal ?? light.personal)) * speed;
+    if (Math.abs(light.displayOverall - target.overall) < 0.01) light.displayOverall = target.overall;
+    if (Math.abs(light.displayPersonal - target.personal) < 0.01) light.displayPersonal = target.personal;
+  }
+
+  setLight(overall = 0, personal = 0) {
+    this.light.overall = overall;
+    this.light.personal = personal;
+    this.lightTarget.overall = overall;
+    this.lightTarget.personal = personal;
+  }
+
+  setStunned(ms = 1200) {
+    this.stunnedUntil = Math.max(this.stunnedUntil, performance.now() + ms);
+    if (this.player) this.player.isStunned = true;
+  }
+
+  clearStunned() {
+    this.stunnedUntil = 0;
+    if (this.player) this.player.isStunned = false;
   }
 
   get(serial) {
@@ -569,7 +603,47 @@ export class World {
         break;
       }
     }
+    const multi = this.multiAt(x, y, z);
+    if (multi) {
+      blocked = blocked || multi.blocked;
+      noDiagonal = noDiagonal || multi.noDiagonal;
+      if (multi.surface != null) z = Math.max(z, multi.surface);
+    }
     return { walkable: !blocked, z, tile: cell.tile, noDiagonal };
+  }
+
+  multiAt(x, y, z) {
+    let result = null;
+    for (const entity of this.entities.values()) {
+      if (!entity.isItem || !entity.isMulti || !entity.hasPosition) continue;
+      const parts = this.assets.getMulti(entity.graphic);
+      if (!parts || !parts.length) continue;
+      const dx = x - entity.x;
+      const dy = y - entity.y;
+      if (Math.abs(dx) > 32 || Math.abs(dy) > 32) continue;
+      for (const part of parts) {
+        if (part.x !== dx || part.y !== dy) continue;
+        const flags = (this.assets.staticFlags(part.graphic) || 0) >>> 0;
+        if (!flags) continue;
+        const partZ = entity.z + (part.z || 0);
+        if (flags & 0x01000000) {
+          result = result || { blocked: false, noDiagonal: true, surface: null };
+          result.noDiagonal = true;
+        }
+        if ((flags & 0x00000100) !== 0 || (flags & 0x00000200) !== 0) {
+          result = result || { blocked: false, noDiagonal: false, surface: null };
+          if (partZ >= z - 1 && partZ <= z + 8) result.surface = Math.max(result.surface ?? partZ, partZ);
+        }
+        if (!(flags & 0x40)) continue;
+        const height = this.assets.staticHeight(part.graphic) || 0;
+        const top = partZ + Math.max(1, height);
+        if (top > z + 1 && partZ < z + 16) {
+          result = result || { blocked: false, noDiagonal: false, surface: null };
+          result.blocked = true;
+        }
+      }
+    }
+    return result;
   }
 
   addMessage(text, hue = 0x3b2, type = 0, name = '', font = 3, extra = {}) {
@@ -597,12 +671,61 @@ export class World {
     for (const cb of this.gumpListeners) cb(gump);
   }
 
+  gumpStateKey() {
+    const account = (this.game?.loginCredentials?.account || '').trim().toLowerCase();
+    return account ? `legionuo.gumps.v1.${account}` : 'legionuo.gumps.v1';
+  }
+
+  loadGumpState() {
+    if (this.gumpStateLoaded) return;
+    this.gumpStateLoaded = true;
+    try {
+      const saved = JSON.parse(localStorage.getItem(this.gumpStateKey()) || 'null');
+      if (!saved || typeof saved !== 'object') return;
+      for (const [key, value] of Object.entries(saved)) {
+        const id = Number(key) >>> 0;
+        if (value && Number.isFinite(Number(value.x)) && Number.isFinite(Number(value.y))) {
+          this.gumpPositions.set(id, { x: Number(value.x), y: Number(value.y) });
+        }
+        if (value && Number.isFinite(Number(value.scale))) this.gumpScales.set(id, Number(value.scale));
+      }
+    } catch {
+      /* ignore corrupt gump state */
+    }
+  }
+
+  saveGumpState() {
+    try {
+      const out = {};
+      for (const id of new Set([...this.gumpPositions.keys(), ...this.gumpScales.keys()])) {
+        const position = this.gumpPositions.get(id);
+        const scale = this.gumpScales.get(id);
+        out[String(id)] = { ...(position || {}), ...(scale ? { scale } : {}) };
+      }
+      localStorage.setItem(this.gumpStateKey(), JSON.stringify(out));
+    } catch {
+      /* ignore quota errors */
+    }
+  }
+
   getGumpPosition(id) {
+    this.loadGumpState();
     return this.gumpPositions.get(id >>> 0) || null;
   }
 
   rememberGumpPosition(id, x, y) {
     this.gumpPositions.set(id >>> 0, { x, y });
+    this.saveGumpState();
+  }
+
+  getGumpScale(id) {
+    this.loadGumpState();
+    return this.gumpScales.get(id >>> 0) || 1;
+  }
+
+  rememberGumpScale(id, scale) {
+    this.gumpScales.set(id >>> 0, scale);
+    this.saveGumpState();
   }
 
   removeGump(id) {
@@ -693,7 +816,9 @@ export class World {
   isMovementBlocked() {
     if (!this.player || !this.inGame) return true;
     if (this.player.isDead && !this.player.isGhost) return true;
-    if ((this.player.flags & 0x01) !== 0) return true;
+    if ((this.player.flags & 0x01) !== 0 || this.player.isFrozen) return true;
+    if (this.stunnedUntil && performance.now() < this.stunnedUntil) return true;
+    if (this.player.isStunned) return true;
     if (this.game?.ui?.isMovementBlocked?.()) return true;
     return false;
   }
@@ -934,6 +1059,7 @@ export class World {
     if (this.blockPromises) this.blockPromises.clear();
     this.steps = [];
     this.pendingSteps = [];
+    this.stunnedUntil = 0;
     this.walkSeq = 0;
     this.lastWalkSent = 0;
     this.lastStepTime = 0;
@@ -944,16 +1070,22 @@ export class World {
     this.alwaysRun = false;
     this.target = { active: false, type: 0, cursorId: 0, cursorType: 0, multi: null };
     this.gumps.clear();
+    this.gumpPositions.clear();
+    this.gumpStateLoaded = false;
+    this.gumpScales.clear();
     this.containers.clear();
     this.openContainers.clear();
     this.buffs = [];
+    this.chat = { channels: [], current: '', username: '' };
     this.trade = null;
     this.party = { members: [], leader: 0, inviter: 0, canLoot: false };
     this.skills.clear();
     this.skillList = [];
+    this.statLocks = { str: 0, dex: 0, int: 0 };
     this.messages = [];
     this.weather = { type: 0, count: 0, temp: 0, particles: [] };
-    this.light = { overall: 0, personal: 0 };
+    this.lightTarget = { overall: 0, personal: 0 };
+    this.light = { overall: 0, personal: 0, displayOverall: 0, displayPersonal: 0 };
     this.season = 0;
     this.realSeason = 0;
     this.prompt = null;

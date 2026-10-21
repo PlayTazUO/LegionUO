@@ -84,7 +84,8 @@ Then open <http://127.0.0.1:8080>.
 - `tiledata.mul` (old and modern layouts)
 - `texmaps.mul` + `texidx.mul` (plus `TexTerr.def` remaps) for stretched terrain
 - `hues.mul`, `Cliloc.*` (including BWT-compressed clilocs), `skills.mul`,
-  `multi.mul`/`MultiCollection.uop`
+  `multi.mul`/`MultiCollection.uop`, `fonts.mul`, `sound.mul`/`soundidx.mul`
+- Digital music (`Music/Digital/Config.txt` plus the referenced MP3 files)
 - Shard-local `Art/Statics`, `Art/Land`, `Gumps`, `Clilocs.txt`
 
 ### Rendering
@@ -94,9 +95,11 @@ Then open <http://127.0.0.1:8080>.
 - Animation frames, mirroring, hueing, health bars, names, speech and damage text.
 - Moving/fixed effects, lighting, weather, target cursor and held item.
 - Server gumps parsed from layout strings (`resizepic`, `gumppic`, `picinpic`,
-  `tilepic`, `text`, `croppedtext`, `htmlgump`, `button`, `checkbox`, `radio`,
-  `textentry`, `page`, `group`), with tooltip/item-property commands, inline text
-  editing, scrolling HTML panels, server update/close semantics and gump reuse.
+  `tilepic`, `maparea`, `text`, `croppedtext`, `htmlgump`, `button`, `checkbox`,
+  `radio`, `textentry`, `page`, `group`), with tooltip/item-property commands,
+  bitmap `fonts.mul` text, inline text editing with IME composition, scrolling HTML
+  panels, persistent switch/entry state, per-gump scale (Ctrl+wheel), server
+  update/close semantics and gump reuse.
 - Containers with server item positions, scrolling, stacked item art, shift-click/drag
   splitting, a collapsible item list view and saved positions; paperdolls
   with real gump art, equipped layers on the doll, equipment slots, drag/drop equip,
@@ -105,11 +108,15 @@ Then open <http://127.0.0.1:8080>.
   totals, gold checks and confirmation. Item and gray menus show numbered art or
   radio choices, and `0x95` dye requests open a hue grid with a live preview.
 - Ghost body/state on death, ghost movement and rendering, and resurrection cleanup.
-- Draggable buff/debuff icon bar with countdown timers, tooltips and saved position.
-- Hotbar/desktop with 12 key-bound slots (`1`-`0`, `-`, `=`), drag-to-bind items,
-  spell/skill/command bindings, tooltips, and per-account persistence.
+- Draggable buff/debuff icon bar with countdown timers, stacking counts, expiry
+  warnings, row/column and size options, tooltips and saved position.
+- Hotbar/desktop with 12 key-bound slots (`1`-`0`, `-`, `=`), three pages,
+  drag-to-bind items, spell/skill/command/macro bindings, drag-from-spellbook,
+  tooltips, and per-account persistence. Chat commands can record and play macros.
+- Chat channel support (`0xB2`/`0xB3`), language selection and journal export.
 - Movable party manifest with live HP bars, invite/accept/decline, tell/kick,
-  leave/disband, loot toggle, party chat and saved position.
+  leave/disband, loot toggle, party chat and saved position; a local friend list
+  tracks online status by name.
 - Radar/minimap with `radarcol.mul` terrain colours, mobile/waypoint dots and a
   saved position; map item gumps (`0x90`/`0xF5`) render facet crops with numbered
   `0x56` pins, plot mode and saved position.
@@ -122,10 +129,14 @@ Then open <http://127.0.0.1:8080>.
   account/password, a movable status window (saved position, live stats, and
   paperdoll/skills/journal/war/refresh/logout actions), skills list and chat
   commands.
-- Options window (`OPT` / `-options`) with General, Display, and Audio tabs for
+- Options window (`OPT` / `-options`) with General, Display, Audio, and Keys tabs for
   always-run, journal timestamps, names, health bars, speech, lighting, weather,
-  quest arrow, waypoints, audio, volume, and footsteps; settings apply live and
-  persist in `localStorage`.
+  quest arrow, waypoints, audio, volume, footsteps, and rebindable shortcuts;
+  settings apply live and persist per account in `localStorage`.
+- Custom-house design window with floor/category controls, add/delete prompts,
+  backup/restore/commit/revert/clear/exit commands, and `0xD8` design updates.
+- Audio decodes real `sound.mul` effects and digital MP3 music, falling back to
+  synthesis when the local data files are absent.
 - 10-second client ping keeps the connection alive during idle periods.
 
 ## Asset endpoints
@@ -142,6 +153,10 @@ Then open <http://127.0.0.1:8080>.
 | `GET /api/art/static/:id.png?hue=` | Static/item art |
 | `GET /api/texmap/:id.png?hue=` | Land terrain texture (stretched slopes) |
 | `GET /api/gump/:id.png?hue=` | Gump art |
+| `GET /api/font/:id` | Bitmap font glyph metadata |
+| `GET /api/font/:id.png?hue=` | Bitmap font atlas |
+| `GET /api/sound/:id.wav` | Decoded `sound.mul` effect |
+| `GET /api/music/:id.mp3` | Digital music track |
 | `GET /api/anim/:body/:action/:dir` | Animation sheet metadata |
 | `GET /api/anim/:body/:action/:dir.png?hue=` | Animation sheet PNG |
 | `GET /api/map/:map/:blockX/:blockY` | Map block cells and statics |
@@ -174,24 +189,27 @@ you trust. The asset server itself never stores credentials.
 
 ## Known limitations / next steps
 
-- Server-side pathfinding is not reproduced; right-click mouse-walk sends direct steps.
-- Paperdolls use the real UO gump art and equipment slots but omit durability, virtue
-  and paperdoll-book controls; books are simplified compared to TazUO. Shops have
-  functional quantities, totals, gold checks and confirmation, and secure trade has a
-  functional window but no trade history or enchantment preview.
-- Tooltips/OPL are rendered for world objects, containers, shops, paperdolls, and gump controls.
+- Server-side pathfinding is not reproduced; click-to-walk uses the client A* and
+  right-click mouse-walk sends direct steps.
+- Paperdolls show durability, virtue and equipment-book controls; equipment from
+  other mobiles can be lifted within range. Some enhanced-client-only paperdoll
+  extras are still simplified.
+- Tooltips/OPL are rendered for world objects, containers, shops, paperdolls,
+  equipment lists, and gump controls.
 - UOLive map definitions, terrain/static patches and CRC hash queries are handled
-  client-side; custom house editing is still inert.
-- No audio files are served yet (the audio manager is a stub).
+  client-side; the custom-house window exposes the standard design commands but the
+  full ground-plan preview is still simplified.
+- Audio uses local `sound.mul` and digital MP3 files when present. Missing files
+  fall back to synthesized effects.
 - BWT/UOP paths are implemented from the TazUO formats but have not been tested
   against every UO installation variant.
 - Radar colours require `radarcol.mul`; map item gumps require `facetXX.mul` (or
-  `facetX.mul`). Multis are not drawn on the radar.
+  `facetX.mul`). Multi footprints are drawn from `/api/multi` when loaded.
 
 ## Roadmap
 
-See [`docs/REMAINING_SYSTEMS.md`](docs/REMAINING_SYSTEMS.md) for the remaining
-basic client systems: journal and the gumps needed for normal play.
+See [`docs/REMAINING_SYSTEMS.md`](docs/REMAINING_SYSTEMS.md) for the basic client
+systems checklist and the remaining polish items.
 
 ## Credits
 

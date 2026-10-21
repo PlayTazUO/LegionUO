@@ -1,7 +1,9 @@
 import { Layer } from './entity.js';
 import { drawServerText } from './html.js';
 import { settings } from './settings.js';
-import { SPELLS_PER_PAGE, getBookSpells, getCircleName, getSpellbookInfo } from './spells.js';
+import { buffText } from './buffs.js';
+import { hotbarSpellSlot } from './hotbar.js';
+import { SPELLS_PER_PAGE, getBookSpells, getCircleName, getSpellbookInfo, getSpellbookInfoByOffset } from './spells.js';
 
 const CONTAINER_STORAGE_BASE = 'legionuo.container.v1';
 const CONTAINER_MARGIN = 6;
@@ -1479,11 +1481,14 @@ export class SpellbookWindow {
     this.dragging = false;
     this.dragOffset = { x: 0, y: 0 };
     this.press = null;
+    this.dragSpell = null;
     this.lastCast = 0;
   }
 
   get info() {
-    return getSpellbookInfo(this.item?.graphic || 0);
+    const byGraphic = getSpellbookInfo(this.item?.graphic || 0);
+    if (byGraphic !== getSpellbookInfo(0) || !this.item?.spellbookType) return byGraphic;
+    return getSpellbookInfoByOffset(this.item.spellbookType);
   }
 
   get pages() {
@@ -1609,15 +1614,30 @@ export class SpellbookWindow {
     if (this.press) {
       const dx = mx - this.press.x;
       const dy = my - this.press.y;
-      if (dx * dx + dy * dy >= 16) this.press = null;
+      if (dx * dx + dy * dy >= 16) {
+        this.dragSpell = this.press.spell;
+        this.press = null;
+      }
     }
     const rect = this.spellAt(mx, my);
     this.hover = rect ? rect.spell.slot : 0;
   }
 
-  onMouseUp() {
+  onMouseUp(mx, my) {
     this.dragging = false;
     this.press = null;
+    if (this.dragSpell) {
+      const hit = this.world.game.ui.hitTest(mx, my);
+      const hotbar = hit?.obj?.slots ? hit.obj : null;
+      const index = hotbar?.slotAt?.(mx, my) ?? -1;
+      if (index >= 0) {
+        const slot = hotbarSpellSlot(this.dragSpell);
+        if (slot && hotbar.setSlot(index, slot)) {
+          this.world.addMessage(`Bound ${slot.name} to hotbar slot ${index + 1}.`, 0x35, 1, 'System');
+        }
+      }
+      this.dragSpell = null;
+    }
     this.world.rememberGumpPosition(this.item.serial, this.x, this.y);
   }
 
@@ -1947,10 +1967,13 @@ export class PaperdollWindow {
           { id: 'status', gump: 2027, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 7 },
           { id: 'profile', gump: 0x07d2, x: 25, y: 196, w: 19, h: 51 },
           { id: 'party', gump: 0x07d2, x: 40, y: 196, w: 19, h: 51 },
+          { id: 'virtue', gump: 0x07d2, x: 55, y: 196, w: 19, h: 51 },
+          { id: 'book', gump: 0x07d2, x: 70, y: 196, w: 19, h: 51 },
         ]
       : [
           { id: 'status', gump: 2027, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 7 },
           { id: 'profile', gump: 0x07d2, x: 25, y: 196, w: 19, h: 51 },
+          { id: 'book', gump: 0x07d2, x: 40, y: 196, w: 19, h: 51 },
         ];
     return defs.map((button) => {
       const img = this.world.assets.getGump(button.gump);
@@ -2020,8 +2043,8 @@ export class PaperdollWindow {
         return true;
       }
       const slot = this.slotAt(mx, my);
-      if (this.isOwn && slot) {
-        if (slot.item && !this.world.held) {
+      if (slot) {
+        if (slot.item && !this.world.held && this.canLiftSlot(slot)) {
           this.press = { item: slot.item, x: mx, y: my, moved: false };
         }
         return true;
@@ -2061,8 +2084,12 @@ export class PaperdollWindow {
   }
 
   onItemDrop(mx, my) {
-    if (!this.isOwn || !this.world.held) return false;
+    if (!this.world.held) return false;
     if (!this.contains(mx, my)) return false;
+    if (!this.isOwn) {
+      this.restoreHeld(this.world.held);
+      return true;
+    }
     const item = this.world.held;
     const slot = this.slotAt(mx, my);
     const layer = this.layerForItem(item) || slot?.layer || 0;
@@ -2074,6 +2101,31 @@ export class PaperdollWindow {
     this.world.held = null;
     this.heldOrigin = null;
     return true;
+  }
+
+  canLiftSlot() {
+    if (this.isOwn) return true;
+    const player = this.world.player;
+    if (!player || !this.mobile) return false;
+    const distance = Math.max(Math.abs(player.x - this.mobile.x), Math.abs(player.y - this.mobile.y));
+    return distance <= 3;
+  }
+
+  durability(item) {
+    if (!item) return null;
+    const opl = this.world.opl.resolve(item.serial);
+    if (!opl?.lines?.length) {
+      this.world.opl.request(item.serial);
+      return null;
+    }
+    for (const line of opl.lines) {
+      const match = /(durability|hit points|uses remaining)[^0-9]*?(\d+)\s*%?/i.exec(line);
+      if (match) {
+        const value = Math.max(0, Math.min(100, Number(match[2]) || 0));
+        return { value, text: line };
+      }
+    }
+    return null;
   }
 
   restoreHeld(item) {
@@ -2116,6 +2168,15 @@ export class PaperdollWindow {
       this.world.socket.out.profileRequest(this.mobile.serial);
     } else if (id === 'party') {
       ui.toggleParty();
+    } else if (id === 'virtue') {
+      const existing = ui.getWindow('virtue', 'player');
+      if (existing) ui.raiseWindow(existing);
+      else ui.addWindow('virtue', 'player', new VirtueWindow(this.world));
+    } else if (id === 'book') {
+      const key = `equipment:${this.mobile.serial}`;
+      const existing = ui.getWindow('equipment', key);
+      if (existing) ui.raiseWindow(existing);
+      else ui.addWindow('equipment', key, new EquipmentWindow(this.world, this.mobile));
     }
   }
 
@@ -2215,11 +2276,19 @@ export class PaperdollWindow {
       ctx.strokeRect(slotX + 0.5, slotY + 0.5, slot.w - 1, slot.h - 1);
       if (!slot.item) continue;
       const img = this.world.assets.getStatic(slot.item.graphic, slot.item.hue || 0);
-      if (!img) continue;
-      const fit = Math.min(1, (slot.w - 2) / Math.max(1, img.width), (slot.h - 2) / Math.max(1, img.height));
-      const w = img.width * fit;
-      const h = img.height * fit;
-      ctx.drawImage(img, slotX + (slot.w - w) / 2, slotY + (slot.h - h) / 2, w, h);
+      if (img) {
+        const fit = Math.min(1, (slot.w - 2) / Math.max(1, img.width), (slot.h - 2) / Math.max(1, img.height));
+        const w = img.width * fit;
+        const h = img.height * fit;
+        ctx.drawImage(img, slotX + (slot.w - w) / 2, slotY + (slot.h - h) / 2, w, h);
+      }
+      const wear = this.durability(slot.item);
+      if (wear) {
+        ctx.fillStyle = 'rgba(0,0,0,0.65)';
+        ctx.fillRect(slotX + 1, slotY + slot.h - 3, slot.w - 2, 2);
+        ctx.fillStyle = wear.value <= 20 ? '#d06a4a' : wear.value <= 50 ? '#d6b45d' : '#7fb36a';
+        ctx.fillRect(slotX + 1, slotY + slot.h - 3, (slot.w - 2) * (wear.value / 100), 2);
+      }
     }
 
     for (const button of this.buttons) {
@@ -2282,6 +2351,572 @@ export class PaperdollWindow {
   }
 }
 
+const HOUSE_CATEGORIES = ['Wall', 'Door', 'Floor', 'Stair', 'Roof', 'Misc'];
+
+export class HouseWindow {
+  constructor(world, serial) {
+    this.world = world;
+    this.serial = serial >>> 0;
+    this.width = 372;
+    this.height = 342;
+    this.x = Math.max(20, Math.round((window.innerWidth - this.width) / 2));
+    this.y = Math.max(20, Math.round((window.innerHeight - this.height) / 2));
+    this.dragging = false;
+    this.dragOffset = { x: 0, y: 0 };
+    this.category = 'Wall';
+    this.erase = false;
+    this.floor = 1;
+    this.hover = null;
+  }
+
+  get info() {
+    return this.world.customHouse && this.world.customHouse.serial === this.serial ? this.world.customHouse : null;
+  }
+
+  contains(mx, my) {
+    return mx >= this.x && my >= this.y && mx < this.x + this.width && my < this.y + this.height;
+  }
+
+  closeRect() {
+    return { x: this.x + this.width - 26, y: this.y + 7, w: 18, h: 18 };
+  }
+
+  buttons() {
+    const out = HOUSE_CATEGORIES.map((name, index) => ({
+      id: `cat:${name}`,
+      label: name,
+      x: this.x + 14 + (index % 3) * 116,
+      y: this.y + 42 + Math.floor(index / 3) * 26,
+      w: 110,
+      h: 22,
+    }));
+    out.push(
+      { id: 'erase', label: this.erase ? 'Erase: on' : 'Erase: off', x: this.x + 14, y: this.y + 102, w: 110, h: 22 },
+      { id: 'add', label: 'Add selected...', x: this.x + 130, y: this.y + 102, w: 110, h: 22 },
+      { id: 'delete', label: 'Delete selected...', x: this.x + 246, y: this.y + 102, w: 112, h: 22 },
+      { id: 'floorDown', label: '< Floor', x: this.x + 14, y: this.y + 130, w: 82, h: 22 },
+      { id: 'floorUp', label: 'Floor >', x: this.x + 102, y: this.y + 130, w: 82, h: 22 },
+      { id: 'backup', label: 'Backup', x: this.x + 190, y: this.y + 130, w: 80, h: 22 },
+      { id: 'restore', label: 'Restore', x: this.x + 276, y: this.y + 130, w: 82, h: 22 },
+      { id: 'commit', label: 'Commit', x: this.x + 14, y: this.y + 166, w: 82, h: 22 },
+      { id: 'revert', label: 'Revert', x: this.x + 102, y: this.y + 166, w: 82, h: 22 },
+      { id: 'clear', label: 'Clear', x: this.x + 190, y: this.y + 166, w: 80, h: 22 },
+      { id: 'exit', label: 'Exit editing', x: this.x + 276, y: this.y + 166, w: 82, h: 22 }
+    );
+    return out;
+  }
+
+  hit(rect, mx, my) {
+    return mx >= rect.x && my >= rect.y && mx < rect.x + rect.w && my < rect.y + rect.h;
+  }
+
+  buttonAt(mx, my) {
+    return this.buttons().find((rect) => this.hit(rect, mx, my)) || null;
+  }
+
+  onMouseDown(mx, my, button) {
+    if (button === 2 || this.hit(this.closeRect(), mx, my)) {
+      this.close();
+      return true;
+    }
+    const btn = this.buttonAt(mx, my);
+    if (btn) {
+      this.activate(btn.id);
+      return true;
+    }
+    this.dragging = true;
+    this.dragOffset = { x: mx - this.x, y: my - this.y };
+    return true;
+  }
+
+  onMouseMove(mx, my) {
+    this.hover = this.buttonAt(mx, my)?.id || null;
+    if (this.dragging) {
+      this.x = mx - this.dragOffset.x;
+      this.y = my - this.dragOffset.y;
+    }
+  }
+
+  onMouseUp() {
+    this.dragging = false;
+  }
+
+  promptCoordinates(title, onAccept) {
+    this.world.game.ui.showModalInput(title, '0x0 0 0 0', 64, (value) => {
+      const parts = value.trim().split(/[\s,]+/);
+      const graphic = Number.parseInt(parts[0], 0);
+      const x = Number.parseInt(parts[1], 0);
+      const y = Number.parseInt(parts[2], 0);
+      const z = Number.parseInt(parts[3], 0);
+      if (!Number.isFinite(graphic) || !Number.isFinite(x) || !Number.isFinite(y)) return;
+      onAccept(graphic, x, y, Number.isFinite(z) ? z : 0);
+    });
+  }
+
+  activate(id) {
+    const out = this.world.socket.out;
+    if (id.startsWith('cat:')) {
+      this.category = id.slice(4);
+      return;
+    }
+    if (id === 'floorDown') {
+      this.floor = Math.max(1, this.floor - 1);
+      out.houseGoToFloor(this.floor);
+    } else if (id === 'floorUp') {
+      this.floor = Math.min(4, this.floor + 1);
+      out.houseGoToFloor(this.floor);
+    } else if (id === 'erase') {
+      this.erase = !this.erase;
+    } else if (id === 'add') {
+      this.promptCoordinates(`Add ${this.category} (graphic x y z)`, (graphic, x, y, z) => {
+        if (this.category === 'Stair') out.houseAddStair(graphic, x, y);
+        else if (this.category === 'Roof') out.houseAddRoof(graphic, x, y, z);
+        else out.houseAddItem(graphic, x, y);
+      });
+    } else if (id === 'delete') {
+      this.promptCoordinates(`Delete ${this.category} (graphic x y z)`, (graphic, x, y, z) => {
+        if (this.category === 'Roof') out.houseDeleteRoof(graphic, x, y, z);
+        else out.houseDeleteItem(graphic, x, y, z);
+      });
+    } else if (id === 'backup') out.houseBackup();
+    else if (id === 'restore') out.houseRestore();
+    else if (id === 'commit') out.houseCommit();
+    else if (id === 'revert') out.houseRevert();
+    else if (id === 'clear') out.houseClear();
+    else if (id === 'exit') {
+      out.houseExit();
+      this.close();
+    }
+  }
+
+  close() {
+    this.world.game.ui.removeWindow('house', this.serial);
+  }
+
+  draw(ctx) {
+    ctx.fillStyle = 'rgba(24,20,14,0.97)';
+    ctx.fillRect(this.x, this.y, this.width, this.height);
+    ctx.strokeStyle = '#8d7a52';
+    ctx.strokeRect(this.x + 0.5, this.y + 0.5, this.width - 1, this.height - 1);
+    ctx.fillStyle = '#e8d7a8';
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Custom House Design', this.x + 12, this.y + 10);
+    ctx.fillStyle = '#c9b06c';
+    ctx.textAlign = 'right';
+    ctx.fillText('X', this.x + this.width - 12, this.y + 10);
+    ctx.textAlign = 'left';
+    const info = this.info;
+    ctx.fillStyle = '#8d8060';
+    ctx.font = '10px monospace';
+    ctx.fillText(
+      info ? `Serial 0x${this.serial.toString(16)}  revision ${info.revision}  planes ${info.planes}` : `Serial 0x${this.serial.toString(16)}`,
+      this.x + 14,
+      this.y + 28
+    );
+    for (const rect of this.buttons()) {
+      const active = rect.id === `cat:${this.category}` || (rect.id === 'erase' && this.erase);
+      const hovered = this.hover === rect.id;
+      ctx.fillStyle = active ? 'rgba(201,176,108,0.3)' : hovered ? 'rgba(201,176,108,0.16)' : 'rgba(0,0,0,0.24)';
+      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.strokeStyle = active ? '#c9b06c' : '#5f5133';
+      ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
+      ctx.fillStyle = active ? '#f0dfa8' : '#d9c58d';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(rect.label, rect.x + rect.w / 2, rect.y + rect.h / 2 + 1);
+    }
+    ctx.fillStyle = '#8d8060';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(`Editing category ${this.category}; floor ${this.floor}. Coordinates are in house-local tiles.`, this.x + 14, this.y + 202);
+    ctx.fillText('Use Add/Delete with a graphic id and x y z, or place/erase through the shard commands.', this.x + 14, this.y + 216);
+    ctx.textBaseline = 'top';
+  }
+}
+
+const FRIEND_STORAGE_BASE = 'legionuo.friends.v1';
+
+function friendStorageKey(world) {
+  const account = (world.game?.loginCredentials?.account || '').trim().toLowerCase();
+  return account ? `${FRIEND_STORAGE_BASE}.${account}` : FRIEND_STORAGE_BASE;
+}
+
+export function loadFriends(world) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(friendStorageKey(world)) || 'null');
+    return Array.isArray(saved) ? saved.filter((name) => typeof name === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveFriends(world, friends) {
+  try {
+    localStorage.setItem(friendStorageKey(world), JSON.stringify([...new Set(friends)]));
+  } catch {
+    /* ignore quota errors */
+  }
+}
+
+export class FriendListWindow {
+  constructor(world) {
+    this.world = world;
+    this.width = 230;
+    this.height = 280;
+    this.x = Math.max(20, Math.round((window.innerWidth - this.width) / 2));
+    this.y = Math.max(20, Math.round((window.innerHeight - this.height) / 2));
+    this.dragging = false;
+    this.dragOffset = { x: 0, y: 0 };
+    this.friends = loadFriends(world);
+    this.hover = -1;
+  }
+
+  online(name) {
+    const key = String(name || '').toLowerCase();
+    return [...this.world.entities.values()].some((entity) => entity.isMobile && entity.name && entity.name.toLowerCase() === key);
+  }
+
+  contains(mx, my) {
+    return mx >= this.x && my >= this.y && mx < this.x + this.width && my < this.y + this.height;
+  }
+
+  closeRect() {
+    return { x: this.x + this.width - 26, y: this.y + 7, w: 18, h: 18 };
+  }
+
+  addRect() {
+    return { x: this.x + 12, y: this.y + this.height - 30, w: this.width - 24, h: 20 };
+  }
+
+  rowRect(index) {
+    return { x: this.x + 10, y: this.y + 40 + index * 22, w: this.width - 20, h: 20 };
+  }
+
+  hit(rect, mx, my) {
+    return mx >= rect.x && my >= rect.y && mx < rect.x + rect.w && my < rect.y + rect.h;
+  }
+
+  addFriend() {
+    this.world.game.ui.showModalInput('Friend name', '', 30, (value) => {
+      const name = value.trim();
+      if (!name) return;
+      if (!this.friends.some((friend) => friend.toLowerCase() === name.toLowerCase())) this.friends.push(name);
+      saveFriends(this.world, this.friends);
+    });
+  }
+
+  removeFriend(index) {
+    if (index < 0 || index >= this.friends.length) return;
+    this.friends.splice(index, 1);
+    saveFriends(this.world, this.friends);
+  }
+
+  onMouseDown(mx, my, button) {
+    if (button === 2 || this.hit(this.closeRect(), mx, my)) {
+      this.close();
+      return true;
+    }
+    if (this.hit(this.addRect(), mx, my)) {
+      this.addFriend();
+      return true;
+    }
+    const index = Math.floor((my - this.y - 40) / 22);
+    if (index >= 0 && index < this.friends.length && this.hit(this.rowRect(index), mx, my)) {
+      if (button === 2) this.removeFriend(index);
+      else {
+        const name = this.friends[index];
+        this.world.game.ui.addJournal(`${name}: ${this.online(name) ? 'online' : 'offline'}`, '#b8a06a', true);
+      }
+      return true;
+    }
+    this.dragging = true;
+    this.dragOffset = { x: mx - this.x, y: my - this.y };
+    return true;
+  }
+
+  onMouseMove(mx, my) {
+    const index = Math.floor((my - this.y - 40) / 22);
+    this.hover = index >= 0 && index < this.friends.length ? index : -1;
+    if (this.dragging) {
+      this.x = mx - this.dragOffset.x;
+      this.y = my - this.dragOffset.y;
+    }
+  }
+
+  onMouseUp() {
+    this.dragging = false;
+  }
+
+  close() {
+    this.world.game.ui.removeWindow('friends', 'player');
+  }
+
+  draw(ctx) {
+    ctx.fillStyle = 'rgba(24,20,14,0.97)';
+    ctx.fillRect(this.x, this.y, this.width, this.height);
+    ctx.strokeStyle = '#8d7a52';
+    ctx.strokeRect(this.x + 0.5, this.y + 0.5, this.width - 1, this.height - 1);
+    ctx.fillStyle = '#e8d7a8';
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Friends', this.x + 12, this.y + 10);
+    ctx.fillStyle = '#c9b06c';
+    ctx.textAlign = 'right';
+    ctx.fillText('X', this.x + this.width - 12, this.y + 10);
+    ctx.textAlign = 'left';
+    if (!this.friends.length) {
+      ctx.fillStyle = '#8d8060';
+      ctx.font = '11px monospace';
+      ctx.fillText('No friends added.', this.x + 12, this.y + 46);
+    }
+    this.friends.forEach((name, index) => {
+      const rect = this.rowRect(index);
+      const online = this.online(name);
+      ctx.fillStyle = this.hover === index ? 'rgba(201,176,108,0.18)' : 'rgba(0,0,0,0.2)';
+      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.fillStyle = online ? '#7ee08a' : '#8d8060';
+      ctx.font = '11px monospace';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(name, rect.x + 8, rect.y + rect.h / 2);
+      ctx.textAlign = 'right';
+      ctx.fillText(online ? 'online' : 'offline', rect.x + rect.w - 8, rect.y + rect.h / 2);
+      ctx.textAlign = 'left';
+    });
+    const add = this.addRect();
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(add.x, add.y, add.w, add.h);
+    ctx.strokeStyle = '#5f5133';
+    ctx.strokeRect(add.x + 0.5, add.y + 0.5, add.w - 1, add.h - 1);
+    ctx.fillStyle = '#d9c58d';
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Add friend', add.x + add.w / 2, add.y + add.h / 2 + 1);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+  }
+}
+
+const VIRTUES = [
+  ['Honesty', 1, 'Truthfulness and integrity.'],
+  ['Compassion', 2, 'Mercy and empathy for others.'],
+  ['Valor', 3, 'Courage in the face of danger.'],
+  ['Justice', 4, 'Fairness and truth in judgment.'],
+  ['Sacrifice', 5, 'Giving of oneself for others.'],
+  ['Honor', 6, 'Respect and dignity in conduct.'],
+  ['Spirituality', 7, 'Faith and connection to the divine.'],
+  ['Humility', 8, 'Modesty and selflessness.'],
+];
+
+export class VirtueWindow {
+  constructor(world) {
+    this.world = world;
+    this.width = 250;
+    this.height = 300;
+    this.x = Math.max(20, Math.round((window.innerWidth - this.width) / 2));
+    this.y = Math.max(20, Math.round((window.innerHeight - this.height) / 2));
+    this.dragging = false;
+    this.dragOffset = { x: 0, y: 0 };
+    this.hover = null;
+  }
+
+  contains(mx, my) {
+    return mx >= this.x && my >= this.y && mx < this.x + this.width && my < this.y + this.height;
+  }
+
+  closeRect() {
+    return { x: this.x + this.width - 26, y: this.y + 7, w: 18, h: 18 };
+  }
+
+  rowRects() {
+    return VIRTUES.map(([name], index) => ({ name, x: this.x + 12, y: this.y + 42 + index * 28, w: this.width - 24, h: 24 }));
+  }
+
+  onMouseDown(mx, my, button) {
+    if (button === 2 || this.hit(this.closeRect(), mx, my)) {
+      this.close();
+      return true;
+    }
+    const row = this.rowRects().find((rect) => this.hit(rect, mx, my));
+    if (row) {
+      this.world.socket.out.invokeVirtue(VIRTUES.find(([name]) => name === row.name)[1]);
+      return true;
+    }
+    this.dragging = true;
+    this.dragOffset = { x: mx - this.x, y: my - this.y };
+    return true;
+  }
+
+  onMouseMove(mx, my) {
+    this.hover = this.rowRects().find((rect) => this.hit(rect, mx, my))?.name || null;
+    if (this.dragging) {
+      this.x = mx - this.dragOffset.x;
+      this.y = my - this.dragOffset.y;
+    }
+  }
+
+  onMouseUp() {
+    this.dragging = false;
+  }
+
+  hit(rect, mx, my) {
+    return mx >= rect.x && my >= rect.y && mx < rect.x + rect.w && my < rect.y + rect.h;
+  }
+
+  close() {
+    this.world.game.ui.removeWindow('virtue', 'player');
+  }
+
+  draw(ctx) {
+    ctx.fillStyle = 'rgba(24,20,14,0.97)';
+    ctx.fillRect(this.x, this.y, this.width, this.height);
+    ctx.strokeStyle = '#8d7a52';
+    ctx.strokeRect(this.x + 0.5, this.y + 0.5, this.width - 1, this.height - 1);
+    ctx.fillStyle = '#e8d7a8';
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Virtues', this.x + 12, this.y + 10);
+    ctx.fillStyle = '#c9b06c';
+    ctx.textAlign = 'right';
+    ctx.fillText('X', this.x + this.width - 12, this.y + 10);
+    ctx.textAlign = 'left';
+    for (const rect of this.rowRects()) {
+      const hovered = this.hover === rect.name;
+      ctx.fillStyle = hovered ? 'rgba(201,176,108,0.22)' : 'rgba(0,0,0,0.22)';
+      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.strokeStyle = hovered ? '#c9b06c' : '#4f432a';
+      ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
+      ctx.fillStyle = hovered ? '#f0dfa8' : '#d9c58d';
+      ctx.font = '12px monospace';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(rect.name, rect.x + 8, rect.y + rect.h / 2);
+      const info = VIRTUES.find(([name]) => name === rect.name);
+      ctx.fillStyle = '#8d8060';
+      ctx.font = '9px monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(info[2], rect.x + rect.w - 8, rect.y + rect.h / 2);
+      ctx.textAlign = 'left';
+    }
+    ctx.textBaseline = 'top';
+  }
+}
+
+export class EquipmentWindow {
+  constructor(world, mobile) {
+    this.world = world;
+    this.mobile = mobile;
+    this.width = 320;
+    this.height = 360;
+    this.x = Math.max(20, Math.round((window.innerWidth - this.width) / 2));
+    this.y = Math.max(20, Math.round((window.innerHeight - this.height) / 2));
+    this.dragging = false;
+    this.dragOffset = { x: 0, y: 0 };
+    this.scroll = 0;
+  }
+
+  get items() {
+    return [...(this.mobile?.equipment?.values() || [])].filter(Boolean);
+  }
+
+  contains(mx, my) {
+    return mx >= this.x && my >= this.y && mx < this.x + this.width && my < this.y + this.height;
+  }
+
+  closeRect() {
+    return { x: this.x + this.width - 26, y: this.y + 7, w: 18, h: 18 };
+  }
+
+  hit(rect, mx, my) {
+    return mx >= rect.x && my >= rect.y && mx < rect.x + rect.w && my < rect.y + rect.h;
+  }
+
+  onMouseDown(mx, my, button) {
+    if (button === 2 || this.hit(this.closeRect(), mx, my)) {
+      this.close();
+      return true;
+    }
+    const index = Math.floor((my - this.y - 40 + this.scroll) / 30);
+    const item = this.items[index];
+    if (item && mx >= this.x + 12 && mx < this.x + this.width - 12) {
+      if (button === 0) this.world.socket.out.doubleClick(item.serial);
+      else if (button === 2) this.world.game.ui.openContextMenu(item.serial, mx, my);
+      return true;
+    }
+    this.dragging = true;
+    this.dragOffset = { x: mx - this.x, y: my - this.y };
+    return true;
+  }
+
+  onMouseMove(mx, my) {
+    if (this.dragging) {
+      this.x = mx - this.dragOffset.x;
+      this.y = my - this.dragOffset.y;
+    }
+  }
+
+  onMouseUp() {
+    this.dragging = false;
+  }
+
+  onWheel(mx, my, delta) {
+    if (!this.contains(mx, my)) return false;
+    this.scroll = Math.max(0, Math.min(Math.max(0, this.items.length * 30 - (this.height - 50)), this.scroll + (delta > 0 ? 30 : -30)));
+    return true;
+  }
+
+  close() {
+    this.world.game.ui.removeWindow('equipment', `equipment:${this.mobile.serial}`);
+  }
+
+  draw(ctx) {
+    ctx.fillStyle = 'rgba(24,20,14,0.97)';
+    ctx.fillRect(this.x, this.y, this.width, this.height);
+    ctx.strokeStyle = '#8d7a52';
+    ctx.strokeRect(this.x + 0.5, this.y + 0.5, this.width - 1, this.height - 1);
+    ctx.fillStyle = '#e8d7a8';
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(`${this.mobile?.name || 'Mobile'} equipment`, this.x + 12, this.y + 10);
+    ctx.fillStyle = '#c9b06c';
+    ctx.textAlign = 'right';
+    ctx.fillText('X', this.x + this.width - 12, this.y + 10);
+    ctx.textAlign = 'left';
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(this.x + 4, this.y + 36, this.width - 8, this.height - 46);
+    ctx.clip();
+    this.items.forEach((item, index) => {
+      const y = this.y + 40 + index * 30 - this.scroll;
+      if (y > this.y + this.height || y + 30 < this.y + 36) return;
+      ctx.fillStyle = index % 2 ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.16)';
+      ctx.fillRect(this.x + 8, y, this.width - 16, 28);
+      const img = this.world.assets.getStatic(item.graphic, item.hue || 0);
+      if (img) {
+        const scale = Math.min(1, 24 / Math.max(1, img.width), 24 / Math.max(1, img.height));
+        ctx.drawImage(img, this.x + 12, y + 2, img.width * scale, img.height * scale);
+      }
+      ctx.fillStyle = '#d9c58d';
+      ctx.font = '11px monospace';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(item.name || `Item ${item.serial}`, this.x + 42, y + 14);
+      const wear = this.world.opl.resolve(item.serial)?.lines?.find((line) => /durability|hit points|uses remaining/i.test(line));
+      if (wear) {
+        ctx.fillStyle = '#8d8060';
+        ctx.font = '9px monospace';
+        ctx.fillText(wear, this.x + this.width - 14 - ctx.measureText(wear).width, y + 14);
+      }
+    });
+    ctx.restore();
+    ctx.textBaseline = 'top';
+  }
+}
+
 const STATUS_STORAGE_BASE = 'legionuo.status.v1';
 
 function statusStorageKey(world) {
@@ -2305,16 +2940,35 @@ const STATUS_ACTIONS = [
   { id: 'journal', label: 'Journal' },
   { id: 'war', label: 'War' },
   { id: 'refresh', label: 'Refresh' },
+  { id: 'top', label: 'Top' },
+  { id: 'lock', label: 'Lock' },
+  { id: 'scale', label: 'Scale' },
   { id: 'logout', label: 'Logout' },
 ];
+
+const STATUS_BUFF_SIZE = 24;
+const STATUS_BUFF_MAX = 9;
 
 export class StatusWindow {
   constructor(world) {
     this.world = world;
     this.width = 340;
-    this.height = 300;
+    this.height = 344;
+    this.scale = 1;
+    this.alwaysOnTop = false;
+    this.locked = false;
+    try {
+      const raw = JSON.parse(localStorage.getItem(statusStorageKey(world)) || 'null');
+      if (raw && typeof raw === 'object') {
+        this.scale = Math.max(0.75, Math.min(1.5, Number(raw.scale) || 1));
+        this.alwaysOnTop = !!raw.alwaysOnTop;
+        this.locked = !!raw.locked;
+      }
+    } catch {
+      /* ignore corrupt status settings */
+    }
     const saved = loadStatusPosition(world);
-    const pos = clampWindowPosition(saved?.x ?? 20, saved?.y ?? 20, this.width, this.height);
+    const pos = clampWindowPosition(saved?.x ?? 20, saved?.y ?? 20, this.scaledWidth, this.scaledHeight);
     this.x = pos.x;
     this.y = pos.y;
     this.dragging = false;
@@ -2326,8 +2980,20 @@ export class StatusWindow {
     return this.world.player;
   }
 
+  get scaledWidth() {
+    return Math.round(this.width * this.scale);
+  }
+
+  get scaledHeight() {
+    return Math.round(this.height * this.scale);
+  }
+
+  localPoint(mx, my) {
+    return { x: this.x + (mx - this.x) / this.scale, y: this.y + (my - this.y) / this.scale };
+  }
+
   contains(mx, my) {
-    return mx >= this.x && my >= this.y && mx < this.x + this.width && my < this.y + this.height;
+    return mx >= this.x && my >= this.y && mx < this.x + this.scaledWidth && my < this.y + this.scaledHeight;
   }
 
   closeRect() {
@@ -2336,18 +3002,44 @@ export class StatusWindow {
 
   actionRects() {
     const gap = 3;
-    const buttonWidth = 48;
+    const buttonWidth = 52;
     const buttonHeight = 20;
-    const total = STATUS_ACTIONS.length * buttonWidth + (STATUS_ACTIONS.length - 1) * gap;
-    const start = this.x + (this.width - total) / 2;
-    const y = this.y + this.height - 30;
-    return STATUS_ACTIONS.map((action, index) => ({
-      ...action,
-      x: start + index * (buttonWidth + gap),
-      y,
-      w: buttonWidth,
-      h: buttonHeight,
+    const perRow = 6;
+    const rows = Math.ceil(STATUS_ACTIONS.length / perRow);
+    return STATUS_ACTIONS.map((action, index) => {
+      const row = Math.floor(index / perRow);
+      const inRow = Math.min(perRow, STATUS_ACTIONS.length - row * perRow);
+      const total = inRow * buttonWidth + (inRow - 1) * gap;
+      const start = this.x + (this.width - total) / 2;
+      return {
+        ...action,
+        label: action.id === 'scale' ? `${Math.round(this.scale * 100)}%` : action.label,
+        x: start + (index % perRow) * (buttonWidth + gap),
+        y: this.y + this.height - 30 - (rows - 1 - row) * (buttonHeight + gap),
+        w: buttonWidth,
+        h: buttonHeight,
+      };
+    });
+  }
+
+  buffRects() {
+    const active = (this.world.buffs || []).filter((buff) => !buff.endsAt || buff.endsAt > Date.now()).slice(0, STATUS_BUFF_MAX);
+    const gap = 3;
+    return active.map((buff, index) => ({
+      buff,
+      x: this.x + 12 + index * (STATUS_BUFF_SIZE + gap),
+      y: this.y + 258,
+      w: STATUS_BUFF_SIZE,
+      h: STATUS_BUFF_SIZE,
     }));
+  }
+
+  tooltipAt(mx, my) {
+    const point = this.localPoint(mx, my);
+    const rect = this.buffRects().find((entry) => this.hitRect(entry, point.x, point.y));
+    if (!rect) return null;
+    const data = buffText(rect.buff, this.world.game);
+    return { id: `statusbuff:${rect.buff.icon}`, title: data.title || 'Effect', lines: data.lines || [] };
   }
 
   hitRect(rect, mx, my) {
@@ -2359,6 +3051,9 @@ export class StatusWindow {
   }
 
   onMouseDown(mx, my, button) {
+    const point = this.localPoint(mx, my);
+    mx = point.x;
+    my = point.y;
     if (button === 2) {
       this.close();
       return true;
@@ -2372,6 +3067,7 @@ export class StatusWindow {
       this.invoke(action.id);
       return true;
     }
+    if (this.locked) return true;
     this.dragging = true;
     this.dragOffset.x = mx - this.x;
     this.dragOffset.y = my - this.y;
@@ -2379,11 +3075,23 @@ export class StatusWindow {
   }
 
   onMouseMove(mx, my) {
-    this.hoverAction = this.actionAt(mx, my)?.id || null;
+    const point = this.localPoint(mx, my);
+    this.hoverAction = this.actionAt(point.x, point.y)?.id || null;
     if (this.dragging) {
-      this.x = mx - this.dragOffset.x;
-      this.y = my - this.dragOffset.y;
+      this.x = point.x - this.dragOffset.x;
+      this.y = point.y - this.dragOffset.y;
     }
+  }
+
+  onWheel(mx, my, delta, event) {
+    if (!this.contains(mx, my) || !event?.ctrlKey) return false;
+    const steps = [0.75, 1, 1.25, 1.5];
+    let index = steps.findIndex((value) => Math.abs(value - this.scale) < 0.01);
+    if (index < 0) index = 1;
+    index = Math.max(0, Math.min(steps.length - 1, index + (delta > 0 ? -1 : 1)));
+    this.scale = steps[index];
+    this.savePosition();
+    return true;
   }
 
   onMouseUp() {
@@ -2397,11 +3105,20 @@ export class StatusWindow {
   }
 
   savePosition() {
-    const pos = clampWindowPosition(this.x, this.y, this.width, this.height);
+    const pos = clampWindowPosition(this.x, this.y, this.scaledWidth, this.scaledHeight);
     this.x = pos.x;
     this.y = pos.y;
     try {
-      localStorage.setItem(statusStorageKey(this.world), JSON.stringify({ x: this.x, y: this.y }));
+      localStorage.setItem(
+        statusStorageKey(this.world),
+        JSON.stringify({
+          x: this.x,
+          y: this.y,
+          scale: this.scale,
+          alwaysOnTop: this.alwaysOnTop,
+          locked: this.locked,
+        })
+      );
     } catch {
       /* ignore quota errors */
     }
@@ -2428,6 +3145,19 @@ export class StatusWindow {
       ui.refreshStatus();
     } else if (action === 'refresh') {
       this.requestStatus(true);
+    } else if (action === 'top') {
+      this.alwaysOnTop = !this.alwaysOnTop;
+      this.savePosition();
+      ui.raiseWindow(this);
+    } else if (action === 'lock') {
+      this.locked = !this.locked;
+      this.dragging = false;
+      this.savePosition();
+    } else if (action === 'scale') {
+      const steps = [0.75, 1, 1.25, 1.5];
+      const index = steps.findIndex((value) => Math.abs(value - this.scale) < 0.01);
+      this.scale = steps[(index + 1) % steps.length] || 1;
+      this.savePosition();
     } else if (action === 'logout') {
       this.world.socket.out.logoutNotification();
       setTimeout(() => this.world.game.disconnect('Logged out'), 250);
@@ -2474,6 +3204,10 @@ export class StatusWindow {
   draw(ctx) {
     const p = this.player;
     if (!p) return;
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.scale(this.scale, this.scale);
+    ctx.translate(-this.x, -this.y);
     ctx.fillStyle = 'rgba(24,20,14,0.96)';
     ctx.fillRect(this.x, this.y, this.width, this.height);
     ctx.strokeStyle = '#8d7a52';
@@ -2551,23 +3285,50 @@ export class StatusWindow {
       this.y + 196
     );
     ctx.fillStyle = '#8d8060';
-    ctx.fillText(`${p.x}, ${p.y}, ${p.z}`, left, this.y + 214);
+    ctx.fillText(
+      `DI ${this.world.di ?? 0}  LRC ${this.world.lrc ?? 0}  SDI ${this.world.sdi ?? 0}  FCR ${this.world.fcr ?? 0}  FC ${this.world.fc ?? 0}  LMC ${this.world.lmc ?? 0}`,
+      left,
+      this.y + 210
+    );
+    ctx.fillStyle = '#8d8060';
+    ctx.fillText(`${p.x}, ${p.y}, ${p.z}`, left, this.y + 226);
     const statTotal = (p.strength || 0) + (p.dexterity || 0) + (p.intelligence || 0);
     ctx.fillStyle = p.isDead ? '#d66a5a' : '#8d8060';
     ctx.fillText(
-      `${p.isDead ? 'Ghost' : 'Alive'}   Stats ${statTotal}/${this.world.statsCap ?? 0}   Notoriety ${p.notoriety ?? 0}`,
+      `${p.isDead ? 'Ghost' : 'Alive'}   Stats ${statTotal}/${this.world.statsCap ?? 0}   Notoriety ${p.notoriety ?? 0}${this.locked ? '   [locked]' : ''}${this.alwaysOnTop ? '   [top]' : ''}`,
       left,
-      this.y + 228
+      this.y + 242
     );
 
-    ctx.fillStyle = '#5f5133';
-    ctx.fillRect(left, this.y + this.height - 38, width, 1);
     this.drawButton(ctx, this.closeRect(), 'X', false);
     for (const rect of this.actionRects()) {
       let label = rect.label;
       if (rect.id === 'war') label = p.inWarMode ? 'WAR' : 'PEACE';
-      this.drawButton(ctx, rect, label, this.hoverAction === rect.id);
+      this.drawButton(ctx, rect, label, this.hoverAction === rect.id || (rect.id === 'top' && this.alwaysOnTop) || (rect.id === 'lock' && this.locked));
     }
+
+    const buffs = this.buffRects();
+    if (buffs.length) {
+      for (const rect of buffs) {
+        const img = rect.buff.graphic ? this.world.assets.getGump(rect.buff.graphic) : null;
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';
+        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+        if (img) {
+          const scale = Math.min(rect.w / img.width, rect.h / img.height);
+          ctx.drawImage(img, rect.x + (rect.w - img.width * scale) / 2, rect.y + (rect.h - img.height * scale) / 2, img.width * scale, img.height * scale);
+        } else {
+          ctx.fillStyle = '#e8d7a8';
+          ctx.font = 'bold 11px monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          const title = buffText(rect.buff, this.world.game).title || '?';
+          ctx.fillText(title.charAt(0).toUpperCase(), rect.x + rect.w / 2, rect.y + rect.h / 2);
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'top';
+        }
+      }
+    }
+    ctx.restore();
   }
 }
 
@@ -2575,6 +3336,7 @@ const OPTION_TABS = [
   { id: 'general', label: 'General' },
   { id: 'display', label: 'Display' },
   { id: 'audio', label: 'Audio' },
+  { id: 'keys', label: 'Keys' },
 ];
 
 export class OptionsWindow {
@@ -2636,11 +3398,22 @@ export class OptionsWindow {
         { type: 'toggle', key: 'waypoints', label: 'Waypoint markers' },
       ];
     }
+    if (this.tab === 'keys') {
+      return [
+        { type: 'key', key: 'keyJournal', label: 'Journal' },
+        { type: 'key', key: 'keyHelp', label: 'Help' },
+        { type: 'key', key: 'keyWar', label: 'War/peace' },
+        { type: 'key', key: 'keyTarget', label: 'Target cursor' },
+        { type: 'key', key: 'keyLastTarget', label: 'Last target' },
+        { type: 'key', key: 'keyAllNames', label: 'Toggle names' },
+        { type: 'note', label: 'Click a shortcut, then press the new key combination.' },
+      ];
+    }
     return [
-      { type: 'toggle', key: 'audioEnabled', label: 'Enable audio', hint: 'Synthesized effects; no sound samples are shipped' },
+      { type: 'toggle', key: 'audioEnabled', label: 'Enable audio', hint: 'Uses decoded sound.mul samples with synthesized fallback' },
       { type: 'slider', key: 'audioVolume', label: 'Volume' },
       { type: 'toggle', key: 'footsteps', label: 'Footstep sounds' },
-      { type: 'note', label: 'Audio settings are shared by all characters.' },
+      { type: 'note', label: 'Options are saved per account.' },
     ];
   }
 
@@ -2672,6 +3445,10 @@ export class OptionsWindow {
   }
 
   onMouseDown(mx, my, button) {
+    if (this.keyCapture) {
+      window.removeEventListener('keydown', this.keyCapture, true);
+      this.keyCapture = null;
+    }
     if (button === 2 || this.hitRect(this.closeRect(), mx, my)) {
       this.close();
       return true;
@@ -2686,6 +3463,7 @@ export class OptionsWindow {
     if (row) {
       if (row.type === 'toggle') this.activateRow(row);
       else if (row.type === 'button') this.activateRow(row);
+      else if (row.type === 'key') this.captureKey(row);
       else if (row.type === 'slider') {
         this.sliderDrag = true;
         this.setVolumeFromMouse(mx, row);
@@ -2741,6 +3519,28 @@ export class OptionsWindow {
     if (row.key === 'audioEnabled' && value) this.world.game.audio?.ensure();
   }
 
+  captureKey(row) {
+    if (this.keyCapture) window.removeEventListener('keydown', this.keyCapture, true);
+    this.keyCapture = (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (event.key === 'Escape') {
+        window.removeEventListener('keydown', this.keyCapture, true);
+        this.keyCapture = null;
+        return;
+      }
+      const parts = [];
+      if (event.ctrlKey) parts.push('Ctrl');
+      if (event.altKey) parts.push('Alt');
+      if (event.shiftKey) parts.push('Shift');
+      if (!['Control', 'Alt', 'Shift', 'Meta'].includes(event.key)) parts.push(event.code);
+      if (parts.length) settings.set(row.key, parts.join('+'));
+      window.removeEventListener('keydown', this.keyCapture, true);
+      this.keyCapture = null;
+    };
+    window.addEventListener('keydown', this.keyCapture, true);
+  }
+
   setVolumeFromMouse(mx, row) {
     const track = this.volumeTrack(row);
     const ratio = Math.max(0, Math.min(1, (mx - track.x) / Math.max(1, track.w)));
@@ -2756,6 +3556,10 @@ export class OptionsWindow {
   }
 
   close() {
+    if (this.keyCapture) {
+      window.removeEventListener('keydown', this.keyCapture, true);
+      this.keyCapture = null;
+    }
     this.savePosition();
     this.world.game.ui?.closeOptions?.();
   }
@@ -2829,6 +3633,37 @@ export class OptionsWindow {
     ctx.textBaseline = 'top';
   }
 
+  keyLabel(binding) {
+    return String(binding || '')
+      .replace(/^Key/, '')
+      .replace(/^Digit/, '')
+      .replace(/^Arrow/, 'Arrow ')
+      .replace(/^Numpad/, 'Num ');
+  }
+
+  drawKeyRow(ctx, row) {
+    const hovered = this.hover === row.label;
+    if (hovered) {
+      ctx.fillStyle = 'rgba(201,176,108,0.10)';
+      ctx.fillRect(row.x - 4, row.y, row.w + 8, row.h);
+    }
+    ctx.fillStyle = '#d9c58d';
+    ctx.font = '12px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(row.label, row.x, row.y + row.h / 2);
+    const button = { x: row.x + row.w - 132, y: row.y + 4, w: 128, h: 22 };
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.fillRect(button.x, button.y, button.w, button.h);
+    ctx.strokeStyle = hovered ? '#c9b06c' : '#5f5133';
+    ctx.strokeRect(button.x + 0.5, button.y + 0.5, button.w - 1, button.h - 1);
+    ctx.fillStyle = hovered ? '#f0dfa8' : '#d9c58d';
+    ctx.textAlign = 'center';
+    ctx.fillText(this.keyLabel(settings.get(row.key)), button.x + button.w / 2, button.y + button.h / 2 + 1);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+  }
+
   drawButtonRow(ctx, row) {
     const hovered = this.hover === row.label;
     if (hovered) {
@@ -2893,6 +3728,7 @@ export class OptionsWindow {
 
     for (const row of this.rowRects()) {
       if (row.type === 'toggle') this.drawToggle(ctx, row);
+      else if (row.type === 'key') this.drawKeyRow(ctx, row);
       else if (row.type === 'slider') this.drawSlider(ctx, row);
       else if (row.type === 'button') this.drawButtonRow(ctx, row);
       else if (row.type === 'note') {
@@ -2956,11 +3792,11 @@ export class SkillsWindow {
   }
 
   get listTop() {
-    return this.y + 76;
+    return this.y + 98;
   }
 
   get listHeight() {
-    return this.height - 86;
+    return this.height - 108;
   }
 
   get rowHeight() {
@@ -3027,6 +3863,17 @@ export class SkillsWindow {
     ];
   }
 
+  statRects() {
+    return ['str', 'dex', 'int'].map((stat, index) => ({
+      stat,
+      label: stat.toUpperCase(),
+      x: this.x + 12 + index * 122,
+      y: this.y + 58,
+      w: 116,
+      h: 22,
+    }));
+  }
+
   hitRect(rect, mx, my) {
     return mx >= rect.x && my >= rect.y && mx < rect.x + rect.w && my < rect.y + rect.h;
   }
@@ -3056,6 +3903,11 @@ export class SkillsWindow {
     const toolbar = this.buttonAt(mx, my);
     if (toolbar) {
       this.invokeToolbar(toolbar.id);
+      return true;
+    }
+    const stat = this.statRects().find((rect) => this.hitRect(rect, mx, my));
+    if (stat) {
+      this.cycleStatLock(stat.stat);
       return true;
     }
     const row = this.rowAt(mx, my);
@@ -3110,6 +3962,14 @@ export class SkillsWindow {
     }
     this.scroll = 0;
     this.clampScroll();
+  }
+
+  cycleStatLock(stat) {
+    if (!this.world.statLocks) this.world.statLocks = { str: 0, dex: 0, int: 0 };
+    const next = ((this.world.statLocks[stat] || 0) + 1) % 3;
+    this.world.statLocks[stat] = next;
+    const index = stat === 'str' ? 0 : stat === 'dex' ? 1 : 2;
+    this.world.socket.out.statLock(index, next);
   }
 
   cycleLock(skill) {
@@ -3189,7 +4049,27 @@ export class SkillsWindow {
     this.drawToolbarButton(ctx, valueButton, `Value${this.sort === 'value' ? (this.descending ? ' v' : ' ^') : ''}`, this.sort === 'value');
     this.drawToolbarButton(ctx, usableButton, this.usableOnly ? 'Usable only' : 'All skills', this.usableOnly);
 
-    const headerY = this.y + 58;
+    for (const rect of this.statRects()) {
+      const state = this.world.statLocks?.[rect.stat] || 0;
+      const label = SKILL_LOCK_LABELS[state] || 'UP';
+      const value = this.world.player?.[rect.stat === 'str' ? 'strength' : rect.stat === 'dex' ? 'dexterity' : 'intelligence'] ?? 0;
+      ctx.fillStyle = 'rgba(0,0,0,0.24)';
+      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.strokeStyle = state === 2 ? '#c8a8ff' : state === 1 ? '#d6a35a' : '#8fd6ff';
+      ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
+      ctx.fillStyle = '#d9c58d';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`${rect.label} ${value}`, rect.x + 8, rect.y + rect.h / 2);
+      ctx.fillStyle = state === 2 ? '#c8a8ff' : state === 1 ? '#d6a35a' : '#8fd6ff';
+      ctx.textAlign = 'right';
+      ctx.fillText(label, rect.x + rect.w - 8, rect.y + rect.h / 2);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+    }
+
+    const headerY = this.y + 86;
     ctx.fillStyle = '#9e8e65';
     ctx.font = '10px monospace';
     ctx.fillText('Skill', this.x + 14, headerY);
@@ -3200,7 +4080,7 @@ export class SkillsWindow {
     ctx.fillText('Use', this.x + 342, headerY);
 
     ctx.fillStyle = '#5f5133';
-    ctx.fillRect(this.x + 8, this.y + 72, this.width - 16, 1);
+    ctx.fillRect(this.x + 8, this.y + 92, this.width - 16, 1);
 
     const listHeight = this.listHeight;
     ctx.save();

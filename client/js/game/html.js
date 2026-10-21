@@ -61,6 +61,12 @@ const KNOWN_TAGS = new Set([
   'bodybgcolor',
   'bodytext',
   'font',
+  'table',
+  'tr',
+  'td',
+  'th',
+  'hr',
+  'img',
 ]);
 
 const MARKUP_RE = /<\s*\/?\s*[a-z#][^>]*>|&(?:#x[0-9a-f]+|#\d+|[a-z][a-z0-9]+);/i;
@@ -488,6 +494,33 @@ export function parseUoHtml(html, base = {}) {
         }
         break;
       }
+
+      case 'table':
+        if (!closing) {
+          if (lineHasText) pushBreak();
+        } else pushBreak();
+        break;
+
+      case 'tr':
+        pushBreak();
+        break;
+
+      case 'td':
+      case 'th':
+        if (lineHasText) pushText('   ', style);
+        break;
+
+      case 'hr':
+        if (!closing) {
+          pushBreak();
+          pushText('----------', style);
+          pushBreak();
+        }
+        break;
+
+      case 'img':
+        if (!closing && attrs.alt) pushText(attrs.alt, style);
+        break;
 
       case 'basefont':
         if (!closing) {

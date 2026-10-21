@@ -420,6 +420,9 @@ export class Handlers {
         entity.graphic = graphic;
         entity.hue = hue;
         entity.flags = flags;
+        entity.isFrozen = (flags & 0x01) !== 0;
+        entity.isHidden = (flags & 0x80) !== 0;
+        if (entity === world.player) entity.isStunned = false;
         world.refreshGhostState(entity);
         if (entity === world.player) {
           world.reconcilePlayerPosition(x, y, z, direction, { force: true });
@@ -663,12 +666,12 @@ export class Handlers {
     this.set(0x4e, (r) => {
       const serial = r.readU32BE();
       const level = r.readU8();
-      if (serial === world.playerSerial) world.light.personal = Math.min(30, level);
+      if (serial === world.playerSerial) world.setLight(world.light.overall, Math.min(30, level));
     });
 
     this.set(0x4f, (r) => {
       const level = r.readU8();
-      world.light.overall = Math.min(30, level);
+      world.setLight(Math.min(30, level), world.light.personal);
     });
 
     this.set(0x54, (r) => {

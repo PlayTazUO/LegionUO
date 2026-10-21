@@ -213,6 +213,19 @@ export function getSpellbookInfo(graphic) {
   return SPELLBOOK_TYPES.find((type) => type.graphics.includes(id)) || DEFAULT_SPELLBOOK;
 }
 
+export function getSpellbookInfoByOffset(offset) {
+  const value = Number(offset) || 0;
+  if (value > 745) return DEFAULT_SPELLBOOK;
+  if (value >= 701) return SPELLBOOK_TYPES.find((type) => type.key === 'mastery') || DEFAULT_SPELLBOOK;
+  if (value >= 678) return SPELLBOOK_TYPES.find((type) => type.key === 'mysticism') || DEFAULT_SPELLBOOK;
+  if (value >= 601) return SPELLBOOK_TYPES.find((type) => type.key === 'spellweaving') || DEFAULT_SPELLBOOK;
+  if (value >= 501) return SPELLBOOK_TYPES.find((type) => type.key === 'ninjitsu') || DEFAULT_SPELLBOOK;
+  if (value >= 401) return SPELLBOOK_TYPES.find((type) => type.key === 'bushido') || DEFAULT_SPELLBOOK;
+  if (value >= 201) return SPELLBOOK_TYPES.find((type) => type.key === 'chivalry') || DEFAULT_SPELLBOOK;
+  if (value >= 101) return SPELLBOOK_TYPES.find((type) => type.key === 'necromancy') || DEFAULT_SPELLBOOK;
+  return DEFAULT_SPELLBOOK;
+}
+
 export function getBookSpell(info, slot) {
   const index = slot - 1;
   const name = info.names[index];

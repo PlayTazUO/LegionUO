@@ -1,4 +1,5 @@
-import { drawUoHtml, color16ToCss, parseUoHtml } from './html.js';
+import { drawUoHtml, color16ToCss, parseUoHtml, hasUoHtmlMarkup } from './html.js';
+import { settings } from './settings.js';
 
 function tokenize(layout) {
   const out = [];
@@ -66,6 +67,7 @@ export class Gump {
     this.pendingItemProperty = 0;
     this.focusedEntry = null;
     this.scrollDrag = null;
+    this.scale = world.getGumpScale?.(this.id) || 1;
     this.parseLayout();
   }
 
@@ -88,6 +90,8 @@ export class Gump {
   }
 
   setLayout(layout, lines) {
+    const switches = new Map(this.switches);
+    const entries = new Map(this.entries);
     this.layout = layout;
     this.lines = lines || [];
     this.canMove = true;
@@ -96,6 +100,24 @@ export class Gump {
     this.noResize = false;
     this.masterGump = 0;
     this.parseLayout();
+    for (const control of this.controls) {
+      if ((control.type === 'checkbox' || control.type === 'radio') && switches.has(control.switchId)) {
+        control.state = !!switches.get(control.switchId);
+        if (control.state) this.switches.set(control.switchId, true);
+        else this.switches.delete(control.switchId);
+      }
+      if ((control.type === 'textentry' || control.type === 'textentrylimited') && entries.has(control.entryId)) {
+        const text = String(entries.get(control.entryId) ?? '');
+        this.entries.set(control.entryId, text);
+        control.caret = text.length;
+        control.selAnchor = text.length;
+      }
+    }
+  }
+
+  setScale(scale) {
+    this.scale = Math.max(0.5, Math.min(2, scale));
+    this.world.rememberGumpScale?.(this.id, this.scale);
   }
 
   resolveText(index) {
@@ -172,7 +194,11 @@ export class Gump {
   }
 
   contains(mx, my) {
-    return mx >= this.x && my >= this.y && mx < this.x + this.width && my < this.y + this.height;
+    return mx >= this.x && my >= this.y && mx < this.x + this.width * this.scale && my < this.y + this.height * this.scale;
+  }
+
+  localPoint(mx, my) {
+    return { x: this.x + (mx - this.x) / this.scale, y: this.y + (my - this.y) / this.scale };
   }
 
   visibleControls() {
@@ -180,8 +206,9 @@ export class Gump {
   }
 
   hitControl(mx, my) {
-    const lx = mx - this.x;
-    const ly = my - this.y;
+    const point = this.localPoint(mx, my);
+    const lx = point.x - this.x;
+    const ly = point.y - this.y;
     const list = this.visibleControls();
     for (let i = list.length - 1; i >= 0; i--) {
       const c = list[i];
@@ -217,8 +244,11 @@ export class Gump {
     };
   }
 
-  onMouseDown(mx, my, button) {
-    const c = this.hitControl(mx, my);
+  onMouseDown(screenX, screenY, button) {
+    const point = this.localPoint(screenX, screenY);
+    let mx = point.x;
+    let my = point.y;
+    const c = this.hitControl(screenX, screenY);
     const ui = this.world.game.ui;
     if (button === 2) {
       if (this.canCloseWithRightClick) this.sendResponse(0);
@@ -286,7 +316,10 @@ export class Gump {
     return true;
   }
 
-  onMouseMove(mx, my) {
+  onMouseMove(screenX, screenY) {
+    const point = this.localPoint(screenX, screenY);
+    let mx = point.x;
+    let my = point.y;
     if (this.scrollDrag) {
       this.updateScrollbarDrag(my);
       return true;
@@ -305,8 +338,12 @@ export class Gump {
     this.scrollDrag = null;
   }
 
-  onWheel(mx, my, delta) {
-    const c = this.hitControl(mx, my);
+  onWheel(screenX, screenY, delta, event) {
+    if (event?.ctrlKey) {
+      this.setScale(this.scale + (delta > 0 ? -0.1 : 0.1));
+      return true;
+    }
+    const c = this.hitControl(screenX, screenY);
     if (!c || !c.scrollbar || !c.contentHeight) return false;
     const view = this.htmlInnerHeight(c);
     const max = Math.max(0, c.contentHeight - view);
@@ -522,6 +559,23 @@ export class Gump {
     return false;
   }
 
+  insertText(value) {
+    const control = this.focusedEntry;
+    if (!control || !value) return false;
+    const text = this.entries.get(control.entryId) || '';
+    const maxLength = control.maxLength || 255;
+    const caret = Math.max(0, Math.min(control.caret ?? text.length, text.length));
+    const anchor = Math.max(0, Math.min(control.selAnchor ?? caret, text.length));
+    const start = Math.min(caret, anchor);
+    const end = Math.max(caret, anchor);
+    const next = (text.slice(0, start) + value + text.slice(end)).slice(0, maxLength);
+    this.entries.set(control.entryId, next);
+    control.caret = Math.min(start + value.length, next.length);
+    control.selAnchor = control.caret;
+    control.blinkStart = performance.now();
+    return true;
+  }
+
   onBlur() {
     this.focusedEntry = null;
   }
@@ -544,6 +598,9 @@ export class Gump {
     const assets = this.world.assets;
     const controls = this.visibleControls();
     ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.scale(this.scale, this.scale);
+    ctx.translate(-this.x, -this.y);
     ctx.globalAlpha = 1;
     // Backgrounds and images first, then text and interactive controls.
     for (const c of controls) {
@@ -557,6 +614,8 @@ export class Gump {
       } else if (c.type === 'checkertrans') {
         ctx.fillStyle = 'rgba(0,0,0,0.5)';
         ctx.fillRect(this.x + c.x, this.y + c.y, c.width, c.height);
+      } else if (c.type === 'maparea') {
+        this.drawMapArea(ctx, c);
       }
     }
     ctx.globalAlpha = 1;
@@ -587,6 +646,18 @@ export class Gump {
     }
     ctx.globalAlpha = 1;
     ctx.restore();
+  }
+
+  drawMapArea(ctx, c) {
+    const x0 = Math.min(c.mapX, c.mapEndX);
+    const y0 = Math.min(c.mapY, c.mapEndY);
+    const x1 = Math.max(c.mapX, c.mapEndX);
+    const y1 = Math.max(c.mapY, c.mapEndY);
+    const width = Math.max(1, c.width);
+    const height = Math.max(1, c.height);
+    const key = `gumpmap|${c.mapIndex}|${x0}|${y0}|${x1}|${y1}|${width}|${height}`;
+    const img = this.world.assets.image(key, `/api/mapimage?facet=${c.mapIndex}&x0=${x0}&y0=${y0}&x1=${x1}&y1=${y1}&w=${width}&h=${height}`);
+    if (img) ctx.drawImage(img, this.x + c.x, this.y + c.y, width, height);
   }
 
   drawResizePic(ctx, assets, c) {
@@ -716,6 +787,8 @@ export class Gump {
     const text = this.resolveText(c.textIndex);
     const hue = c.hue || 0;
 
+    if (!hasUoHtmlMarkup(text) && this.drawBitmapText(ctx, c, text, hue)) return;
+
     const color = game.hueColor(hue);
     const key = `${color}\u0000${text}`;
     if (c.htmlKey !== key) {
@@ -735,6 +808,40 @@ export class Gump {
       clip: c.type === 'croppedtext',
       links: c.linkRects,
     });
+  }
+
+  drawBitmapText(ctx, c, text, hue) {
+    const font = this.world.assets.getFont(settings.get('gumpFont') || 3, hue);
+    if (!font?.img || !font.meta?.glyphs) return false;
+    const glyphs = font.meta.glyphs;
+    const maxWidth = c.type === 'croppedtext' ? c.width || 100 : Infinity;
+    const maxHeight = c.type === 'croppedtext' ? c.height || 20 : Infinity;
+    ctx.save();
+    if (c.type === 'croppedtext') {
+      ctx.beginPath();
+      ctx.rect(this.x + c.x, this.y + c.y, maxWidth, maxHeight);
+      ctx.clip();
+    }
+    let x = this.x + c.x;
+    let y = this.y + c.y;
+    for (const char of String(text)) {
+      if (char === '\n') {
+        x = this.x + c.x;
+        y += font.meta.height || 14;
+        continue;
+      }
+      const index = char.charCodeAt(0) - 32;
+      if (index < 0) continue;
+      const glyph = glyphs[index];
+      if (!glyph) continue;
+      if (glyph.w > 0 && glyph.h > 0) {
+        ctx.drawImage(font.img, glyph.x, glyph.y, glyph.w, glyph.h, x, y, glyph.w, glyph.h);
+      }
+      x += glyph.advance || glyph.w || 0;
+      if (x - (this.x + c.x) > maxWidth) break;
+    }
+    ctx.restore();
+    return true;
   }
 
   drawHtmlText(ctx, c) {

@@ -1,5 +1,6 @@
 const HOTBAR_STORAGE_BASE = 'legionuo.hotbar.v1';
 const SLOT_COUNT = 12;
+const PAGE_COUNT = 3;
 const SLOT_SIZE = 40;
 const SLOT_GAP = 4;
 const PAD = 6;
@@ -58,6 +59,11 @@ function normalizeSlot(slot) {
       name: String(slot.name || command),
     };
   }
+  if (slot.type === 'macro') {
+    const steps = Array.isArray(slot.steps) ? slot.steps.map((step) => String(step || '').trim()).filter(Boolean) : [];
+    if (!steps.length) return null;
+    return { type: 'macro', name: String(slot.name || 'Macro'), steps };
+  }
   return null;
 }
 
@@ -93,6 +99,32 @@ export function hotbarCommandSlot(command, name) {
   return normalizeSlot({ type: 'command', command, name });
 }
 
+export function hotbarMacroSlot(name, steps) {
+  return normalizeSlot({ type: 'macro', name, steps });
+}
+
+export function macroStorageKey(world) {
+  const account = (world.game?.loginCredentials?.account || '').trim().toLowerCase();
+  return account ? `legionuo.macros.v1.${account}` : 'legionuo.macros.v1';
+}
+
+export function loadMacros(world) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(macroStorageKey(world)) || 'null');
+    return saved && typeof saved === 'object' ? saved : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveMacros(world, macros) {
+  try {
+    localStorage.setItem(macroStorageKey(world), JSON.stringify(macros));
+  } catch {
+    /* ignore quota errors */
+  }
+}
+
 export function hotbarSlotForKey(code) {
   const index = KEY_CODES.indexOf(code);
   if (index >= 0) return index;
@@ -122,8 +154,13 @@ export class HotbarWindow {
     );
     this.x = fallback.x;
     this.y = fallback.y;
-    this.slots = new Array(SLOT_COUNT).fill(null);
+    this.page = 0;
+    this.pages = Array.from({ length: PAGE_COUNT }, () => new Array(SLOT_COUNT).fill(null));
     this.load();
+  }
+
+  get slots() {
+    return this.pages[this.page];
   }
 
   load() {
@@ -135,8 +172,15 @@ export class HotbarWindow {
         this.x = pos.x;
         this.y = pos.y;
       }
-      if (Array.isArray(saved.slots)) {
-        for (let i = 0; i < SLOT_COUNT; i++) this.slots[i] = normalizeSlot(saved.slots[i]);
+      this.page = Math.max(0, Math.min(PAGE_COUNT - 1, Number(saved.page) || 0));
+      if (Array.isArray(saved.pages)) {
+        for (let p = 0; p < PAGE_COUNT; p++) {
+          const page = saved.pages[p];
+          if (!Array.isArray(page)) continue;
+          for (let i = 0; i < SLOT_COUNT; i++) this.pages[p][i] = normalizeSlot(page[i]);
+        }
+      } else if (Array.isArray(saved.slots)) {
+        for (let i = 0; i < SLOT_COUNT; i++) this.pages[0][i] = normalizeSlot(saved.slots[i]);
       }
     } catch {
       /* ignore corrupt saved hotbar */
@@ -147,7 +191,7 @@ export class HotbarWindow {
     try {
       localStorage.setItem(
         storageKey(this.world),
-        JSON.stringify({ x: Math.round(this.x), y: Math.round(this.y), slots: this.slots })
+        JSON.stringify({ x: Math.round(this.x), y: Math.round(this.y), page: this.page, pages: this.pages })
       );
     } catch {
       /* ignore quota errors */
@@ -160,6 +204,10 @@ export class HotbarWindow {
 
   closeRect() {
     return { x: this.x + this.width - 20, y: this.y + 4, w: 14, h: 14 };
+  }
+
+  pageRect(dir) {
+    return { x: this.x + this.width - (dir > 0 ? 58 : 82), y: this.y + 4, w: 20, h: 14 };
   }
 
   slotRect(index) {
@@ -184,7 +232,7 @@ export class HotbarWindow {
     if (index < 0) return null;
     const slot = this.slots[index];
     if (!slot) return { id: `hotbar:${index}`, title: `Slot ${index + 1}`, lines: [`Key ${KEYS[index]}`, 'Empty'] };
-    const type = { item: 'Item', spell: 'Spell', skill: 'Skill', command: 'Command' }[slot.type] || 'Action';
+    const type = { item: 'Item', spell: 'Spell', skill: 'Skill', command: 'Command', macro: 'Macro' }[slot.type] || 'Action';
     return {
       id: `hotbar:${index}`,
       title: slot.name || type,
@@ -238,6 +286,10 @@ export class HotbarWindow {
       this.world.game.ui?.command(slot.command);
       return true;
     }
+    if (slot.type === 'macro') {
+      for (const step of slot.steps) this.world.game.ui?.command(step);
+      return true;
+    }
     return false;
   }
 
@@ -273,6 +325,18 @@ export class HotbarWindow {
         return true;
       }
       this.close();
+      return true;
+    }
+    const prev = this.pageRect(-1);
+    const next = this.pageRect(1);
+    if (mx >= prev.x && my >= prev.y && mx < prev.x + prev.w && my < prev.y + prev.h) {
+      this.page = (this.page + PAGE_COUNT - 1) % PAGE_COUNT;
+      this.save();
+      return true;
+    }
+    if (mx >= next.x && my >= next.y && mx < next.x + next.w && my < next.y + next.h) {
+      this.page = (this.page + 1) % PAGE_COUNT;
+      this.save();
       return true;
     }
     const close = this.closeRect();
@@ -327,7 +391,19 @@ export class HotbarWindow {
     ctx.fillText('Hotbar', this.x + PAD, this.y + 5);
     ctx.fillStyle = '#6f6244';
     ctx.font = '9px monospace';
-    ctx.fillText(KEYS.join(' '), this.x + PAD + 42, this.y + 6);
+    ctx.fillText(`P${this.page + 1}`, this.x + PAD + 42, this.y + 6);
+    for (const [dir, label] of [[-1, '<'], [1, '>']]) {
+      const rect = this.pageRect(dir);
+      ctx.fillStyle = '#8d7a52';
+      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.fillStyle = '#1a150d';
+      ctx.font = 'bold 9px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2 + 1);
+    }
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
 
     const close = this.closeRect();
     ctx.fillStyle = '#8d7a52';

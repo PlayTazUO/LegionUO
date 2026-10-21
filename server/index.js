@@ -222,7 +222,7 @@ const server = http.createServer((req, res) => {
         mountedWalkDelay: config.mountedWalkDelay,
         mountedRunDelay: config.mountedRunDelay,
         moveSpeedMultiplier: config.moveSpeedMultiplier,
-        features: { animations: true, gumps: true, maps: true, cliloc: true },
+        features: { animations: true, gumps: true, maps: true, cliloc: true, sounds: true, fonts: true, music: true },
       });
       return;
     }
@@ -297,6 +297,32 @@ const server = http.createServer((req, res) => {
     m = pathname.match(/^\/api\/multi\/(\d+)$/);
     if (m) {
       sendJSON(res, 200, assets.multis.get(Number(m[1])));
+      return;
+    }
+
+    m = pathname.match(/^\/api\/music\/(\d+)(\.mp3)?$/);
+    if (m) {
+      const track = assets.musicTrack(Number(m[1]));
+      if (!track) sendJSON(res, 404, { error: 'music not found' });
+      else sendBuffer(res, 200, track.data, track.type, 'public, max-age=86400');
+      return;
+    }
+
+    m = pathname.match(/^\/api\/font\/(\d+)(\.png)?$/);
+    if (m) {
+      const hue = Number(url.searchParams.get('hue') || 0);
+      const result = assets.font(Number(m[1]), hue);
+      if (!result) sendJSON(res, 404, { error: 'font not found' });
+      else if (m[2]) sendBuffer(res, 200, result.png, 'image/png', 'public, max-age=86400');
+      else sendJSON(res, 200, result.meta);
+      return;
+    }
+
+    m = pathname.match(/^\/api\/sound\/(\d+)(\.wav)?$/);
+    if (m) {
+      const sound = assets.sound(Number(m[1]));
+      if (!sound) sendJSON(res, 404, { error: 'sound not found' });
+      else sendBuffer(res, 200, sound, 'audio/wav', 'public, max-age=86400');
       return;
     }
 

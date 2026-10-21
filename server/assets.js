@@ -11,6 +11,9 @@ import { ClilocManager } from './uo/cliloc.js';
 import { SkillsManager } from './uo/skills.js';
 import { MultiManager } from './uo/multi.js';
 import { TexmapManager } from './uo/texmaps.js';
+import { SoundManager } from './uo/sound.js';
+import { FontManager } from './uo/fonts.js';
+import { MusicManager } from './uo/music.js';
 import { color16ToRgb } from './uo/colors.js';
 import { renderFacetCrop } from './uo/multimap.js';
 
@@ -67,6 +70,9 @@ export class AssetService {
     this.clilocs = new ClilocManager(this.files, config.language || 'enu');
     this.skills = new SkillsManager(this.files);
     this.multis = new MultiManager(this.files, config.clientVersion);
+    this.sounds = new SoundManager(this.files);
+    this.fonts = new FontManager(this.files, this.hues);
+    this.music = new MusicManager(this.files);
     this.cache = new LRU((config.cacheMb || 256) * 1024 * 1024);
     this.radarBuffer = undefined;
 
@@ -88,6 +94,9 @@ export class AssetService {
     this.clilocs = new ClilocManager(this.files, this.config.language || 'enu');
     this.skills = new SkillsManager(this.files);
     this.multis = new MultiManager(this.files, this.config.clientVersion);
+    this.sounds = new SoundManager(this.files);
+    this.fonts = new FontManager(this.files, this.hues);
+    this.music = new MusicManager(this.files);
     this.cache = new LRU((this.config.cacheMb || 256) * 1024 * 1024);
     this.radarBuffer = undefined;
   }
@@ -121,6 +130,9 @@ export class AssetService {
         map0: has('map0.mul') || has('map0LegacyMUL.uop'),
         staidx0: has('staidx0.mul'),
         multi: has('multi.mul') || has('MultiCollection.uop'),
+        sound: has('sound.mul') || has('soundLegacyMUL.uop'),
+        fonts: has('fonts.mul'),
+        music: has('Music/Digital/Config.txt') || has('Music/Config.txt'),
         skills: has('skills.mul') || has('Skills.mul'),
         radar: has('radarcol.mul'),
         facets: has('facet00.mul') || has('facet0.mul'),
@@ -135,6 +147,9 @@ export class AssetService {
         anim: this.files.find('AnimationFrame1.uop') || this.files.find('anim.mul'),
         map0: this.files.find('map0LegacyMUL.uop') || this.files.find('map0.mul'),
         multi: this.files.find('MultiCollection.uop') || this.files.find('multi.mul'),
+        sound: this.files.find('sound.mul') || this.files.find('soundLegacyMUL.uop'),
+        fonts: this.files.find('fonts.mul'),
+        music: this.files.find('Music/Digital/Config.txt') || this.files.find('Music/Config.txt'),
         skills: this.files.find('skills.mul') || this.files.find('Skills.mul'),
         radar: this.files.find('radarcol.mul'),
         facet0: this.files.find('facet00.mul') || this.files.find('facet0.mul'),
@@ -227,6 +242,18 @@ export class AssetService {
 
   mapBlock(map, bx, by, useXFiles = false) {
     return this.maps.getBlock(map, bx, by, useXFiles);
+  }
+
+  musicTrack(index) {
+    return this.music.get(index);
+  }
+
+  font(font, hue) {
+    return this.fonts.atlas(font, hue);
+  }
+
+  sound(id) {
+    return this.sounds.get(id);
   }
 
   radarColors() {

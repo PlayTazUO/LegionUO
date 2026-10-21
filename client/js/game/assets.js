@@ -7,6 +7,8 @@ export class AssetManager {
     this.tileData = null;
     this.multis = new Map();
     this.multiPending = new Set();
+    this.fontMeta = new Map();
+    this.fontPromise = new Map();
   }
 
   image(key, url) {
@@ -63,6 +65,33 @@ export class AssetManager {
           })
           .catch(() => null)
           .finally(() => this.animPromise.delete(key))
+      );
+    }
+    return null;
+  }
+
+  getFont(font, hue = 0) {
+    const id = Math.max(0, Math.min(9, font | 0));
+    const imageKey = `fontimg|${id}|${hue}`;
+    this.image(imageKey, `/api/font/${id}.png?hue=${hue}`);
+    if (this.fontMeta.has(id)) {
+      const meta = this.fontMeta.get(id);
+      if (!meta) return null;
+      const entry = this.images.get(imageKey);
+      if (entry?.ready) return { meta, img: entry.img };
+      return null;
+    }
+    if (!this.fontPromise.has(id)) {
+      this.fontPromise.set(
+        id,
+        fetch(`/api/font/${id}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => {
+            this.fontMeta.set(id, data || null);
+            return data;
+          })
+          .catch(() => null)
+          .finally(() => this.fontPromise.delete(id))
       );
     }
     return null;

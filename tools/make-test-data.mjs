@@ -263,5 +263,43 @@ function gumpArt(w,h,color) {
   fs.writeFileSync(path.join(dir,'anim.mul'), Buffer.concat(dataBlocks));
 }
 
+
+// ---------- fonts.mul ----------
+{
+  const glyphs=[];
+  for (let i=0;i<224;i++) {
+    const w=4,h=6;
+    const data=Buffer.alloc(w*h*2);
+    for (let p=0;p<w*h;p++) data.writeUInt16LE(0x7fff,p*2);
+    glyphs.push(Buffer.from([w,h,0]), data);
+  }
+  const font=Buffer.concat([Buffer.from([0]), ...glyphs]);
+  fs.writeFileSync(path.join(dir,'fonts.mul'), font);
+}
+
+// ---------- sound.mul / soundidx.mul ----------
+{
+  const sampleRate=22050;
+  const samples=1102;
+  const pcm=Buffer.alloc(samples*2);
+  for (let i=0;i<samples;i++) pcm.writeInt16LE(Math.round(Math.sin(i/8)*6000), i*2);
+  const header=Buffer.alloc(44);
+  header.write('RIFF',0,'ascii'); header.writeUInt32LE(36+pcm.length,4); header.write('WAVE',8,'ascii');
+  header.write('fmt ',12,'ascii'); header.writeUInt32LE(16,16); header.writeUInt16LE(1,20);
+  header.writeUInt16LE(1,22); header.writeUInt32LE(sampleRate,24); header.writeUInt32LE(sampleRate*2,28);
+  header.writeUInt16LE(2,32); header.writeUInt16LE(16,34); header.write('data',36,'ascii');
+  header.writeUInt32LE(pcm.length,40);
+  const wav=Buffer.concat([header,pcm]);
+  const count=32;
+  const idx=Buffer.alloc(count*12);
+  const chunks=[]; let off=0;
+  for (let i=0;i<count;i++) {
+    idx.writeUInt32LE(off,i*12); idx.writeUInt32LE(wav.length,i*12+4); idx.writeUInt32LE(0,i*12+8);
+    chunks.push(wav); off+=wav.length;
+  }
+  fs.writeFileSync(path.join(dir,'soundidx.mul'), idx);
+  fs.writeFileSync(path.join(dir,'sound.mul'), Buffer.concat(chunks));
+}
+
 // A tiny map layout override is not needed; 7168x4096 fits.
 console.log('test data written to', dir);

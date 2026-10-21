@@ -16,6 +16,10 @@ import {
   PartyWindow,
   PartyInviteWindow,
   DebugGumpWindow,
+  FriendListWindow,
+  HouseWindow,
+  VirtueWindow,
+  saveFriends,
 } from '../game/windows.js';
 import { Layer } from '../game/entity.js';
 import { settings } from '../game/settings.js';
@@ -24,9 +28,12 @@ import {
   HotbarWindow,
   hotbarCommandSlot,
   hotbarItemSlot,
+  hotbarMacroSlot,
   hotbarSkillSlot,
   hotbarSlotForKey,
   hotbarSpellSlot,
+  loadMacros,
+  saveMacros,
 } from '../game/hotbar.js';
 import { findSpellByName } from '../game/spells.js';
 import { MapGumpWindow, MinimapWindow, WorldMapWindow } from '../game/maps.js';
@@ -64,6 +71,9 @@ export class UI {
     this.modalOk = null;
     this.modalCancel = null;
     this.journal = new Journal(this);
+    this.macroRecording = null;
+    this.macros = null;
+    this.pendingResource = null;
     this.bind();
   }
 
@@ -151,7 +161,7 @@ export class UI {
       'wheel',
       (e) => {
         const hit = this.hitTest(e.clientX, e.clientY);
-        if (hit?.obj.onWheel?.(e.clientX, e.clientY, e.deltaY)) {
+        if (hit?.obj.onWheel?.(e.clientX, e.clientY, e.deltaY, e)) {
           e.preventDefault();
         } else if (hit?.obj.scroll !== undefined) {
           hit.obj.scroll = Math.max(0, hit.obj.scroll + (e.deltaY > 0 ? 46 : -46));
@@ -163,6 +173,9 @@ export class UI {
 
     window.addEventListener('keydown', (e) => this.onKeyDown(e));
     window.addEventListener('keyup', (e) => this.onKeyUp(e));
+    window.addEventListener('compositionend', (e) => {
+      if (this.focusedGumpEntry?.gump?.insertText?.(e.data)) e.preventDefault?.();
+    });
     window.addEventListener('mouseup', (e) => {
       if (e.button === 2) this.stopMouseWalk();
     });
@@ -413,7 +426,10 @@ export class UI {
     $('hud').classList.remove('hidden');
     if (!this._enteredWorld) {
       this._enteredWorld = true;
+      settings.setAccount(this.game.loginCredentials?.account || '');
       this.journal.setAccount(this.game.loginCredentials?.account || '');
+      this.macros = null;
+      this.macroRecording = null;
       this.journal.clear();
       this.journal.show();
       this.addJournal('Welcome to LegionUO.', '#d6b45d', true);
@@ -535,6 +551,56 @@ export class UI {
 
   closeBuffs() {
     this.removeWindow('buffs', 'player');
+  }
+
+  showFriends() {
+    if (!this.world.player) return;
+    const existing = this.getWindow('friends', 'player');
+    if (existing) {
+      this.raiseWindow(existing);
+      return;
+    }
+    this.addWindow('friends', 'player', new FriendListWindow(this.world));
+  }
+
+  toggleFriends() {
+    if (this.getWindow('friends', 'player')) this.removeWindow('friends', 'player');
+    else this.showFriends();
+  }
+
+  friendCommand(args) {
+    const sub = String(args[0] || '').toLowerCase();
+    const name = args.slice(1).join(' ').trim();
+    if (!sub || sub === 'help') {
+      this.showFriends();
+      return;
+    }
+    const window = this.getWindow('friends', 'player') || (this.showFriends(), this.getWindow('friends', 'player'));
+    if (!window) return;
+    if (sub === 'add') {
+      if (!name) {
+        this.addJournal('Usage: -friend add <name>', '#c56a4a', true);
+        return;
+      }
+      if (!window.friends.some((friend) => friend.toLowerCase() === name.toLowerCase())) {
+        window.friends.push(name);
+        saveFriends(this.world, window.friends);
+      }
+      this.addJournal(`Added ${name} to friends.`, '#b8a06a', true);
+      return;
+    }
+    if (sub === 'remove' || sub === 'delete') {
+      const before = window.friends.length;
+      window.friends = window.friends.filter((friend) => friend.toLowerCase() !== name.toLowerCase());
+      saveFriends(this.world, window.friends);
+      this.addJournal(before === window.friends.length ? `No friend named ${name}.` : `Removed ${name}.`, before === window.friends.length ? '#c56a4a' : '#b8a06a', true);
+      return;
+    }
+    if (sub === 'list') {
+      this.addJournal(window.friends.length ? `Friends: ${window.friends.join(', ')}` : 'No friends added.', '#b8a06a', true);
+      return;
+    }
+    this.addJournal(`Unknown friend command: ${sub}`, '#c56a4a', true);
   }
 
   showHotbar() {
@@ -706,6 +772,7 @@ export class UI {
     }
     this.chatHistory.push(text);
     this.chatIndex = this.chatHistory.length;
+    if (this.macroRecording && !text.startsWith('-macro ')) this.macroRecording.steps.push(text);
     if (text.startsWith('-')) {
       this.command(text);
       return;
@@ -720,7 +787,7 @@ export class UI {
       return;
     }
     const types = { say: 0, emote: 2, whisper: 8, yell: 9, guild: 13, alliance: 14 };
-    this.world.socket.out.unicodeSpeech(text, types[mode] ?? 0, 3, 0x3b2, 'ENU');
+    this.world.socket.out.unicodeSpeech(text, types[mode] ?? 0, 3, 0x3b2, this.journal.settings.language || 'ENU');
   }
 
   historyStep(delta) {
@@ -734,7 +801,7 @@ export class UI {
     const command = cmd.toLowerCase();
     if (command === 'help') {
       this.addJournal(
-        'Commands: -help -skills -status -options -buffs -hotbar [set n item|spell|skill|command ...|clear [n]|use n] -partywindow -radar -worldmap -waypoints -waypoint add [x y] [name]|clear -profile -where -war -peace -run -walk -resync -logout -open -target -lasttarget -debug -journal -clear -say -whisper -yell -emote -party -guild -alliance -ignore -unignore -ignorelist -timestamps',
+        'Commands: -help -skills -status -options -buffs [row|column|small|large] -hotbar [set n item|spell|skill|command|macro ...|clear [n]|use n] -partywindow -friends -radar -worldmap -waypoints -waypoint add [x y] [name]|clear -profile -house <serial> -virtue -questlog -guildmenu -where -war -peace -run -walk -resync -logout -open -target [self|nearest|last|resource <type>] -lasttarget -debug -journal -clear -export -say -whisper -yell -emote -party -guild -alliance -ignore -unignore -ignorelist -timestamps -lang <code> -gumpfont <0-9> -chat <join|create|leave|msg|list|open> ... -macro <start|stop|list|play> ...',
         '#b8a06a',
         true
       );
@@ -760,6 +827,30 @@ export class UI {
     } else if (command === 'ignorelist') {
       const list = this.journal.settings.ignore;
       this.addJournal(list.length ? `Ignored: ${list.join(', ')}` : 'Ignore list is empty.', '#b8a06a', true);
+    } else if (command === 'export') {
+      this.journal.exportLog();
+      this.addJournal('Journal exported.', '#b8a06a', true);
+    } else if (command === 'gumpfont') {
+      const value = Number.parseInt(args[0], 10);
+      if (Number.isFinite(value)) {
+        settings.set('gumpFont', Math.max(0, Math.min(9, value)));
+        this.addJournal(`Gump font: ${settings.get('gumpFont')}`, '#b8a06a', true);
+      } else {
+        this.addJournal(`Gump font: ${settings.get('gumpFont')} (usage: -gumpfont 0-9)`, '#b8a06a', true);
+      }
+    } else if (command === 'lang' || command === 'language') {
+      const code = String(args[0] || '').toUpperCase().slice(0, 3);
+      if (!code) {
+        this.addJournal(`Language: ${this.journal.settings.language}`, '#b8a06a', true);
+      } else {
+        this.journal.settings.language = code;
+        this.journal.save();
+        this.addJournal(`Language: ${code}`, '#b8a06a', true);
+      }
+    } else if (command === 'chat') {
+      this.chatCommand(args);
+    } else if (command === 'macro') {
+      this.macroCommand(args);
     } else if (command === 'timestamps') {
       this.journal.settings.timestamps = !this.journal.settings.timestamps;
       this.journal.save();
@@ -786,7 +877,16 @@ export class UI {
     } else if (command === 'options' || command === 'settings') {
       this.showOptions();
     } else if (command === 'buffs') {
-      this.toggleBuffs();
+      const option = String(args[0] || '').toLowerCase();
+      if (['row', 'column', 'small', 'large', 'normal'].includes(option)) {
+        this.showBuffs();
+        this.getWindow('buffs', 'player')?.configure(option);
+        this.addJournal(`Buffs layout: ${option}`, '#b8a06a', true);
+      } else {
+        this.toggleBuffs();
+      }
+    } else if (command === 'friends' || command === 'friend') {
+      this.friendCommand(args);
     } else if (command === 'hotbar') {
       this.hotbarCommand(args);
     } else if (command === 'partywindow') {
@@ -814,6 +914,18 @@ export class UI {
       } else {
         this.toggleWaypoints();
       }
+    } else if (command === 'virtue') {
+      const existing = this.getWindow('virtue', 'player');
+      if (existing) this.raiseWindow(existing);
+      else this.addWindow('virtue', 'player', new VirtueWindow(this.world));
+    } else if (command === 'quest' || command === 'questlog') {
+      this.world.socket.out.questMenu();
+    } else if (command === 'guildmenu') {
+      this.world.socket.out.guildMenu();
+    } else if (command === 'house') {
+      const serial = Number.parseInt(args[0], 0);
+      if (Number.isFinite(serial)) this.showHouse(serial >>> 0);
+      else this.addJournal('Usage: -house <house sign serial>', '#c56a4a', true);
     } else if (command === 'profile') {
       if (this.world.player) this.world.socket.out.profileRequest(this.world.playerSerial);
     } else if (command === 'where') {
@@ -843,6 +955,42 @@ export class UI {
         this.toggleRadar();
       }
     } else if (command === 'target') {
+      const sub = String(args[0] || '').toLowerCase();
+      if (sub === 'self') {
+        this.sendTargetEntity(this.world.player);
+      } else if (sub === 'last' || sub === 'lasttarget') {
+        this.useLastTarget();
+      } else if (sub === 'nearest') {
+        let best = null;
+        let bestDist = Infinity;
+        for (const entity of this.world.entities.values()) {
+          if (!entity.isMobile || entity === this.world.player) continue;
+          const dist = Math.max(Math.abs(entity.x - this.world.player.x), Math.abs(entity.y - this.world.player.y));
+          if (dist < bestDist) {
+            bestDist = dist;
+            best = entity;
+          }
+        }
+        if (best) {
+          this.world.setTarget(1, 0, 0);
+          this.onTargetChanged();
+          this.sendTargetEntity(best);
+        } else {
+          this.addJournal('No nearby mobile.', '#c56a4a', true);
+        }
+      } else if (sub === 'resource') {
+        const type = Number.parseInt(args[1], 0) || 0;
+        this.pendingResource = type;
+        this.world.setTarget(1, 0, 0);
+        this.onTargetChanged();
+        this.addJournal(`Select a resource target (type ${type}).`, '#b8a06a', true);
+      } else {
+        this.world.setTarget(1, 0, 0);
+        this.onTargetChanged();
+      }
+    } else if (command === 'targetresource') {
+      const type = Number.parseInt(args[0], 0) || 0;
+      this.pendingResource = type;
       this.world.setTarget(1, 0, 0);
       this.onTargetChanged();
     } else if (command === 'lasttarget' || command === 'last') {
@@ -861,7 +1009,7 @@ export class UI {
     const window = this.showHotbar();
     if (!window) return;
     const usage =
-      'Usage: -hotbar [set n item <serial>|spell <name>|skill <name>|command <text> | clear [n] | use n]';
+      'Usage: -hotbar [set n item <serial>|spell <name>|skill <name>|command <text>|macro <name> | clear [n] | use n]';
     const slotNumber = Number.parseInt(args[1], 10);
     const index = Number.isFinite(slotNumber) ? slotNumber - 1 : -1;
     if (sub === 'clear') {
@@ -919,6 +1067,14 @@ export class UI {
       slot = hotbarSkillSlot(skill);
     } else if (type === 'command') {
       slot = hotbarCommandSlot(rest, rest.replace(/^-/, ''));
+    } else if (type === 'macro') {
+      const macros = this.getMacros();
+      const macro = macros[rest];
+      if (!macro?.steps?.length) {
+        this.addJournal(`Unknown macro: ${rest || '(none)'}`, '#c56a4a', true);
+        return;
+      }
+      slot = hotbarMacroSlot(rest, macro.steps);
     } else {
       this.addJournal(usage, '#c56a4a', true);
       return;
@@ -926,6 +1082,122 @@ export class UI {
     if (slot && window.setSlot(index, slot)) {
       this.addJournal(`Hotbar slot ${index + 1}: ${slot.name}.`, '#b8a06a', true);
     }
+  }
+
+  getMacros() {
+    if (!this.macros) this.macros = loadMacros(this.world);
+    return this.macros;
+  }
+
+  macroCommand(args) {
+    const sub = String(args[0] || '').toLowerCase();
+    const name = args.slice(1).join(' ').trim();
+    const macros = this.getMacros();
+    if (!sub || sub === 'help') {
+      this.addJournal('Macros: -macro start [name] | stop | list | play <name> | delete <name>', '#b8a06a', true);
+      return;
+    }
+    if (sub === 'start') {
+      this.macroRecording = { name: name || `Macro ${Object.keys(macros).length + 1}`, steps: [] };
+      this.addJournal(`Recording macro ${this.macroRecording.name}. Chat and commands are captured.`, '#c9b06c', true);
+      return;
+    }
+    if (sub === 'stop') {
+      if (!this.macroRecording) {
+        this.addJournal('No macro is being recorded.', '#c56a4a', true);
+        return;
+      }
+      const recording = this.macroRecording;
+      this.macroRecording = null;
+      if (!recording.steps.length) {
+        this.addJournal('Macro was empty and was discarded.', '#c56a4a', true);
+        return;
+      }
+      macros[recording.name] = { name: recording.name, steps: recording.steps };
+      saveMacros(this.world, macros);
+      this.addJournal(`Saved macro ${recording.name} (${recording.steps.length} steps).`, '#b8a06a', true);
+      return;
+    }
+    if (sub === 'list') {
+      const names = Object.keys(macros);
+      this.addJournal(names.length ? `Macros: ${names.join(', ')}` : 'No macros saved.', '#b8a06a', true);
+      return;
+    }
+    if (sub === 'play') {
+      const macro = macros[name];
+      if (!macro?.steps?.length) {
+        this.addJournal(`Unknown macro: ${name || '(none)'}`, '#c56a4a', true);
+        return;
+      }
+      for (const step of macro.steps) {
+        if (step.startsWith('-')) this.command(step);
+        else this.sendSpeech(step);
+      }
+      return;
+    }
+    if (sub === 'delete' || sub === 'remove') {
+      if (!macros[name]) {
+        this.addJournal(`Unknown macro: ${name || '(none)'}`, '#c56a4a', true);
+        return;
+      }
+      delete macros[name];
+      saveMacros(this.world, macros);
+      this.addJournal(`Deleted macro ${name}.`, '#b8a06a', true);
+      return;
+    }
+    this.addJournal(`Unknown macro command: ${sub}`, '#c56a4a', true);
+  }
+
+  chatCommand(args) {
+    const sub = String(args[0] || '').toLowerCase();
+    const text = args.slice(1).join(' ').trim();
+    const out = this.world.socket.out;
+    if (!sub || sub === 'help') {
+      this.addJournal('Chat: -chat join <channel> | create <channel> | leave | msg <text> | open [name]', '#b8a06a', true);
+      return;
+    }
+    if (sub === 'open') {
+      out.openChat(text);
+      return;
+    }
+    if (sub === 'list') {
+      const channels = this.world.chat?.channels || [];
+      const current = this.world.chat?.current ? ` (current: ${this.world.chat.current})` : '';
+      this.addJournal(channels.length ? `Channels: ${channels.map((c) => c.name).join(', ')}${current}` : 'No chat channels.', '#b8a06a', true);
+      return;
+    }
+    if (sub === 'join') {
+      if (!text) {
+        this.addJournal('Usage: -chat join <channel>', '#c56a4a', true);
+        return;
+      }
+      out.chatJoin(text);
+      this.journal.show();
+      $('chatInput')?.focus();
+      return;
+    }
+    if (sub === 'create') {
+      if (!text) {
+        this.addJournal('Usage: -chat create <channel> <password>', '#c56a4a', true);
+        return;
+      }
+      const [name, ...rest] = text.split(/\s+/);
+      out.chatCreate(name, rest.join(' '));
+      return;
+    }
+    if (sub === 'leave') {
+      out.chatLeave();
+      return;
+    }
+    if (sub === 'msg' || sub === 'say') {
+      if (!text) {
+        this.addJournal('Usage: -chat msg <text>', '#c56a4a', true);
+        return;
+      }
+      out.chatSay(text);
+      return;
+    }
+    this.addJournal(`Unknown chat command: ${sub}`, '#c56a4a', true);
   }
 
   updatePrompt() {
@@ -954,6 +1226,22 @@ export class UI {
       return;
     }
     this.windows.push({ kind, key, obj });
+    this.keepTopWindow();
+  }
+
+  get topWindow() {
+    const status = this.windows.find((w) => w.kind === 'status')?.obj;
+    return status?.alwaysOnTop ? status : null;
+  }
+
+  keepTopWindow() {
+    const status = this.topWindow;
+    if (!status) return;
+    const index = this.windows.findIndex((w) => w.obj === status);
+    if (index >= 0 && index !== this.windows.length - 1) {
+      const [entry] = this.windows.splice(index, 1);
+      this.windows.push(entry);
+    }
   }
 
   removeWindow(kind, key) {
@@ -966,9 +1254,11 @@ export class UI {
 
   raiseWindow(obj) {
     const index = this.windows.findIndex((w) => w.obj === obj);
-    if (index < 0 || index === this.windows.length - 1) return;
-    const [entry] = this.windows.splice(index, 1);
-    this.windows.push(entry);
+    if (index >= 0 && index !== this.windows.length - 1) {
+      const [entry] = this.windows.splice(index, 1);
+      this.windows.push(entry);
+    }
+    this.keepTopWindow();
   }
 
   setGumpFocus(gump, control) {
@@ -991,7 +1281,10 @@ export class UI {
   }
 
   hitTest(mx, my) {
+    const top = this.topWindow;
+    if (top && top.contains(mx, my)) return this.windows.find((w) => w.obj === top) || null;
     for (let i = this.windows.length - 1; i >= 0; i--) {
+      if (this.windows[i].obj === top) continue;
       if (this.windows[i].obj.contains(mx, my)) return this.windows[i];
     }
     return null;
@@ -1103,8 +1396,8 @@ export class UI {
     item.graphic = graphic;
     if (type) item.spellbookType = type;
     item.spells = new Set();
-    const low = r.readU32BE();
-    const high = r.readU32BE();
+    const low = r.readU32LE();
+    const high = r.readU32LE();
     for (let i = 0; i < 32; i++) if (low & (1 << i)) item.spells.add(i + 1);
     for (let i = 0; i < 32; i++) if (high & (1 << i)) item.spells.add(i + 33);
     const window = this.getWindow('spellbook', serial);
@@ -1339,18 +1632,39 @@ export class UI {
     this.world.socket.out.requestPopupMenu(serial);
   }
 
-  showContextMenu(serial, items) {
+  showContextMenu(serial, items, onSelect = null) {
     const request = this.contextMenuRequest;
     const at = request && request.serial === (serial >>> 0) ? request : this.mouse;
     this.closeContextMenu();
     if (!items.length) return;
     this.hideTooltip();
     const menu = new ContextMenuWindow(this.world, serial, items, at.x, at.y, (s, index) => {
-      this.world.socket.out.popupMenuSelection(s, index);
+      if (onSelect) onSelect(s, index);
+      else this.world.socket.out.popupMenuSelection(s, index);
     });
     this.contextMenu = menu;
     this.addWindow('contextmenu', 'menu', menu);
     this.raiseWindow(menu);
+  }
+
+  openGroundMenu(mx, my) {
+    const tile = this.game.renderer.screenToTile(mx, my);
+    const items = [
+      { index: 0, cliloc: 0, text: 'Walk here', flags: 0 },
+      { index: 1, cliloc: 0, text: 'Add waypoint here', flags: 0 },
+      { index: 2, cliloc: 0, text: 'Copy coordinates', flags: 0 },
+    ];
+    this.showContextMenu(0, items, (serial, index) => {
+      if (index === 0) this.game.walkTo(tile.x, tile.y);
+      else if (index === 1) {
+        const waypoint = addLocalWaypoint(this.world, `Tile ${tile.x},${tile.y}`, tile.x, tile.y);
+        if (waypoint) this.addJournal(`Added waypoint at ${tile.x}, ${tile.y}.`, '#b8a06a', true);
+      } else if (index === 2) {
+        const text = `${tile.x}, ${tile.y}`;
+        navigator.clipboard?.writeText(text).catch(() => {});
+        this.addJournal(`Coordinates: ${text}`, '#b8a06a', true);
+      }
+    });
   }
 
   closeContextMenu() {
@@ -1567,6 +1881,7 @@ export class UI {
   cancelTarget() {
     const t = this.world.target;
     if (!t.active) return;
+    this.pendingResource = null;
     this.world.socket.out.targetCancel(t.type, t.cursorId, t.cursorType);
     this.world.clearTarget();
     this.onTargetChanged();
@@ -1604,6 +1919,8 @@ export class UI {
   onEquipmentChanged(serial) {
     const pd = this.getWindow('paperdoll', serial);
     if (pd) pd.mobile = this.world.get(serial);
+    const equipment = this.getWindow('equipment', `equipment:${serial}`);
+    if (equipment) equipment.mobile = this.world.get(serial);
   }
 
   onEntityRemoved(entity) {
@@ -1611,6 +1928,7 @@ export class UI {
     this.removeWindow('paperdoll', entity.serial);
     this.removeWindow('spellbook', entity.serial);
     this.removeWindow('map', entity.serial);
+    this.removeWindow('equipment', `equipment:${entity.serial}`);
   }
 
   onHeldChanged() {}
@@ -1679,7 +1997,97 @@ export class UI {
     this.removeWindow('board', serial);
   }
 
-  onChatMessage() {}
+  onChatMessage(r) {
+    try {
+      const cmd = r.readU16BE();
+      const chat = this.world.chat;
+      const add = (text, name = '') => {
+        if (!text) return;
+        this.world.addMessage(text, 0x3b2, 0xb2, name, 3, { textType: 'chat', chatType: cmd, overhead: false });
+      };
+      if (cmd === 0x03e8) {
+        r.skip(4);
+        const channel = r.readUnicodeBE();
+        const hasPassword = r.remaining() >= 2 && r.readU16BE() === 0x31;
+        if (channel && !chat.channels.some((entry) => entry.name === channel)) chat.channels.push({ name: channel, hasPassword });
+        add(`Created chat channel ${channel}${hasPassword ? ' (password protected)' : ''}.`);
+        return;
+      }
+      if (cmd === 0x03e9) {
+        r.skip(4);
+        const channel = r.readUnicodeBE();
+        chat.channels = chat.channels.filter((entry) => entry.name !== channel);
+        add(`Chat channel ${channel} was destroyed.`);
+        return;
+      }
+      if (cmd === 0x03eb) {
+        this.showModalInput(
+          'Chat username',
+          chat.username || '',
+          30,
+          (value) => {
+            const name = value.trim();
+            if (!name) return;
+            chat.username = name;
+            this.world.socket.out.openChat(name);
+          },
+          true,
+          () => this.world.socket.out.openChat('')
+        );
+        return;
+      }
+      if (cmd === 0x03ec) {
+        chat.channels = [];
+        chat.current = '';
+        chat.username = '';
+        add('Chat disabled.');
+        return;
+      }
+      if (cmd === 0x03ed) {
+        r.skip(4);
+        chat.username = r.readUnicodeBE();
+        add(`Chat connected as ${chat.username}.`);
+        this.world.socket.out.chatJoin('General');
+        return;
+      }
+      if (cmd === 0x03ee) {
+        r.skip(4);
+        const userType = r.readU16BE();
+        const username = r.readUnicodeBE();
+        add(`${username} joined the channel${userType ? ' as a moderator' : ''}.`);
+        return;
+      }
+      if (cmd === 0x03ef) {
+        r.skip(4);
+        const username = r.readUnicodeBE();
+        add(`${username} left the channel.`);
+        return;
+      }
+      if (cmd === 0x03f1 || cmd === 0x03f4) {
+        r.skip(4);
+        const channel = r.readUnicodeBE();
+        if (cmd === 0x03f1) chat.current = channel;
+        else if (chat.current === channel) chat.current = '';
+        add(cmd === 0x03f1 ? `You have joined ${channel}.` : `You have left ${channel}.`);
+        return;
+      }
+      if (cmd === 0x0025 || cmd === 0x0026 || cmd === 0x0027) {
+        r.skip(4);
+        r.readU16BE();
+        const username = r.readUnicodeBE();
+        const text = r.readUnicodeBE();
+        add(text, username);
+        return;
+      }
+      if ((cmd >= 0x0001 && cmd <= 0x0024) || (cmd >= 0x0028 && cmd <= 0x002c)) {
+        r.skip(4);
+        const text = r.readUnicodeBE();
+        add(text);
+      }
+    } catch {
+      /* ignore malformed chat packet */
+    }
+  }
   onMapGump(r, id = 0x90) {
     const serial = r.readU32BE();
     r.readU16BE();
@@ -1752,6 +2160,15 @@ export class UI {
         this.showContextMenu(serial, items);
       } else if (sub === 0x1b) {
         this.onSpellbookContent(r);
+      } else if (sub === 0x20) {
+        const serial = r.readU32BE();
+        const type = r.readU8();
+        r.readU16BE();
+        r.readU16BE();
+        r.readU16BE();
+        r.readI8();
+        if (type === 4) this.showHouse(serial);
+        else if (type === 5) this.removeWindow('house', serial);
       }
     } catch {
       /* ignore malformed custom packet */
@@ -1817,7 +2234,34 @@ export class UI {
     }
   }
   onGenericCommand() {}
-  onCustomHouse() {}
+  onCustomHouse(r) {
+    try {
+      const compressed = r.readU8() === 0x03;
+      const responds = r.readBool();
+      const serial = r.readU32BE();
+      const revision = r.readU32BE();
+      r.skip(4);
+      const planes = r.readU8();
+      this.world.customHouse = { serial, revision, planes, components: 0 };
+      const window = this.getWindow('house', serial);
+      if (window) window.serial = serial;
+      if (responds) this.world.socket.out.houseResponse();
+      if (compressed) return;
+    } catch {
+      /* ignore malformed custom house data */
+    }
+  }
+
+  showHouse(serial) {
+    if (!serial) return;
+    const existing = this.getWindow('house', serial);
+    if (existing) {
+      this.raiseWindow(existing);
+      return;
+    }
+    this.addWindow('house', serial, new HouseWindow(this.world, serial));
+    this.world.socket.out.customHouseRequest(serial);
+  }
   onBuffDebuff(r) {
     try {
       const serial = r.readU32BE();
@@ -1827,6 +2271,7 @@ export class UI {
         this.world.buffs = this.world.buffs.filter((b) => b.icon !== icon);
         return;
       }
+      const grouped = new Map();
       for (let i = 0; i < count; i++) {
         const sourceType = r.readU16BE();
         r.skip(2);
@@ -1841,8 +2286,13 @@ export class UI {
         const titleArgs = readBuffArgs(r);
         const descArgs = readBuffArgs(r);
         const altArgs = readBuffArgs(r);
-        this.world.buffs = this.world.buffs.filter((b) => b.icon !== icon);
-        this.world.buffs.push({
+        const key = `${iconId}|${queue}|${titleId}|${descId}`;
+        const existing = grouped.get(key);
+        if (existing) {
+          existing.count++;
+          continue;
+        }
+        grouped.set(key, {
           icon,
           iconId,
           queue,
@@ -1856,10 +2306,13 @@ export class UI {
           descArgs,
           altId,
           altArgs,
+          count: 1,
           endsAt: timer > 0 ? Date.now() + timer * 1000 : 0,
           time: Date.now(),
         });
       }
+      this.world.buffs = this.world.buffs.filter((b) => b.icon !== icon);
+      this.world.buffs.push(...grouped.values());
       this.showBuffs();
     } catch {
       /* ignore */
@@ -1965,6 +2418,10 @@ export class UI {
       const entity = this.game.renderer.entityAt?.(x, y) || this.findEntityAt(tile.x, tile.y);
       if (entity) {
         this.openContextMenu(entity.serial, x, y);
+        return;
+      }
+      if (e.ctrlKey) {
+        this.openGroundMenu(x, y);
         return;
       }
       this.startMouseWalk();
@@ -2190,7 +2647,12 @@ export class UI {
   sendTargetEntity(entity) {
     const t = this.world.target;
     if (!t.active || !entity) return false;
-    this.world.socket.out.targetObject(entity.serial, entity.graphic, entity.x, entity.y, entity.z, t.cursorId, t.cursorType);
+    if (this.pendingResource != null) {
+      this.world.socket.out.targetByResource(entity.serial, this.pendingResource);
+      this.pendingResource = null;
+    } else {
+      this.world.socket.out.targetObject(entity.serial, entity.graphic, entity.x, entity.y, entity.z, t.cursorId, t.cursorType);
+    }
     this.lastTarget = { serial: entity.serial, graphic: entity.graphic, x: entity.x, y: entity.y, z: entity.z };
     this.world.clearTarget();
     this.onTargetChanged();
@@ -2270,16 +2732,34 @@ export class UI {
       }
       return;
     }
-    if (e.code === 'KeyW' && e.altKey) {
-      const state = !this.world.player?.inWarMode;
-      if (this.world.player) this.world.player.inWarMode = state;
-      this.world.socket.out.warMode(state);
-      $('btnWar').textContent = state ? 'WAR' : 'PEACE';
+    if (keyMatches(e, settings.get('keyHelp'))) {
+      this.command('-help');
       e.preventDefault();
       return;
     }
-    if (e.code === 'F1') {
-      this.command('-help');
+    if (keyMatches(e, settings.get('keyJournal'))) {
+      this.journal.toggle();
+      e.preventDefault();
+      return;
+    }
+    if (keyMatches(e, settings.get('keyWar'))) {
+      this.toggleWarMode();
+      e.preventDefault();
+      return;
+    }
+    if (keyMatches(e, settings.get('keyTarget'))) {
+      this.world.setTarget(1, 0, 0);
+      this.onTargetChanged();
+      e.preventDefault();
+      return;
+    }
+    if (keyMatches(e, settings.get('keyLastTarget'))) {
+      this.useLastTarget();
+      e.preventDefault();
+      return;
+    }
+    if (keyMatches(e, settings.get('keyAllNames'))) {
+      settings.toggle('showNames');
       e.preventDefault();
       return;
     }
@@ -2369,9 +2849,12 @@ export class UI {
   /* ----------------------------- drawing ----------------------------- */
 
   draw(ctx, now) {
+    const top = this.topWindow;
     for (const w of this.windows) {
+      if (w.obj === top) continue;
       w.obj.draw?.(ctx, now);
     }
+    top?.draw?.(ctx, now);
   }
 
   update(now) {
@@ -2383,6 +2866,16 @@ export class UI {
       this.refreshTooltip();
     }
   }
+}
+
+function keyMatches(event, binding) {
+  if (!binding) return false;
+  const parts = String(binding).split('+').filter(Boolean);
+  const code = parts.pop();
+  const needsCtrl = parts.some((p) => p.toLowerCase() === 'ctrl');
+  const needsAlt = parts.some((p) => p.toLowerCase() === 'alt');
+  const needsShift = parts.some((p) => p.toLowerCase() === 'shift');
+  return event.code === code && !!event.ctrlKey === needsCtrl && !!event.altKey === needsAlt && !!event.shiftKey === needsShift;
 }
 
 function readBuffArgs(r) {

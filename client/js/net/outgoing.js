@@ -536,6 +536,46 @@ export class Outgoing {
     }, 256));
   }
 
+  chatJoin(name, password = '') {
+    this.send(this.make(0xb3, (w) => {
+      w.writeASCII('ENU', 4);
+      w.writeU16BE(0x62);
+      w.writeU16BE(0x22);
+      w.writeUnicodeBE(name || '');
+      w.writeU16BE(0x22);
+      w.writeU16BE(0x020);
+      if (password) w.writeUnicodeBE(password);
+    }, 128));
+  }
+
+  chatCreate(name, password = '') {
+    this.send(this.make(0xb3, (w) => {
+      w.writeASCII('ENU', 4);
+      w.writeU16BE(0x63);
+      w.writeUnicodeBE(name || '');
+      if (password) {
+        w.writeU16BE(0x7b);
+        w.writeUnicodeBE(password);
+        w.writeU16BE(0x7d);
+      }
+    }, 128));
+  }
+
+  chatLeave() {
+    this.send(this.make(0xb3, (w) => {
+      w.writeASCII('ENU', 4);
+      w.writeU16BE(0x43);
+    }, 16));
+  }
+
+  chatSay(text) {
+    this.send(this.make(0xb3, (w) => {
+      w.writeASCII('ENU', 4);
+      w.writeU16BE(0x61);
+      w.writeUnicodeBE(text || '');
+    }, 256));
+  }
+
   openChat(name = '') {
     this.send(this.make(0xb5, (w) => {
       w.writeU8(0);
@@ -911,6 +951,133 @@ export class Outgoing {
       w.writeU16BE(pantsHue);
       w.writeZero(2);
     }, 106));
+  }
+
+
+  houseCommand(subcommand) {
+    this.send(this.make(0xd7, (w) => {
+      w.writeU32BE(this.playerSerial || 0);
+      w.writeU16BE(subcommand);
+      w.writeU8(0x0a);
+    }, 16));
+  }
+
+  houseBackup() {
+    this.houseCommand(0x02);
+  }
+
+  houseRestore() {
+    this.houseCommand(0x03);
+  }
+
+  houseCommit() {
+    this.houseCommand(0x04);
+  }
+
+  houseExit() {
+    this.houseCommand(0x0c);
+  }
+
+  houseGoToFloor(floor) {
+    this.send(this.make(0xd7, (w) => {
+      w.writeU32BE(this.playerSerial || 0);
+      w.writeU16BE(0x12);
+      w.writeU32BE(0);
+      w.writeU8(floor & 0xff);
+      w.writeU8(0x0a);
+    }, 20));
+  }
+
+  houseSync() {
+    this.houseCommand(0x0e);
+  }
+
+  houseClear() {
+    this.houseCommand(0x10);
+  }
+
+  houseRevert() {
+    this.houseCommand(0x1a);
+  }
+
+  houseResponse() {
+    this.houseCommand(0x0a);
+  }
+
+  houseAddItem(graphic, x, y) {
+    this.send(this.make(0xd7, (w) => {
+      w.writeU32BE(this.playerSerial || 0);
+      w.writeU16BE(0x06);
+      w.writeU8(0);
+      w.writeU32BE(graphic);
+      w.writeU8(0);
+      w.writeU32BE(x >>> 0);
+      w.writeU8(0);
+      w.writeU32BE(y >>> 0);
+      w.writeU8(0x0a);
+    }, 32));
+  }
+
+  houseDeleteItem(graphic, x, y, z) {
+    this.send(this.make(0xd7, (w) => {
+      w.writeU32BE(this.playerSerial || 0);
+      w.writeU16BE(0x05);
+      w.writeU8(0);
+      w.writeU32BE(graphic);
+      w.writeU8(0);
+      w.writeU32BE(x >>> 0);
+      w.writeU8(0);
+      w.writeU32BE(y >>> 0);
+      w.writeU8(0);
+      w.writeU32BE((z | 0) >>> 0);
+      w.writeU8(0x0a);
+    }, 36));
+  }
+
+  houseAddRoof(graphic, x, y, z) {
+    this.send(this.make(0xd7, (w) => {
+      w.writeU32BE(this.playerSerial || 0);
+      w.writeU16BE(0x13);
+      w.writeU8(0);
+      w.writeU32BE(graphic);
+      w.writeU8(0);
+      w.writeU32BE(x >>> 0);
+      w.writeU8(0);
+      w.writeU32BE(y >>> 0);
+      w.writeU8(0);
+      w.writeU32BE((z | 0) >>> 0);
+      w.writeU8(0x0a);
+    }, 36));
+  }
+
+  houseDeleteRoof(graphic, x, y, z) {
+    this.send(this.make(0xd7, (w) => {
+      w.writeU32BE(this.playerSerial || 0);
+      w.writeU16BE(0x14);
+      w.writeU8(0);
+      w.writeU32BE(graphic);
+      w.writeU8(0);
+      w.writeU32BE(x >>> 0);
+      w.writeU8(0);
+      w.writeU32BE(y >>> 0);
+      w.writeU8(0);
+      w.writeU32BE((z | 0) >>> 0);
+      w.writeU8(0x0a);
+    }, 36));
+  }
+
+  houseAddStair(graphic, x, y) {
+    this.send(this.make(0xd7, (w) => {
+      w.writeU32BE(this.playerSerial || 0);
+      w.writeU16BE(0x0d);
+      w.writeU8(0);
+      w.writeU32BE(graphic);
+      w.writeU8(0);
+      w.writeU32BE(x >>> 0);
+      w.writeU8(0);
+      w.writeU32BE(y >>> 0);
+      w.writeU8(0x0a);
+    }, 32));
   }
 
   customHouseCommand(subcommand, serial, extra) {

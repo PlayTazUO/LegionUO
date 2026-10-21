@@ -377,6 +377,10 @@ button:hover {
   color: #c9a0ff;
 }
 
+#journal .msg.chat {
+  color: #9fd3c7;
+}
+
 #journal .msg.spells {
   color: #8fb8ff;
 }

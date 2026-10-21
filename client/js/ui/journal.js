@@ -2,7 +2,7 @@ import { hasUoHtmlMarkup, uoHtmlFragment } from '../game/html.js';
 
 const $ = (id) => document.getElementById(id);
 
-const FILTERS = ['all', 'system', 'speech', 'party', 'guild', 'spells', 'damage'];
+const FILTERS = ['all', 'system', 'speech', 'party', 'guild', 'spells', 'chat', 'damage'];
 
 const DEFAULTS = {
   x: 10,
@@ -15,6 +15,7 @@ const DEFAULTS = {
   maxLines: 500,
   filter: 'all',
   mode: 'say',
+  language: 'ENU',
   ignore: [],
 };
 
@@ -85,6 +86,7 @@ export class Journal {
     if (!['say', 'whisper', 'yell', 'emote', 'party', 'guild', 'alliance'].includes(settings.mode)) {
       settings.mode = 'say';
     }
+    settings.language = String(settings.language || 'ENU').toUpperCase().slice(0, 3) || 'ENU';
     return settings;
   }
 
@@ -110,6 +112,7 @@ export class Journal {
     if (msg.damage) return 'damage';
     if (msg.textType === 'party') return 'party';
     if (msg.textType === 'guild') return 'guild';
+    if (msg.textType === 'chat' || msg.type === 0xb2) return 'chat';
     if (msg.textType === 'spell') return 'spells';
     if (msg.type === 10) return 'spells';
     if (msg.type === 13 || msg.type === 14) return 'guild';
@@ -124,6 +127,23 @@ export class Journal {
   }
 
   addMessage(msg) {
+    if (msg.cliloc && msg.serial && msg.replace) {
+      const key = `${msg.serial >>> 0}|${msg.cliloc}`;
+      for (let i = this.entries.length - 1; i >= Math.max(0, this.entries.length - 8); i--) {
+        const entry = this.entries[i];
+        if (entry.serial !== (msg.serial >>> 0) || entry.cliloc !== msg.cliloc) continue;
+        if (Date.now() - entry.timestamp > 3000) break;
+        entry.text = msg.text || entry.text;
+        entry.timestamp = msg.time || Date.now();
+        const node = this.nodes.get(entry.id);
+        if (node) {
+          const next = this.renderEntry(entry);
+          node.replaceWith(next);
+          this.nodes.set(entry.id, next);
+        }
+        return entry;
+      }
+    }
     const kind = this.classify(msg);
     const color = msg.color || (kind === 'speech' && msg.hue ? this.ui.hueColor(msg.hue) : '');
     return this.addEntry({
@@ -310,6 +330,20 @@ export class Journal {
     this.save();
     this.refreshIgnored();
     return true;
+  }
+
+  exportLog() {
+    const lines = this.entries.map((entry) => {
+      const time = new Date(entry.timestamp).toISOString();
+      const who = entry.name && entry.name.toLowerCase() !== 'system' ? `${entry.name}: ` : '';
+      return `${time} [${entry.kind}] ${who}${entry.text}`;
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `legionuo-journal-${new Date().toISOString().slice(0, 10)}.txt`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
   }
 
   /* ----------------------------- window ----------------------------- */

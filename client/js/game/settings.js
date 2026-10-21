@@ -1,4 +1,5 @@
-const STORAGE_KEY = 'legionuo.options.v1';
+const STORAGE_KEY = 'legionuo.options.v2';
+const LEGACY_KEY = 'legionuo.options.v1';
 
 const DEFAULTS = {
   alwaysRun: false,
@@ -7,11 +8,19 @@ const DEFAULTS = {
   showSpeech: true,
   lighting: true,
   weather: true,
+  dayNight: true,
   questArrow: true,
   waypoints: true,
   audioEnabled: typeof location !== 'undefined' && new URLSearchParams(location.search).has('audio'),
   audioVolume: 60,
   footsteps: true,
+  gumpFont: 3,
+  keyJournal: 'KeyJ',
+  keyHelp: 'F1',
+  keyWar: 'Alt+KeyW',
+  keyTarget: 'KeyT',
+  keyLastTarget: 'KeyL',
+  keyAllNames: 'KeyN',
   optionsTab: 'general',
   optionsX: null,
   optionsY: null,
@@ -24,27 +33,37 @@ const BOOLEAN_KEYS = [
   'showSpeech',
   'lighting',
   'weather',
+  'dayNight',
   'questArrow',
   'waypoints',
   'audioEnabled',
   'footsteps',
 ];
 
-const TABS = ['general', 'display', 'audio'];
+const KEY_KEYS = ['keyJournal', 'keyHelp', 'keyWar', 'keyTarget', 'keyLastTarget', 'keyAllNames'];
+
+const TABS = ['general', 'display', 'audio', 'keys'];
 
 class SettingsStore {
   constructor() {
     this.values = { ...DEFAULTS };
     this.listeners = new Set();
+    this.account = '';
     this.load();
   }
 
-  load() {
+  storageKey() {
+    return this.account ? `${STORAGE_KEY}.${this.account}` : STORAGE_KEY;
+  }
+
+  load(key = this.storageKey()) {
+    this.values = { ...DEFAULTS };
     try {
-      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+      let saved = JSON.parse(localStorage.getItem(key) || 'null');
+      if (!saved && key === STORAGE_KEY) saved = JSON.parse(localStorage.getItem(LEGACY_KEY) || 'null');
       if (saved && typeof saved === 'object') {
-        for (const key of Object.keys(DEFAULTS)) {
-          if (key in saved) this.values[key] = saved[key];
+        for (const name of Object.keys(DEFAULTS)) {
+          if (name in saved) this.values[name] = saved[name];
         }
       }
     } catch {
@@ -53,8 +72,21 @@ class SettingsStore {
     this.sanitize();
   }
 
+  setAccount(account) {
+    const next = (account || '').trim().toLowerCase();
+    if (next === this.account) return;
+    this.account = next;
+    this.load();
+    for (const listener of this.listeners) listener('account', next);
+  }
+
   sanitize() {
     for (const key of BOOLEAN_KEYS) this.values[key] = !!this.values[key];
+    for (const key of KEY_KEYS) {
+      if (!this.values[key] || typeof this.values[key] !== 'string') this.values[key] = DEFAULTS[key];
+    }
+    const font = Number(this.values.gumpFont);
+    this.values.gumpFont = Math.max(0, Math.min(9, Number.isFinite(font) ? Math.round(font) : 3));
     const volume = Number(this.values.audioVolume);
     this.values.audioVolume = Math.max(0, Math.min(100, Number.isFinite(volume) ? volume : DEFAULTS.audioVolume));
     if (!TABS.includes(this.values.optionsTab)) this.values.optionsTab = DEFAULTS.optionsTab;
@@ -82,7 +114,7 @@ class SettingsStore {
 
   save() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.values));
+      localStorage.setItem(this.storageKey(), JSON.stringify(this.values));
     } catch {
       /* ignore quota errors */
     }
@@ -95,3 +127,4 @@ class SettingsStore {
 }
 
 export const settings = new SettingsStore();
+export const OPTION_KEYS = KEY_KEYS;

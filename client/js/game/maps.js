@@ -364,6 +364,24 @@ export class MinimapWindow {
     const cy = area.y + area.h / 2;
 
     for (const entity of this.world.entities.values()) {
+      if (!entity.isItem || !entity.isMulti || !entity.hasPosition) continue;
+      const parts = this.world.assets.getMulti(entity.graphic);
+      if (!parts || !parts.length) continue;
+      for (const part of parts) {
+        const tx = entity.x + (part.x || 0);
+        const ty = entity.y + (part.y || 0);
+        const dx = tx - player.x;
+        const dy = ty - player.y;
+        const gx = cx + (dx - dy) * scale;
+        const gy = cy + (dx + dy) * scale;
+        if (gx < area.x || gy < area.y || gx >= area.x + area.w || gy >= area.y + area.h) continue;
+        const [r, g, b] = colorFor(0x4000 + (part.graphic || 0), true);
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+        ctx.fillRect(Math.round(gx), Math.round(gy), 2, 2);
+      }
+    }
+
+    for (const entity of this.world.entities.values()) {
       if (!entity.isMobile || entity === player || !entity.hasPosition) continue;
       const dx = entity.x - player.x;
       const dy = entity.y - player.y;

@@ -87,6 +87,9 @@ export class BuffBarWindow {
     this.dragging = false;
     this.dragOffset = { x: 0, y: 0 };
     this.hoverIndex = -1;
+    this.orientation = 'row';
+    this.iconScale = 1;
+    this.warned = new Set();
     this.x = Math.max(20, window.innerWidth - 300);
     this.y = 60;
     try {
@@ -95,9 +98,27 @@ export class BuffBarWindow {
         this.x = Number(saved.x);
         this.y = Number(saved.y);
       }
+      if (saved?.orientation === 'column') this.orientation = 'column';
+      if (Number.isFinite(Number(saved?.iconScale))) this.iconScale = Math.max(0.7, Math.min(1.5, Number(saved.iconScale)));
     } catch {
       /* ignore */
     }
+  }
+
+  get iconSize() {
+    return Math.max(24, Math.round(ICON_SIZE * this.iconScale));
+  }
+
+  get perRow() {
+    return this.orientation === 'column' ? 1 : MAX_COLS;
+  }
+
+  configure(option) {
+    if (option === 'row' || option === 'column') this.orientation = option;
+    else if (option === 'small') this.iconScale = 0.75;
+    else if (option === 'large') this.iconScale = 1.25;
+    else if (option === 'normal') this.iconScale = 1;
+    this.savePosition();
   }
 
   get buffs() {
@@ -106,15 +127,15 @@ export class BuffBarWindow {
   }
 
   get cols() {
-    return Math.min(MAX_COLS, Math.max(1, this.buffs.length));
+    return Math.min(this.perRow, Math.max(1, this.buffs.length));
   }
 
   get rows() {
-    return Math.max(1, Math.ceil(this.buffs.length / MAX_COLS));
+    return Math.max(1, Math.ceil(this.buffs.length / this.perRow));
   }
 
   get iconsWidth() {
-    return this.cols * ICON_SIZE + (this.cols - 1) * GAP;
+    return this.cols * this.iconSize + (this.cols - 1) * GAP;
   }
 
   get width() {
@@ -122,7 +143,7 @@ export class BuffBarWindow {
   }
 
   get height() {
-    return HEADER + PAD * 2 + this.rows * ICON_SIZE + (this.rows - 1) * GAP;
+    return HEADER + PAD * 2 + this.rows * this.iconSize + (this.rows - 1) * GAP;
   }
 
   contains(mx, my) {
@@ -134,13 +155,13 @@ export class BuffBarWindow {
   }
 
   iconRect(index) {
-    const col = index % MAX_COLS;
-    const row = Math.floor(index / MAX_COLS);
+    const col = index % this.perRow;
+    const row = Math.floor(index / this.perRow);
     return {
-      x: this.x + (this.width - this.iconsWidth) / 2 + col * (ICON_SIZE + GAP),
-      y: this.y + HEADER + PAD + row * (ICON_SIZE + GAP),
-      w: ICON_SIZE,
-      h: ICON_SIZE,
+      x: this.x + (this.width - this.iconsWidth) / 2 + col * (this.iconSize + GAP),
+      y: this.y + HEADER + PAD + row * (this.iconSize + GAP),
+      w: this.iconSize,
+      h: this.iconSize,
     };
   }
 
@@ -207,7 +228,10 @@ export class BuffBarWindow {
     this.x = pos.x;
     this.y = pos.y;
     try {
-      localStorage.setItem(buffStorageKey(this.world), JSON.stringify({ x: this.x, y: this.y }));
+      localStorage.setItem(
+        buffStorageKey(this.world),
+        JSON.stringify({ x: this.x, y: this.y, orientation: this.orientation, iconScale: this.iconScale })
+      );
     } catch {
       /* ignore quota errors */
     }
@@ -280,6 +304,11 @@ export class BuffBarWindow {
       }
       if (buff.endsAt) {
         const left = Math.max(0, buff.endsAt - now);
+        const warnKey = `${buff.icon}:${buff.endsAt}`;
+        if (left > 0 && left < 10000 && !this.warned.has(warnKey)) {
+          this.warned.add(warnKey);
+          this.world.game?.audio?.warning?.();
+        }
         const total = Math.max(1, buff.time ? buff.endsAt - buff.time : buff.timer * 1000);
         const pct = Math.max(0, Math.min(1, left / total));
         const stripY = rect.y + rect.h - 14;
@@ -296,6 +325,21 @@ export class BuffBarWindow {
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
       }
+      if (buff.count > 1) {
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(rect.x + rect.w - 17, rect.y + 1, 16, 13);
+        ctx.fillStyle = '#ffe08a';
+        ctx.font = 'bold 10px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(buff.count), rect.x + rect.w - 9, rect.y + 8);
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+      }
+    }
+    for (const key of [...this.warned]) {
+      const [icon, endsAt] = key.split(':');
+      if (Number(endsAt) < now - 1000 || !buffs.some((buff) => String(buff.icon) === icon && String(buff.endsAt) === endsAt)) this.warned.delete(key);
     }
   }
 }

@@ -69,7 +69,7 @@ Implemented today:
   waypoint/quest markers, hover coordinates, and double-click click-to-walk.
 - UOLive/UltimaLive map updates (`client/js/game/uolive.js`) handle server map
   definitions, block CRC/hash queries, and terrain/static patches, applying them to
-  map blocks before rendering; custom house editing is still inert.
+  map blocks before rendering; custom-house design commands and updates are handled.
 - Paperdolls use the real gump art (`0x07D0`/`0x07D1`), draw equipped layers on the
   animated doll, show per-layer equipment slots with tooltips, support drag/drop
   pickup and equip, provide help/journal/skills/war/status/profile/party/logout
@@ -91,8 +91,18 @@ Implemented today:
   radar, and world map.
   Double-clicking a row walks there; clicking the on-screen quest arrow sends
   `0xBF 0x07` and walks toward it.
+- Chat channels (`0xB2`/`0xB3`), Unicode language selection, journal text export,
+  per-account options/keybinds, and chat macro recording are implemented.
+- Gump bitmap fonts (`fonts.mul`), map areas, gump scaling, and persistent gump
+  switch/entry state are implemented.
+- Status always-on-top/lock/scale, extended combat properties, and a buff summary are
+  implemented; party friend lists, paperdoll durability/virtue/book controls, other
+  mobile equipment lifting, and skill/stat lock controls are implemented.
+- Buff stacking/expiry warnings, hotbar pages/macros/spell dragging, ground context
+  actions, custom-house design commands, radar multis, real `sound.mul`/digital music
+  playback, and target-resource/near-self macros are implemented.
 
-The systems below are the main gaps.
+The remaining items are mostly polish or shard-dependent features.
 
 ---
 
@@ -112,9 +122,10 @@ The systems below are the main gaps.
   corner rules, and nearest-walkable target validation (`client/js/game/pathfinding.js`).
 - Keyboard movement repeats while keys are held, supports diagonals and Shift-run, turns
   in place on locally blocked steps, and is suppressed while dead/frozen or typing.
-- Footstep sounds fire at step completion (mounted/run/terrain variants).
-- Remaining polish: explicit stunned-state gating, multi blocking in pathfinding, and
-  real UO footstep audio samples (current footsteps are synthesized).
+- Footstep sounds fire at step completion (mounted/run/terrain variants) and use
+  decoded `sound.mul` samples when available, falling back to synthesis.
+- Stun/freeze flags gate movement, and A* respects loaded multi components in addition
+  to land/static blocking. Running out of stamina falls back to walk timing.
 
 ### Requirements (implemented)
 
@@ -191,8 +202,10 @@ The systems below are the main gaps.
 - Chat input supports history, prompt responses, and say/whisper/yell/emote/party/
   guild/alliance modes; `-ignore`, `-journal`, `-clear`, `-timestamps` and the mode
   commands are handled in `ui.js`.
-- Journal and chat are complete for normal play. The optional P2 extras are chat
-  channel (0xB3) UI, a language field, cliloc append/replace handling, and log export.
+- Journal and chat are complete for normal play. Chat channels (`0xB2`/`0xB3`) are
+  handled through `-chat join/create/leave/msg/list/open`, a language code is used for
+  Unicode speech, cliloc affixes/replacements are merged, and the journal can be
+  exported to a text file with `-export`.
 
 ### Required
 
@@ -257,8 +270,9 @@ The systems below are the main gaps.
   window sends a throttled `0x34` status request.
 - Action buttons open the paperdoll, skills list, and journal, toggle war/peace,
   refresh status, and log out. Right-click, the title-bar X, or Esc close the window.
-- Still missing: always-on-top/lock/scale settings, extended item-property fields,
-  and a buff/debuff summary.
+- Always-on-top, lock, and 75-150% scale are saved per account; Ctrl+wheel changes
+  scale. Extended DI/LRC/SDI/FCR/FC/LMC fields and a live buff/debuff icon summary are
+  displayed.
 
 ### Required
 
@@ -327,14 +341,18 @@ Implemented in `client/js/game/gump.js`:
   that reference it.
 - Windows raise on click and respect right-click/Esc/no-close rules.
 
-Missing framework pieces:
+Framework pieces added in this revision:
 
-- Proper UO bitmap text fonts and font selection (current gump text uses a browser
-  monospace font with UO hue colours).
-- Rich HTML subset gaps: tables/backgrounds/embedded images and some legacy tags.
-- `maparea` map rendering (the control is parsed but not drawn).
-- IME composition support, multi-line text entries, and native browser selection.
-- Gump scaling options and persistent switch/entry state across a server update.
+- Bitmap text decoded from `fonts.mul`, served as atlas PNGs, with `-gumpfont 0-9`
+  selection and canvas fallback when a font is unavailable.
+- `maparea` renders facet crops through `/api/mapimage`.
+- IME composition is inserted into focused text entries; switch/checkbox/radio and
+  text-entry values survive server gump updates.
+- Per-gump scaling with Ctrl+wheel, persisted with gump positions per account.
+- Basic table/row/cell and horizontal-rule handling in the HTML parser.
+
+Remaining framework polish: native browser text selection, multi-line text entries,
+and richer embedded-image/background HTML.
 
 `windows.js` has container, paperdoll, book, profile, status, spellbook, and shop
 windows (containers, paperdolls, books, and profiles are still simplified).
@@ -345,9 +363,9 @@ Current status at a glance:
 
 | Gump | Status | Notes |
 | --- | --- | --- |
-| Paperdoll | Implemented | Real gump art, animated doll with equipment layers, per-layer sidebar slots, tooltips, drag/drop equip, action buttons, title/name, and saved position; durability/virtue/paperdoll books and lifting other mobiles' equipment remain. |
+| Paperdoll | Implemented | Real gump art, animated doll with equipment layers, per-layer sidebar slots, tooltips, durability bars, drag/drop equip, lifting other mobiles' equipment, virtue and equipment-book buttons, action buttons, title/name, and saved position. |
 | Container | Implemented | Gump background, server `item.x/y` layout with grid fallback, stacked item art, wheel/scrollbar scrolling, use, drag/drop with container-local coordinates, shift-click/drag stack splitting, stack merging on drop, a collapsible item list view under the container, tooltips/context menu, right-click close, and saved position. |
-| Skills | Implemented | Canvas window with value/base/cap, lock cycling (`0x3A`), sort/filter, use button, wheel scrolling, and saved position; stat locks remain. |
+| Skills | Implemented | Canvas window with value/base/cap, skill and STR/DEX/INT lock cycling, sort/filter, use button, wheel scrolling, and saved position. |
 | Spellbook | Implemented | Canvas spellbook with circle/page tabs, icons, mana/power-word tooltips, wheel paging, saved position, and double-click casting. Supports magery, necromancy, chivalry, bushido, ninjitsu, spellweaving, mysticism, and mastery books. |
 | Shop | Implemented | Buy/sell lists with per-item quantities, unit/line totals, gold check, Clear/All, confirm, tooltips, context menus, scrolling, and saved position. |
 | Secure trade | Implemented | Canvas trade window with both offer lists, gold/platinum entry, accept state, item drag/drop, tooltips, cancel/close, and saved position. |
@@ -356,8 +374,8 @@ Current status at a glance:
 | Profile | Implemented | Header/footer/body rendering; own profile body editing and save (`0xB8`). |
 | Menu / gray menu | Implemented | Item menus show numbered item art with hues, hover names and `0x7D` replies; gray menus use radio choices with OK/Cancel and a code-0 cancel response. |
 | Text entry / prompts / dye | Implemented | Modal text entry, ASCII/Unicode prompts, and a hue-grid dye picker with five shade graduations and a live item/swatch preview. |
-| Party | Implemented | Movable manifest with leader/member slots, HP bars, invite/accept/decline, tell/kick, leave/disband, loot toggle, and party chat input; saved position. |
-| Buff/debuff | Implemented | Draggable icon bar with duration countdowns and shrinking progress bars, tooltips, expiry filtering, and saved position; packets are parsed from `0xDF`. |
+| Party | Implemented | Movable manifest with leader/member slots, HP bars, invite/accept/decline, tell/kick, leave/disband, loot toggle, party chat, a friend list, and saved position. |
+| Buff/debuff | Implemented | Draggable icon bar with duration countdowns, stacking counts, shrinking progress bars, audible expiry warnings, row/column and size options, tooltips, expiry filtering, and saved position; packets are parsed from `0xDF`. |
 | Tooltips / OPL | Implemented | World, container, shop, paperdoll and gump controls; `0xD6`/`0xDC` caching and throttled requests. |
 | Context menu | Implemented | Right-click world/container items requests `0xBF 0x13`; display (`0xBF 0x14`) and selection (`0xBF 0x15`) support old and new cliloc modes. |
 
@@ -372,8 +390,8 @@ Current status at a glance:
   equip (including dropping a wearable on the doll to use its layer).
 - Can-lift behavior, title display, update on `0x88`/equipment packets, saved position.
 - Double-clicking a mobile opens its paperdoll (0x88 from server).
-- Remaining: durability/virtue/paperdoll-book buttons and lifting equipment from
-  other mobiles.
+- Durability bars, virtue and equipment-book windows, and lifting equipment from
+  other mobiles within range are implemented.
 
 **Container** *(implemented)*
 
@@ -398,7 +416,7 @@ Current status at a glance:
   double-click, and cycle lock state with `0x3A`; wheel scrolling and position
   persistence are supported.
 - Updates from `0x3A` (including `0xFE` name list and `0xFF/0xDF` single updates).
-- Remaining: stat locks and per-skill caps beyond what the server sends.
+- Stat locks are sent with `0xBF 0x1A`; per-skill caps use the server values.
 
 **Spellbook** *(implemented)*
 
@@ -410,7 +428,7 @@ Current status at a glance:
   necromancy, chivalry, bushido, ninjitsu, spellweaving, mysticism, and mastery).
 - Local mana check prevents casting a spell the player cannot afford; the server
   still performs the authoritative cooldown/reagent checks.
-- Remaining: drag a spell from the book to a hotbar/macro button (hotbar is P2).
+- Spells can be dragged from the book onto a hotbar slot.
 
 **Shop buy/sell** *(implemented)*
 
@@ -490,7 +508,7 @@ Current status at a glance:
 - Invite, tell one member, kick, leave/disband, and loot-type packets use the
   corrected `0xBF 0x06` sub-types; party chat focuses the shared chat input in
   party mode.
-- Remaining: party health-bar gumps and friend-list integration.
+- Live HP bars are shown in the manifest, and a local friend list tracks online names.
 
 **Buff/debuff bar** *(implemented)*
 
@@ -500,8 +518,8 @@ Current status at a glance:
 - Active effects show a countdown and a progress bar that drains as the timer runs out;
   timed-out effects stop rendering automatically.
 - Hovering an icon shows the resolved cliloc title, description, and remaining time.
-- Remaining: per-effect stacking counts, audible expiry warnings, and a user-selected
-  icon orientation/size.
+- Stacking counts, audible expiry warnings, and row/column plus small/large icon
+  options are available (`-buffs row|column|small|large|normal`).
 
 **Tooltips / OPL** *(implemented)*
 
@@ -521,18 +539,22 @@ Current status at a glance:
   and new cliloc modes, and selection sends `0xBF 0x15`.
 - Right-clicking empty ground still starts mouse-walk, and the menu closes on outside
   click, right-click, or Esc.
-- Remaining: menus for shop items and ground tiles, plus submenu arrow behavior.
+- Shop item menus are available, Ctrl+right-click on empty ground opens local walk,
+  waypoint, and coordinate actions, and server submenu arrows request their child menu.
 
 #### P2
 
 - Full-screen world map browser *(implemented)*; map-gump pins and the radar are implemented.
 - Options/settings window *(implemented)*.
-- Hotbar/desktop *(implemented)*; drag-from-spellbook binding, multiple bars/pages, and
-  macro recording remain.
+- Hotbar/desktop *(implemented)* with three pages, drag-from-spellbook binding, and
+  chat macro recording/playback (`-macro start|stop|list|play|delete`).
 - Quest arrow and waypoint list UI *(implemented)*.
-- House/custom-house editing UI.
-- Vendor search, runebook, bulk order, quest log.
-- Chat channel UI (if enabled by the shard).
+- House/custom-house editing UI *(implemented: standard design commands, floor and
+  category controls, add/delete prompts, and `0xD8` updates)*.
+- Vendor search, runebook, bulk order, and quest log are server-gump driven and open
+  through the normal gump parser; `-questlog`, `-guildmenu`, and `-house` provide
+  direct entry points where the shard supports them.
+- Chat channel UI *(implemented through `-chat` and the journal Chat tab)*.
 
 ### Gump acceptance
 
@@ -549,25 +571,25 @@ Current status at a glance:
 
 - **Targeting:** target cursor, object/mobile/ground/static/multi targets, container,
   paperdoll, shop, and trade item targets, server-side cancel packets, cursor
-  cancellation, `-lasttarget`, and target info tooltip are present;
-  target-by-resource and target macros remain.
-- **Health/name overhead:** basic names and health bars are rendered; hide/show
-  settings and consistent notoriety/ghost presentation remain.
+  cancellation, `-lasttarget`, `-target itself/nearest`, `-target resource`, and target
+  info tooltip are present.
+- **Health/name overhead:** names and health bars render with hide/show settings;
+  ghosts use grey names and no living health bar, and notoriety colours are applied
+  consistently.
 - **Death/ghost:** `0x2C` switches the player to the ghost body (human/elf and
   gargoyle, male/female), ghosts move and render, equipment layers are hidden, and
   resurrection restores the living body via the status byte or the next body update.
   Resurrection gumps supplied by the shard open through the normal gump parser.
-- **Lighting/time/weather:** basic lighting, weather, personal light and season
-  changes are present; day/night transitions and indoor-light polish remain.
-- **Audio:** stub manager with synthesized footsteps; combat/UI/music/volume await
-  real samples and settings. The options window can enable audio, set volume, and
-  toggle footsteps.
-- **Options:** the `OPT` window (`-options`) persists display, movement, and audio
-  settings client-wide; per-account options and keybind/macro rebinding remain.
-- **Persistence:** journal/filter settings, status/shop/trade/party/paperdoll position,
-  and server-gump positions persist; the spellbook uses the same in-session position
-  cache. Container positions persist per account; hotbar and per-account option
-  settings do not.
+- **Lighting/time/weather:** lighting levels are smoothly interpolated between server
+  updates, and weather, personal light, and season changes are present.
+- **Audio:** decoded `sound.mul` effects and digital MP3 music are served; missing
+  files fall back to synthesized effects. The options window enables audio, sets
+  volume, and toggles footsteps.
+- **Options:** the `OPT` window (`-options`) persists display, movement, audio, and
+  keybind settings per account; chat macros are stored per account.
+- **Persistence:** journal/filter settings, status/shop/trade/party/paperdoll/container
+  positions, server-gump positions/scales, hotbar pages, macros, friends, and options
+  persist per account.
 
 ---
 
@@ -576,13 +598,14 @@ Current status at a glance:
 1. Movement model + render interpolation + deny reconciliation. *(done)*
 2. Movable status window using the existing entity/status packets. *(done)*
 3. Journal model + filters + chat input polish. *(done)*
-4. Gump framework hardening (text/fonts/tooltips/scroll/focus/persistence). *(core done; bitmap fonts/maparea/scaling remain)*
+4. Gump framework hardening (text/fonts/tooltips/scroll/focus/persistence). *(done; native selection and multi-line entries remain)*
 5. Paperdoll, container, skills, spellbook. *(paperdoll, container split/stack UI, skills, and spellbook done)*
 6. Shop, trade, book, profile, menus, prompts, dye. *(shop, trade, book, profile,
    bulletin board, menus/gray menus, prompts, and the dye hue picker are done)*
 7. Party, buffs, tooltips/OPL, context menu. *(party, tooltips/OPL, buff bar, and context menu done)*
 8. Map/radar, options, hotbar, audio. *(radar, map item gumps, the full-screen world
-   map, the options window, and the hotbar are done; real audio samples remain)*
+   map, the options window, and the hotbar are done; real audio and music samples are
+   decoded when present)*
 
 ## 7. Current file map
 
@@ -610,6 +633,8 @@ Current status at a glance:
 | Outgoing packets | `client/js/net/outgoing.js` |
 | Socket/crypto/compression | `client/js/net/socket.js`, `client/js/crypto/*` |
 | Asset endpoints | `server/assets.js`, `server/uo/*` |
+| Bitmap fonts / sound / music | `server/uo/fonts.js`, `server/uo/sound.js`, `server/uo/music.js` |
+| Chat / friends / house / virtue | `client/js/ui/ui.js`, `client/js/game/windows.js` |
 | Facet map crop renderer | `server/uo/multimap.js` |
 
 ## 8. Basic-play test checklist
@@ -627,9 +652,14 @@ Current status at a glance:
 - Open the radar and a map item; add a pin, plot/clear the route, and move the window.
 - Open waypoints, add/remove/clear a local waypoint, and double-click a row to walk.
 - Open the world map, switch facets, zoom/pan, and double-click a reachable tile to walk.
-- Open options, toggle display/audio settings, and confirm they persist after reload.
+- Open options, toggle display/audio settings, rebind a key, and confirm they persist
+  after reload for that account.
 - Open the hotbar, drag an item onto a slot, bind a spell/skill/command, use the slot
   with its key, and confirm the layout persists after reload.
-- Use a skill and cast a spell.
+- Use a skill and cast a spell; cycle STR/DEX/INT and skill locks; drag a spell to the
+  hotbar and use it from a hotbar page.
+- Open the virtue and equipment-book windows from a paperdoll, lift equipment from
+  another mobile, and open the custom-house window with `-house <serial>`.
+- Join a chat channel with `-chat join <name>`, send a message, and export the journal.
 - Die and resurrect.
 - Close every gump with its intended close method.

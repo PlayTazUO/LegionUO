@@ -454,10 +454,11 @@ export class Renderer {
     const showBars = settings.get('showHealthBars');
     const showSpeech = settings.get('showSpeech');
     if (showNames && dist <= 14 && m.name && m !== this.world.player) {
+      const nameColor = m.isGhost || m.isDead ? '#9aa0a6' : notorietyColor(m.notoriety);
       if (hasUoHtmlMarkup(m.name)) {
         const measured = measureUoHtml(ctx, m.name, {
           width: 220,
-          defaultColor: notorietyColor(m.notoriety),
+          defaultColor: nameColor,
           fontSize: 12,
           fontFamily: 'monospace',
         });
@@ -467,7 +468,7 @@ export class Renderer {
           width: 220,
           height: measured.height,
           align: 'center',
-          defaultColor: notorietyColor(m.notoriety),
+          defaultColor: nameColor,
           fontSize: 12,
           fontFamily: 'monospace',
           clip: false,
@@ -478,12 +479,12 @@ export class Renderer {
         ctx.textBaseline = 'bottom';
         ctx.lineWidth = 3;
         ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-        ctx.fillStyle = notorietyColor(m.notoriety);
+        ctx.fillStyle = nameColor;
         ctx.strokeText(m.name, pos.sx, pos.sy - 54);
         ctx.fillText(m.name, pos.sx, pos.sy - 54);
       }
     }
-    if (showBars && m !== this.world.player && m.hitsMax > 0 && (m.hits < m.hitsMax || m.yellowBar)) {
+    if (showBars && m !== this.world.player && !m.isGhost && !m.isDead && m.hitsMax > 0 && (m.hits < m.hitsMax || m.yellowBar)) {
       const w = 44;
       const x = pos.sx - w / 2;
       const y = pos.sy - 50;
@@ -557,7 +558,9 @@ export class Renderer {
   drawLighting(ctx) {
     if (!settings.get('lighting')) return;
     const light = this.world.light;
-    const darkness = Math.max(0, Math.min(30, light.overall - Math.min(5, light.personal || 0)));
+    const overall = light.displayOverall ?? light.overall;
+    const personal = light.displayPersonal ?? light.personal;
+    const darkness = Math.max(0, Math.min(30, overall - Math.min(5, personal || 0)));
     if (darkness <= 0) return;
     const alpha = (darkness / 30) * 0.72;
     ctx.fillStyle = `rgba(2,4,12,${alpha})`;

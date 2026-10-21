@@ -125,7 +125,7 @@ const gameServer = net.createServer((socket) => {
     contents.push(u32(0x40000004), u16(0x0cd3), u8(0), u16(2), u16(96), u16(44), u8(0), u32(0x40000002), u16(0));
     contents.push(u32(0x40000006), u16(0x0efa), u8(0), u16(1), u16(40), u16(96), u8(0), u32(0x40000002), u16(0));
     const cont = packet(0x3c, concat(u16(3), ...contents), -1);
-    const spellContent = packet(0xbf, concat(u16(0x1b), u8(0), u8(0), u32(0x40000006), u16(0x0efa), u16(0), u32(0x000000ff), u32(0)), -1);
+    const spellContent = packet(0xbf, concat(u16(0x1b), u8(0), u8(0), u32(0x40000006), u16(0x0efa), u16(1), Buffer.from([0xff, 0, 0, 0, 0, 0, 0, 0])), -1);
     const openBook = packet(0x24, concat(u32(0x40000006), u16(0xffff)), 9);
     const buff = packet(
       0xdf,
