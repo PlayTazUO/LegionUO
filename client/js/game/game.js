@@ -43,11 +43,15 @@ export class Game {
     this.heldCtx = this.heldCanvas?.getContext('2d') || null;
     this.uiCanvas = document.getElementById('uiLayer');
     this.uiCtx = this.uiCanvas?.getContext('2d') || null;
+    this.uiTopCanvas = document.getElementById('uiTopLayer');
+    this.uiTopCtx = this.uiTopCanvas?.getContext('2d') || null;
     this.resizeHeldLayer();
     this.resizeUiLayer();
+    this.resizeUiTopLayer();
     window.addEventListener('resize', () => {
       this.resizeHeldLayer();
       this.resizeUiLayer();
+      this.resizeUiTopLayer();
     });
     this.ui = new UI(this);
     this.held = null;
@@ -188,7 +192,9 @@ export class Game {
     await this.refreshAssetServer();
     this.world.resetWorld();
     this.world.resetLogin();
-    this.ui.windows = [];
+    this.ui.closeMacros?.();
+    this.ui.cancelMacroPlayback?.();
+    this.ui.clearWindows?.();
     this.ui.closeContextMenu();
     this.pendingRelay = null;
     this.lastPingSent = 0;
@@ -392,12 +398,15 @@ export class Game {
     this._enteredWorld = false;
     this.ui._enteredWorld = false;
     this.world.resetWorld();
-    this.ui.windows = [];
+    this.ui.closeMacros?.();
+    this.ui.cancelMacroPlayback?.();
+    this.ui.clearWindows?.();
     this.ui.closeContextMenu();
     this.ui.clearGumpFocus();
     this.held = null;
     this.cancelWalkPath();
     document.getElementById('hud').classList.add('hidden');
+    this.ui.journal?.hide();
     const login = document.getElementById('loginScreen');
     login.classList.remove('hidden');
     login.style.display = 'flex';
@@ -675,11 +684,23 @@ export class Game {
     this.uiHeight = this.uiLayer?.height || window.innerHeight;
   }
 
+  resizeUiTopLayer() {
+    if (!this.uiTopCanvas || !this.uiTopCtx) return;
+    this.uiTopLayer = this.resizeLayer(this.uiTopCanvas, this.uiTopLayer || {});
+    this.uiTopDpr = this.uiTopLayer?.dpr || 1;
+    this.uiTopWidth = this.uiTopLayer?.width || window.innerWidth;
+    this.uiTopHeight = this.uiTopLayer?.height || window.innerHeight;
+  }
+
   drawUiOverlay(now) {
     if (!this.uiCtx) return;
     this.uiCtx.setTransform(this.uiDpr, 0, 0, this.uiDpr, 0, 0);
     this.uiCtx.clearRect(0, 0, this.uiWidth, this.uiHeight);
-    this.ui.draw(this.uiCtx, now);
+    if (this.uiTopCtx) {
+      this.uiTopCtx.setTransform(this.uiTopDpr, 0, 0, this.uiTopDpr, 0, 0);
+      this.uiTopCtx.clearRect(0, 0, this.uiTopWidth, this.uiTopHeight);
+    }
+    this.ui.draw(this.uiCtx, now, this.uiTopCtx);
   }
 
   drawHeldOverlay() {

@@ -119,7 +119,9 @@ Then open <http://127.0.0.1:8080>.
   warnings, row/column and size options, tooltips and saved position.
 - Hotbar/desktop with 12 key-bound slots (`1`-`0`, `-`, `=`), three pages,
   drag-to-bind items, spell/skill/command/macro bindings, drag-from-spellbook,
-  tooltips, and per-account persistence. Chat commands can record and play macros.
+  tooltips, and per-account persistence. The macro editor creates and plays
+  say/move/wait/target/command sequences; macro names can be dragged out as
+  reusable buttons and dropped onto hotbar slots.
 - Chat channel support (`0xB2`/`0xB3`), language selection and journal export.
 - Movable party manifest with live HP bars, invite/accept/decline, tell/kick,
   leave/disband, loot toggle, party chat and saved position; a local friend list

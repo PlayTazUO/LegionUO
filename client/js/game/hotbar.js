@@ -1,4 +1,5 @@
 import { accountStorageKey, clampPosition } from '../util/ui.js';
+import { normalizeMacroActions } from './macros.js';
 
 const HOTBAR_STORAGE_BASE = 'legionuo.hotbar.v1';
 const SLOT_COUNT = 12;
@@ -54,9 +55,9 @@ function normalizeSlot(slot) {
     };
   }
   if (slot.type === 'macro') {
-    const steps = Array.isArray(slot.steps) ? slot.steps.map((step) => String(step || '').trim()).filter(Boolean) : [];
-    if (!steps.length) return null;
-    return { type: 'macro', name: String(slot.name || 'Macro'), steps };
+    const actions = normalizeMacroActions(Array.isArray(slot.actions) ? slot.actions : slot.steps);
+    if (!actions.length) return null;
+    return { type: 'macro', name: String(slot.name || 'Macro'), actions };
   }
   return null;
 }
@@ -93,29 +94,8 @@ export function hotbarCommandSlot(command, name) {
   return normalizeSlot({ type: 'command', command, name });
 }
 
-export function hotbarMacroSlot(name, steps) {
-  return normalizeSlot({ type: 'macro', name, steps });
-}
-
-export function macroStorageKey(world) {
-  return accountStorageKey(world, 'legionuo.macros.v1');
-}
-
-export function loadMacros(world) {
-  try {
-    const saved = JSON.parse(localStorage.getItem(macroStorageKey(world)) || 'null');
-    return saved && typeof saved === 'object' ? saved : {};
-  } catch {
-    return {};
-  }
-}
-
-export function saveMacros(world, macros) {
-  try {
-    localStorage.setItem(macroStorageKey(world), JSON.stringify(macros));
-  } catch {
-    /* ignore quota errors */
-  }
+export function hotbarMacroSlot(name, actions) {
+  return normalizeSlot({ type: 'macro', name, actions });
 }
 
 export function hotbarSlotForKey(code) {
@@ -280,8 +260,7 @@ export class HotbarWindow {
       return true;
     }
     if (slot.type === 'macro') {
-      for (const step of slot.steps) this.world.game.ui?.command(step);
-      return true;
+      return !!this.world.game.ui?.playMacroActions?.(slot.actions, slot.name);
     }
     return false;
   }

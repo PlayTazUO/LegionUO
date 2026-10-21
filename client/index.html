@@ -28,6 +28,49 @@
     <canvas id="heldLayer"></canvas>
     <canvas id="uiLayer"></canvas>
 
+    <div id="journalPanel" class="panel">
+      <div id="journalTitle">
+        <span class="journalHeading">Journal</span>
+        <div class="journalTools">
+          <button id="journalSettingsBtn" title="Journal settings">&#9881;</button>
+          <button id="journalClearBtn" title="Clear journal">C</button>
+          <button id="journalCloseBtn" title="Close journal">&times;</button>
+        </div>
+      </div>
+      <div id="journalTabs">
+        <button data-filter="all" class="active">All</button>
+        <button data-filter="system">System</button>
+        <button data-filter="speech">Speech</button>
+        <button data-filter="party">Party</button>
+        <button data-filter="guild">Guild</button>
+        <button data-filter="spells">Spells</button>
+        <button data-filter="chat">Chat</button>
+        <button data-filter="damage">Damage</button>
+      </div>
+      <div id="journalOptions" class="hidden">
+        <label><input id="journalTimestamps" type="checkbox" /> Timestamps</label>
+        <label>Font <input id="journalFontSize" type="number" min="9" max="20" step="1" value="12" /></label>
+        <label>Opacity <input id="journalOpacity" type="range" min="0.2" max="1" step="0.05" value="0.9" /></label>
+        <label>Lines <input id="journalMaxLines" type="number" min="50" max="5000" step="50" value="500" /></label>
+      </div>
+      <div id="journal"></div>
+      <div id="chatRow">
+        <select id="chatMode" title="Speech mode">
+          <option value="say">Say</option>
+          <option value="whisper">Whisper</option>
+          <option value="yell">Yell</option>
+          <option value="emote">Emote</option>
+          <option value="party">Party</option>
+          <option value="guild">Guild</option>
+          <option value="alliance">Alliance</option>
+        </select>
+        <input id="chatInput" placeholder="Say something..." autocomplete="off" />
+        <button id="sendBtn">Send</button>
+      </div>
+      <div id="journalResize" title="Resize"></div>
+    </div>
+    <canvas id="uiTopLayer"></canvas>
+
     <div id="hud" class="hidden">
       <div id="topButtons" class="panel">
         <div id="perfStats" title="Client performance">
@@ -40,6 +83,7 @@
         <button id="btnParty" title="Party">PT</button>
         <button id="btnMap" title="Radar">MAP</button>
         <button id="btnHotbar" title="Hotbar">HB</button>
+        <button id="btnMacros" title="Macros">MAC</button>
         <button id="btnWorldMap" title="World Map">WM</button>
         <button id="btnWaypoints" title="Waypoints">WP</button>
         <button id="btnWar" title="War/Peace">PEACE</button>
@@ -47,48 +91,6 @@
         <button id="btnOptions" title="Options">OPT</button>
         <button id="btnJournal" title="Journal">JL</button>
         <button id="btnLogout" title="Logout">X</button>
-      </div>
-
-      <div id="journalPanel" class="panel">
-        <div id="journalTitle">
-          <span class="journalHeading">Journal</span>
-          <div class="journalTools">
-            <button id="journalSettingsBtn" title="Journal settings">&#9881;</button>
-            <button id="journalClearBtn" title="Clear journal">C</button>
-            <button id="journalCloseBtn" title="Close journal">&times;</button>
-          </div>
-        </div>
-        <div id="journalTabs">
-          <button data-filter="all" class="active">All</button>
-          <button data-filter="system">System</button>
-          <button data-filter="speech">Speech</button>
-          <button data-filter="party">Party</button>
-          <button data-filter="guild">Guild</button>
-          <button data-filter="spells">Spells</button>
-          <button data-filter="chat">Chat</button>
-          <button data-filter="damage">Damage</button>
-        </div>
-        <div id="journalOptions" class="hidden">
-          <label><input id="journalTimestamps" type="checkbox" /> Timestamps</label>
-          <label>Font <input id="journalFontSize" type="number" min="9" max="20" step="1" value="12" /></label>
-          <label>Opacity <input id="journalOpacity" type="range" min="0.2" max="1" step="0.05" value="0.9" /></label>
-          <label>Lines <input id="journalMaxLines" type="number" min="50" max="5000" step="50" value="500" /></label>
-        </div>
-        <div id="journal"></div>
-        <div id="chatRow">
-          <select id="chatMode" title="Speech mode">
-            <option value="say">Say</option>
-            <option value="whisper">Whisper</option>
-            <option value="yell">Yell</option>
-            <option value="emote">Emote</option>
-            <option value="party">Party</option>
-            <option value="guild">Guild</option>
-            <option value="alliance">Alliance</option>
-          </select>
-          <input id="chatInput" placeholder="Say something..." autocomplete="off" />
-          <button id="sendBtn">Send</button>
-        </div>
-        <div id="journalResize" title="Resize"></div>
       </div>
 
       <div id="targetInfo" class="panel hidden"></div>

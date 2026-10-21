@@ -2089,9 +2089,16 @@ export class PaperdollWindow {
   }
 
   tooltipAt(mx, my) {
-    const item = this.equipmentAt(mx, my);
-    if (!item) return null;
-    return { id: `paperdoll:${this.mobile.serial}:${item.serial}`, serial: item.serial, title: resolveItemName(this.world, item) };
+    const slot = this.slotAt(mx, my);
+    if (!slot) return null;
+    if (!slot.item) {
+      return { id: `paperdoll:${this.mobile.serial}:layer:${slot.layer}`, title: layerName(slot.layer) };
+    }
+    return {
+      id: `paperdoll:${this.mobile.serial}:${slot.item.serial}`,
+      serial: slot.item.serial,
+      title: resolveItemName(this.world, slot.item),
+    };
   }
 
   onMouseDown(mx, my, button) {
@@ -2114,6 +2121,7 @@ export class PaperdollWindow {
         }
         return true;
       }
+      if (this.world.held) return true;
     }
     this.dragging = true;
     this.dragOffset.x = mx - this.x;
@@ -2146,16 +2154,22 @@ export class PaperdollWindow {
     this.dragging = false;
     if (this.press && !this.press.moved) this.world.socket.out.singleClick(this.press.item.serial);
     this.press = null;
+    if (this.world.held && this.contains(mx, my)) this.equipHeld(mx, my);
   }
 
   onItemDrop(mx, my) {
-    if (!this.world.held) return false;
-    if (!this.contains(mx, my)) return false;
+    if (!this.world.held || !this.contains(mx, my)) return false;
+    this.equipHeld(mx, my);
+    return true;
+  }
+
+  equipHeld(mx, my) {
+    const item = this.world.held;
+    if (!item) return false;
     if (!this.isOwn) {
-      this.restoreHeld(this.world.held);
+      this.restoreHeld(item);
       return true;
     }
-    const item = this.world.held;
     const slot = this.slotAt(mx, my);
     const layer = this.layerForItem(item) || slot?.layer || 0;
     if (!layer) {

@@ -345,8 +345,20 @@ export class Journal {
 
   /* ----------------------------- window ----------------------------- */
 
+  isOpen() {
+    return !!this.root && !this.root.classList.contains('hidden');
+  }
+
+  contains(mx, my) {
+    if (!this.isOpen()) return false;
+    const rect = this.root.getBoundingClientRect();
+    return mx >= rect.left && mx < rect.right && my >= rect.top && my < rect.bottom;
+  }
+
   show() {
-    this.root?.classList.remove('hidden');
+    if (!this.root) return;
+    this.root.classList.remove('hidden');
+    this.ui?.raiseWindow?.(this);
   }
 
   showSettings() {
@@ -360,7 +372,8 @@ export class Journal {
 
   toggle() {
     if (!this.root) return;
-    this.root.classList.toggle('hidden');
+    if (this.isOpen()) this.hide();
+    else this.show();
   }
 
   applySettings() {
@@ -387,6 +400,8 @@ export class Journal {
 
   bind() {
     if (!this.root) return;
+
+    this.root.addEventListener('mousedown', () => this.ui.raiseWindow?.(this), true);
 
     this.title?.addEventListener('mousedown', (event) => {
       if (event.button !== 0 || event.target.closest('button')) return;

@@ -281,12 +281,20 @@ button:hover {
   line-height: 1.5;
 }
 
-#uiLayer {
+#uiLayer,
+#uiTopLayer {
   position: fixed;
   inset: 0;
   display: block;
   pointer-events: none;
+}
+
+#uiLayer {
   z-index: 10;
+}
+
+#uiTopLayer {
+  z-index: 25;
 }
 
 #heldLayer {
@@ -301,7 +309,7 @@ button:hover {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 20;
+  z-index: 30;
 }
 
 .panel {
@@ -353,7 +361,8 @@ button:hover {
 }
 
 #journalPanel {
-  position: absolute;
+  position: fixed;
+  z-index: 20;
   left: 10px;
   top: calc(100vh - 190px);
   width: min(560px, 54vw);
@@ -617,6 +626,240 @@ button:hover {
   color: #ffe0a0;
   font-size: 12px;
   pointer-events: none;
+}
+
+#macroWindow {
+  position: fixed;
+  z-index: 45;
+  display: flex;
+  flex-direction: column;
+  min-width: 320px;
+  min-height: 260px;
+  background: rgba(18, 15, 10, 0.98);
+  border: 1px solid #857041;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  border-radius: 3px;
+  color: #d9c58d;
+  font: 12px monospace;
+  pointer-events: auto;
+}
+
+.macroHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 30px;
+  padding: 0 8px 0 10px;
+  background: #181d13;
+  border-bottom: 1px solid #3c4730;
+  cursor: move;
+  user-select: none;
+}
+
+.macroTitle {
+  color: #e8d7a8;
+  font: bold 13px monospace;
+  letter-spacing: 1px;
+}
+
+.macroClose {
+  padding: 1px 6px;
+  font-size: 12px;
+}
+
+.macroBody {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.macroSidebar {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 190px;
+  min-height: 0;
+  border-right: 1px solid #3c4730;
+}
+
+.macroList {
+  flex: 1;
+  min-height: 0;
+  padding: 6px;
+  overflow: auto;
+}
+
+.macroListItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  margin-bottom: 3px;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.24);
+  border: 1px solid #3c4730;
+  color: #d9c58d;
+  text-align: left;
+  font-size: 12px;
+  cursor: grab;
+}
+
+.macroListItem:active {
+  cursor: grabbing;
+}
+
+.macroListItem.active {
+  background: rgba(201, 176, 108, 0.24);
+  border-color: #c9b06c;
+  color: #f0dfa8;
+}
+
+.macroCount {
+  flex: 0 0 auto;
+  color: #8d8060;
+  font-size: 10px;
+}
+
+.macroNew {
+  margin: 0 6px 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.macroEditor {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px;
+}
+
+.macroNameRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.macroNameRow span {
+  flex: 0 0 38px;
+  color: #bfa96f;
+}
+
+.macroNameRow input,
+.macroAction input,
+.macroAction select {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 5px 7px;
+  background: #0d0c09;
+  border: 1px solid #50452b;
+  border-radius: 2px;
+  color: #f1e6c6;
+  font: 12px monospace;
+  outline: none;
+  user-select: text;
+}
+
+.macroAction select {
+  cursor: pointer;
+}
+
+.macroActions {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  padding: 4px;
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid #3c4730;
+}
+
+.macroAction {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  padding: 4px;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(60, 71, 48, 0.7);
+}
+
+.macroActionType {
+  flex: 0 0 120px !important;
+}
+
+.macroAction button {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  font-size: 11px;
+}
+
+.macroActionNote {
+  flex: 1;
+  min-width: 0;
+  color: #8d8060;
+  font-size: 11px;
+}
+
+.macroAddSelect {
+  flex: 0 1 190px;
+  min-width: 0;
+  margin: 0;
+  padding: 6px 7px;
+  background: #0d0c09;
+  border: 1px solid #50452b;
+  border-radius: 2px;
+  color: #f1e6c6;
+  font: 12px monospace;
+  cursor: pointer;
+  outline: none;
+}
+
+.macroSpacer {
+  flex: 1;
+}
+
+.macroFooter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.macroFooter button {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.macroStatus {
+  min-height: 14px;
+  color: #9c8c63;
+  font-size: 10px;
+}
+
+.macroEmpty {
+  padding: 8px;
+  color: #8d8060;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.macroDragGhost {
+  position: fixed;
+  z-index: 80;
+  padding: 5px 9px;
+  background: rgba(18, 15, 10, 0.96);
+  border: 1px solid #c9b06c;
+  border-radius: 2px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55);
+  color: #f0dfa8;
+  font: 12px monospace;
+  pointer-events: none;
+  white-space: nowrap;
 }
 
 #modalBackdrop {

@@ -501,13 +501,28 @@ export class Renderer {
     this.drawAnimFrame(ctx, animData, f, p.sx + 22, p.sy + 22, mirror, 1);
   }
 
-  drawMobile(ctx, mobile, now) {
+  mobileAnimGroups(mobile) {
     const type = this.game.getAnimType(mobile.graphic);
+    if (type === 'people') {
+      return {
+        type,
+        idleGroup: mobile.inWarMode && !mobile.isDead ? 7 : 4,
+        walkGroup: mobile.inWarMode ? 15 : 0,
+        runGroup: mobile.getItem(Layer.TwoHanded) ? 3 : 2,
+      };
+    }
+    if (type === 'low') {
+      return { type, idleGroup: 2, walkGroup: 0, runGroup: 1 };
+    }
+    return { type, idleGroup: 1, walkGroup: 0, runGroup: 0 };
+  }
+
+  drawMobile(ctx, mobile, now) {
+    const { type, idleGroup, walkGroup, runGroup } = this.mobileAnimGroups(mobile);
     const anim = mobile.animation;
     const sinceStart = now - (anim?.start || 0);
     const serverPlaying = anim?.fromServer && sinceStart < Math.max(400, (anim.frameCount || 5) * ANIM_FRAME_MS);
-    const idleGroup = type === 'people' ? (mobile.inWarMode && !mobile.isDead ? 7 : 4) : type === 'low' ? 2 : 1;
-    const walkGroup = type === 'people' ? (mobile.inWarMode ? 15 : 0) : 0;
+    const running = !!mobile.running;
 
     const gameDir = mobile.direction & 7;
     const { dir, mirror } = animDirection(gameDir);
@@ -530,13 +545,16 @@ export class Renderer {
 
     let group;
     if (serverPlaying) group = anim.group;
-    else if (walking) group = walkGroup;
+    else if (walking) group = running ? runGroup : walkGroup;
     else group = idleGroup;
 
     // Warm the cache for the group we are about to switch to, so the first
-    // idle <-> walk transition does not have to wait on a fetch.
+    // idle <-> walk <-> run transition does not have to wait on a fetch.
     const prefetchGroup = walking ? idleGroup : walkGroup;
     this.assets.getAnim(mobile.graphic, prefetchGroup, dir, mobile.hue || 0);
+    if (runGroup !== walkGroup) {
+      this.assets.getAnim(mobile.graphic, runGroup, dir, mobile.hue || 0);
+    }
     if (type === 'people' && !mobile.isGhost && this.assets.tileData) {
       for (const layer of equipmentLayers) {
         const item = mobile.getItem(layer);
@@ -548,12 +566,13 @@ export class Renderer {
     // The player turns constantly; load the body for every isometric
     // direction up front so turning does not flash the sprite.
     if (mobile === this.world.player) {
-      const key = `${mobile.graphic}|${mobile.hue}|${idleGroup}|${walkGroup}`;
+      const key = `${mobile.graphic}|${mobile.hue}|${idleGroup}|${walkGroup}|${runGroup}`;
       if (mobile.prefetchKey !== key) {
         mobile.prefetchKey = key;
         for (let d = 0; d < 5; d++) {
           this.assets.getAnim(mobile.graphic, idleGroup, d, mobile.hue || 0);
           this.assets.getAnim(mobile.graphic, walkGroup, d, mobile.hue || 0);
+          if (runGroup !== walkGroup) this.assets.getAnim(mobile.graphic, runGroup, d, mobile.hue || 0);
         }
       }
     }
@@ -989,14 +1008,10 @@ export class Renderer {
       const pos = this.screenFor(x, y, z);
       pos.sx += 22;
       pos.sy += 22;
-      const type = this.game.getAnimType(entity.graphic);
+      const { idleGroup, walkGroup, runGroup } = this.mobileAnimGroups(entity);
       const group = entity.moving
-        ? (type === 'people' ? (entity.inWarMode ? 15 : 0) : 0)
-        : type === 'people'
-          ? (entity.inWarMode && !entity.isDead ? 7 : 4)
-          : type === 'low'
-            ? 2
-            : 1;
+        ? (entity.running ? runGroup : walkGroup)
+        : idleGroup;
       const { dir, mirror } = animDirection(entity.direction);
       const animData = this.assets.getAnim(entity.graphic, group, dir, entity.hue || 0);
       const frame = animData?.meta?.frames?.[0];

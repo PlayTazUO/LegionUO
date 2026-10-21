@@ -92,7 +92,7 @@ Implemented today:
   Double-clicking a row walks there; clicking the on-screen quest arrow sends
   `0xBF 0x07` and walks toward it.
 - Chat channels (`0xB2`/`0xB3`), Unicode language selection, journal text export,
-  per-account options/keybinds, and chat macro recording are implemented.
+  per-account options/keybinds, and a macro editor are implemented.
 - Gump bitmap fonts (`fonts.mul`), map areas, gump scaling, and persistent gump
   switch/entry state are implemented.
 - Status always-on-top/lock/scale, extended combat properties, and a buff summary are
@@ -547,7 +547,8 @@ Current status at a glance:
 - Full-screen world map browser *(implemented)*; map-gump pins and the radar are implemented.
 - Options/settings window *(implemented)*.
 - Hotbar/desktop *(implemented)* with three pages, drag-from-spellbook binding, and
-  chat macro recording/playback (`-macro start|stop|list|play|delete`).
+  a macro editor/playback (`-macro [edit]|list|play|stop|delete`) with draggable
+  macro buttons.
 - Quest arrow and waypoint list UI *(implemented)*.
 - House/custom-house editing UI *(implemented: standard design commands, floor and
   category controls, add/delete prompts, and `0xD8` updates)*.
@@ -586,7 +587,7 @@ Current status at a glance:
   files fall back to synthesized effects. The options window enables audio, sets
   volume, and toggles footsteps.
 - **Options:** the `OPT` window (`-options`) persists display, movement, audio, and
-  keybind settings per account; chat macros are stored per account.
+  keybind settings per account; macros are stored per account.
 - **Persistence:** journal/filter settings, status/shop/trade/party/paperdoll/container
   positions, server-gump positions/scales, hotbar pages, macros, friends, and options
   persist per account.

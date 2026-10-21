@@ -37,22 +37,94 @@ import {
   hotbarSkillSlot,
   hotbarSlotForKey,
   hotbarSpellSlot,
-  loadMacros,
-  saveMacros,
 } from '../game/hotbar.js';
+import {
+  MacroButtonWindow,
+  MacroWindow,
+  WAIT_FOR_TARGET_MS,
+  loadMacroButtons,
+  loadMacros,
+  normalizeMacroActions,
+  saveMacroButtons,
+  saveMacros,
+} from '../game/macros.js';
 import { findSpellByName } from '../game/spells.js';
 import { MapGumpWindow, MinimapWindow, WorldMapWindow } from '../game/maps.js';
 import { WaypointWindow, addLocalWaypoint, clearLocalWaypoints, loadLocalWaypoints } from '../game/waypoints.js';
 import { Reader } from '../util/binary.js';
+import { accountStorageKey } from '../util/ui.js';
 import { Journal } from './journal.js';
 
 const $ = (id) => document.getElementById(id);
+
+const OPEN_WINDOWS_STORAGE_BASE = 'legionuo.openwindows.v1';
+const PERSISTED_WINDOW_KINDS = new Set([
+  'status',
+  'skills',
+  'hotbar',
+  'party',
+  'radar',
+  'worldmap',
+  'waypoints',
+  'buffs',
+  'friends',
+  'paperdoll',
+  'container',
+]);
+const SERVER_WINDOW_KINDS = new Set(['paperdoll', 'container']);
+const SERVER_WINDOW_RETRIES = 10;
+const SERVER_WINDOW_RETRY_MS = 500;
+
+function openWindowsStorageKey(world) {
+  return accountStorageKey(world, OPEN_WINDOWS_STORAGE_BASE);
+}
+
+function loadOpenWindows(world) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(openWindowsStorageKey(world)) || 'null');
+    if (!Array.isArray(saved)) return null;
+    const entries = [];
+    for (const entry of saved) {
+      if (!entry || !PERSISTED_WINDOW_KINDS.has(entry.kind) || entry.key == null) continue;
+      entries.push({ kind: entry.kind, key: String(entry.key) });
+    }
+    return entries;
+  } catch {
+    return null;
+  }
+}
+
+function saveOpenWindows(world, windows) {
+  try {
+    const entries = [];
+    const seen = new Set();
+    for (const entry of windows) {
+      if (!PERSISTED_WINDOW_KINDS.has(entry.kind) || entry.key == null) continue;
+      const key = String(entry.key);
+      const id = `${entry.kind}:${key}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      entries.push({ kind: entry.kind, key });
+    }
+    localStorage.setItem(openWindowsStorageKey(world), JSON.stringify(entries));
+  } catch {
+    /* ignore quota errors */
+  }
+}
+
+function windowRestoreId(kind, key) {
+  return `${kind}:${String(key)}`;
+}
 
 export class UI {
   constructor(game) {
     this.game = game;
     this.world = game.world;
     this.windows = [];
+    this.windowPersistence = false;
+    this.pendingWindowRestores = new Set();
+    this.requestedWindowRestores = new Set();
+    this.serverWindowRetryTimer = null;
     this.mouseWalk = false;
     this.worldItemPress = null;
     this.selection = null;
@@ -80,8 +152,10 @@ export class UI {
     this.modalOk = null;
     this.modalCancel = null;
     this.journal = new Journal(this);
-    this.macroRecording = null;
+    this.journalEntry = { kind: 'journal', key: 'journal', obj: this.journal };
+    this.windows.push(this.journalEntry);
     this.macros = null;
+    this.macroPlayback = null;
     this.pendingResource = null;
     const commands = this.createCommands();
     this.commandDefs = commands.defs;
@@ -135,6 +209,7 @@ export class UI {
     $('btnParty')?.addEventListener('click', () => this.toggleParty());
     $('btnMap')?.addEventListener('click', () => this.toggleRadar());
     $('btnHotbar')?.addEventListener('click', () => this.toggleHotbar());
+    $('btnMacros')?.addEventListener('click', () => this.toggleMacros());
     $('btnWorldMap')?.addEventListener('click', () => this.toggleWorldMap());
     $('btnWaypoints')?.addEventListener('click', () => this.toggleWaypoints());
     $('btnWar').addEventListener('click', () => this.toggleWarMode());
@@ -421,17 +496,18 @@ export class UI {
       settings.setAccount(this.game.loginCredentials?.account || '');
       this.journal.setAccount(this.game.loginCredentials?.account || '');
       this.macros = null;
-      this.macroRecording = null;
       this.journal.clear();
       this.journal.show();
       this.addJournal('Welcome to LegionUO.', '#d6b45d', true);
+      this.restoreOpenWindows();
     }
+    this.cancelMacroPlayback();
     this.world.localWaypoints = loadLocalWaypoints(this.world);
     this.refreshStatus();
     this.refreshSkills();
     this.world.alwaysRun = !!settings.get('alwaysRun');
-    this.showStatus();
     this.restoreSkillButtons();
+    this.restoreMacroButtons();
     if (document.activeElement && typeof document.activeElement.blur === 'function') document.activeElement.blur();
     $('btnWar').textContent = this.world.player?.inWarMode ? 'WAR' : 'PEACE';
   }
@@ -458,6 +534,8 @@ export class UI {
   }
 
   logout() {
+    this.cancelMacroPlayback();
+    this.closeMacros();
     this.world.socket.out.logoutNotification();
     setTimeout(() => this.game.disconnect('Logged out'), 250);
   }
@@ -576,6 +654,53 @@ export class UI {
         y: Math.round(entry.obj.y),
       }));
     saveSkillButtons(this.world, buttons);
+  }
+
+  createMacroButton(name, x, y, persist = true) {
+    if (!String(name || '').trim() || !this.getMacros()[name]) return null;
+    const existing = this.getWindow('macrobutton', name);
+    if (existing) {
+      this.raiseWindow(existing);
+      return existing;
+    }
+    const window = new MacroButtonWindow(this.world, name, x, y);
+    this.addWindow('macrobutton', name, window);
+    this.raiseWindow(window);
+    if (persist) this.persistMacroButtons();
+    return window;
+  }
+
+  removeMacroButton(name) {
+    this.removeWindow('macrobutton', name);
+    this.persistMacroButtons();
+  }
+
+  renameMacroButton(oldName, newName) {
+    const window = this.getWindow('macrobutton', oldName);
+    if (!window) return;
+    this.removeWindow('macrobutton', oldName);
+    window.name = newName;
+    this.addWindow('macrobutton', newName, window);
+    this.persistMacroButtons();
+  }
+
+  restoreMacroButtons() {
+    const saved = loadMacroButtons(this.world);
+    for (const entry of saved) {
+      this.createMacroButton(entry.name, Number(entry.x) || 40, Number(entry.y) || 40, false);
+    }
+    this.persistMacroButtons();
+  }
+
+  persistMacroButtons() {
+    const buttons = this.windows
+      .filter((entry) => entry.kind === 'macrobutton')
+      .map((entry) => ({
+        name: entry.obj.name,
+        x: Math.round(entry.obj.x),
+        y: Math.round(entry.obj.y),
+      }));
+    saveMacroButtons(this.world, buttons);
   }
 
   showBuffs() {
@@ -816,7 +941,6 @@ export class UI {
     }
     this.chatHistory.push(text);
     this.chatIndex = this.chatHistory.length;
-    if (this.macroRecording && !text.startsWith('-macro ')) this.macroRecording.steps.push(text);
     if (text.startsWith('-')) {
       this.command(text);
       return;
@@ -824,8 +948,7 @@ export class UI {
     this.sendSpeech(text);
   }
 
-  sendSpeech(text) {
-    const mode = this.journal.settings.mode || 'say';
+  sendSpeech(text, mode = this.journal.settings.mode || 'say') {
     if (mode === 'party') {
       this.world.socket.out.partyMessage(text);
       return;
@@ -979,8 +1102,9 @@ export class UI {
       },
       {
         name: 'macro',
-        usage: '-macro <start|stop|list|play> ...',
-        description: 'Record and play input macros.',
+        aliases: ['macros'],
+        usage: '-macro [edit] | list | play <name> | stop | delete <name>',
+        description: 'Create, edit, and play macros.',
         run: (args) => this.macroCommand(args),
       },
       {
@@ -1362,11 +1486,11 @@ export class UI {
     } else if (type === 'macro') {
       const macros = this.getMacros();
       const macro = macros[rest];
-      if (!macro?.steps?.length) {
+      if (!macro?.actions?.length) {
         this.addJournal(`Unknown macro: ${rest || '(none)'}`, '#c56a4a', true);
         return;
       }
-      slot = hotbarMacroSlot(rest, macro.steps);
+      slot = hotbarMacroSlot(rest, macro.actions);
     } else {
       this.addJournal(usage, '#c56a4a', true);
       return;
@@ -1381,50 +1505,156 @@ export class UI {
     return this.macros;
   }
 
+  showMacros() {
+    if (!this.world.player) return null;
+    const existing = this.getWindow('macros', 'player');
+    if (existing) {
+      this.raiseWindow(existing);
+      return existing;
+    }
+    const window = new MacroWindow(this.world, () => this.removeWindow('macros', 'player'));
+    this.addWindow('macros', 'player', window);
+    return window;
+  }
+
+  toggleMacros() {
+    if (this.getWindow('macros', 'player')) this.closeMacros();
+    else this.showMacros();
+  }
+
+  closeMacros() {
+    const window = this.getWindow('macros', 'player');
+    this.removeWindow('macros', 'player');
+    window?.close?.();
+  }
+
+  playMacro(name) {
+    const macro = this.getMacros()[name];
+    if (!macro?.actions?.length) {
+      this.addJournal(`Unknown or empty macro: ${name || '(none)'}`, '#c56a4a', true);
+      return false;
+    }
+    return this.playMacroActions(macro.actions, name);
+  }
+
+  playMacroActions(actions, name = 'Macro') {
+    const steps = normalizeMacroActions(actions);
+    if (!steps.length) {
+      this.addJournal(`Macro ${name} has no actions.`, '#c56a4a', true);
+      return false;
+    }
+    this.cancelMacroPlayback();
+    this.macroPlayback = { name, actions: steps, index: 0, timer: 0, retries: 0 };
+    this.addJournal(`Playing macro ${name}.`, '#b8a06a', true);
+    this.stepMacroPlayback();
+    return true;
+  }
+
+  cancelMacroPlayback(reason = '') {
+    if (!this.macroPlayback) return;
+    clearTimeout(this.macroPlayback.timer);
+    this.macroPlayback = null;
+    if (reason) this.addJournal(reason, '#c56a4a', true);
+  }
+
+  stepMacroPlayback() {
+    const playback = this.macroPlayback;
+    if (!playback) return;
+    if (playback.index >= playback.actions.length) {
+      this.macroPlayback = null;
+      this.addJournal(`Macro ${playback.name} finished.`, '#b8a06a', true);
+      return;
+    }
+    const action = playback.actions[playback.index];
+    let delay = 140;
+    if (action.type === 'say') {
+      this.sendSpeech(action.text, 'say');
+    } else if (action.type === 'command') {
+      this.command(action.command);
+    } else if (action.type === 'wait') {
+      delay = action.ms;
+    } else if (action.type === 'waitForTarget') {
+      if (this.world.target.active) {
+        playback.waitDeadline = 0;
+        playback.index += 1;
+        playback.timer = setTimeout(() => this.stepMacroPlayback(), 100);
+        return;
+      }
+      if (!playback.waitDeadline) playback.waitDeadline = performance.now() + WAIT_FOR_TARGET_MS;
+      if (performance.now() >= playback.waitDeadline) {
+        this.cancelMacroPlayback(
+          `Macro ${playback.name} stopped: no target cursor within ${WAIT_FOR_TARGET_MS / 1000} seconds.`
+        );
+        return;
+      }
+      playback.timer = setTimeout(() => this.stepMacroPlayback(), 100);
+      return;
+    } else if (action.type === 'targetLast') {
+      if (!this.useLastTarget()) {
+        this.cancelMacroPlayback(`Macro ${playback.name} stopped: no target cursor or previous target.`);
+        return;
+      }
+      playback.index += 1;
+      playback.timer = setTimeout(() => this.stepMacroPlayback(), 140);
+      return;
+    } else if (action.type === 'move') {
+      if (!this.world.walk(action.direction, false)) {
+        playback.retries += 1;
+        if (playback.retries > 60) {
+          this.cancelMacroPlayback(`Macro ${playback.name} stopped: movement was blocked.`);
+          return;
+        }
+        playback.timer = setTimeout(() => this.stepMacroPlayback(), 50);
+        return;
+      }
+      playback.retries = 0;
+      delay = Math.max(120, this.world.stepDuration(false));
+    }
+    playback.index += 1;
+    playback.timer = setTimeout(() => this.stepMacroPlayback(), delay);
+  }
+
   macroCommand(args) {
     const sub = String(args[0] || '').toLowerCase();
     const name = args.slice(1).join(' ').trim();
     const macros = this.getMacros();
-    if (!sub || sub === 'help') {
-      this.addJournal('Macros: -macro start [name] | stop | list | play <name> | delete <name>', '#b8a06a', true);
+    if (!sub) {
+      this.showMacros();
       return;
     }
-    if (sub === 'start') {
-      this.macroRecording = { name: name || `Macro ${Object.keys(macros).length + 1}`, steps: [] };
-      this.addJournal(`Recording macro ${this.macroRecording.name}. Chat and commands are captured.`, '#c9b06c', true);
+    if (sub === 'help') {
+      this.addJournal(
+        'Macros: -macro [edit] | list | play <name> | stop | delete <name>',
+        '#b8a06a',
+        true
+      );
+      return;
+    }
+    if (sub === 'edit' || sub === 'ui' || sub === 'window') {
+      this.showMacros();
       return;
     }
     if (sub === 'stop') {
-      if (!this.macroRecording) {
-        this.addJournal('No macro is being recorded.', '#c56a4a', true);
+      if (!this.macroPlayback) {
+        this.addJournal('No macro is playing.', '#c56a4a', true);
         return;
       }
-      const recording = this.macroRecording;
-      this.macroRecording = null;
-      if (!recording.steps.length) {
-        this.addJournal('Macro was empty and was discarded.', '#c56a4a', true);
-        return;
-      }
-      macros[recording.name] = { name: recording.name, steps: recording.steps };
-      saveMacros(this.world, macros);
-      this.addJournal(`Saved macro ${recording.name} (${recording.steps.length} steps).`, '#b8a06a', true);
+      this.cancelMacroPlayback('Macro stopped.');
       return;
     }
     if (sub === 'list') {
       const names = Object.keys(macros);
-      this.addJournal(names.length ? `Macros: ${names.join(', ')}` : 'No macros saved.', '#b8a06a', true);
+      this.addJournal(
+        names.length
+          ? `Macros: ${names.map((macroName) => `${macroName} (${macros[macroName].actions.length})`).join(', ')}`
+          : 'No macros saved.',
+        '#b8a06a',
+        true
+      );
       return;
     }
     if (sub === 'play') {
-      const macro = macros[name];
-      if (!macro?.steps?.length) {
-        this.addJournal(`Unknown macro: ${name || '(none)'}`, '#c56a4a', true);
-        return;
-      }
-      for (const step of macro.steps) {
-        if (step.startsWith('-')) this.command(step);
-        else this.sendSpeech(step);
-      }
+      this.playMacro(name);
       return;
     }
     if (sub === 'delete' || sub === 'remove') {
@@ -1434,6 +1664,9 @@ export class UI {
       }
       delete macros[name];
       saveMacros(this.world, macros);
+      this.removeMacroButton(name);
+      const window = this.getWindow('macros', 'player');
+      if (window?.selected === name) window.select(null);
       this.addJournal(`Deleted macro ${name}.`, '#b8a06a', true);
       return;
     }
@@ -1519,6 +1752,147 @@ export class UI {
     }
     this.windows.push({ kind, key, obj });
     this.keepTopWindow();
+    if (SERVER_WINDOW_KINDS.has(kind)) {
+      const id = windowRestoreId(kind, key);
+      this.pendingWindowRestores.delete(id);
+      this.requestedWindowRestores.delete(id);
+    }
+    if (PERSISTED_WINDOW_KINDS.has(kind)) this.persistOpenWindows();
+  }
+
+  clearWindows() {
+    this.windows = this.journalEntry ? [this.journalEntry] : [];
+    this.windowPersistence = false;
+    this.pendingWindowRestores.clear();
+    this.requestedWindowRestores.clear();
+    this._enteredWorld = false;
+    if (this.serverWindowRetryTimer) {
+      clearTimeout(this.serverWindowRetryTimer);
+      this.serverWindowRetryTimer = null;
+    }
+  }
+
+  persistOpenWindows() {
+    if (!this.windowPersistence) return;
+    const entries = [...this.windows];
+    for (const id of this.pendingWindowRestores) {
+      const separator = id.indexOf(':');
+      if (separator < 0) continue;
+      entries.push({ kind: id.slice(0, separator), key: id.slice(separator + 1) });
+    }
+    saveOpenWindows(this.world, entries);
+  }
+
+  restoreOpenWindows() {
+    this.windowPersistence = false;
+    this.pendingWindowRestores.clear();
+    this.requestedWindowRestores.clear();
+    if (this.serverWindowRetryTimer) {
+      clearTimeout(this.serverWindowRetryTimer);
+      this.serverWindowRetryTimer = null;
+    }
+    const saved = loadOpenWindows(this.world);
+    const serverEntries = [];
+    if (!saved) {
+      this.showStatus();
+    } else {
+      for (const entry of saved) {
+        if (SERVER_WINDOW_KINDS.has(entry.kind)) {
+          this.pendingWindowRestores.add(windowRestoreId(entry.kind, entry.key));
+          serverEntries.push(entry);
+          continue;
+        }
+        this.restoreClientWindow(entry.kind);
+      }
+    }
+    this.windowPersistence = true;
+    this.persistOpenWindows();
+    if (serverEntries.length) this.restoreServerWindows(serverEntries, 0);
+  }
+
+  restoreClientWindow(kind) {
+    switch (kind) {
+      case 'status':
+        this.showStatus();
+        break;
+      case 'skills':
+        this.showSkills();
+        break;
+      case 'hotbar':
+        this.showHotbar();
+        break;
+      case 'party':
+        this.showParty();
+        break;
+      case 'radar':
+        this.showRadar();
+        break;
+      case 'worldmap':
+        this.showWorldMap();
+        break;
+      case 'waypoints':
+        this.showWaypoints();
+        break;
+      case 'buffs':
+        this.showBuffs();
+        break;
+      case 'friends':
+        this.showFriends();
+        break;
+      default:
+        break;
+    }
+  }
+
+  restoreServerWindows(entries, attempt) {
+    this.serverWindowRetryTimer = null;
+    const waiting = [];
+    let changed = false;
+    for (const entry of entries) {
+      const id = windowRestoreId(entry.kind, entry.key);
+      if (!this.pendingWindowRestores.has(id)) {
+        this.requestedWindowRestores.delete(id);
+        continue;
+      }
+      if (this.getWindow(entry.kind, entry.key)) {
+        this.pendingWindowRestores.delete(id);
+        this.requestedWindowRestores.delete(id);
+        changed = true;
+        continue;
+      }
+      const serial = Number(entry.key);
+      if (!Number.isFinite(serial) || serial <= 0) {
+        this.pendingWindowRestores.delete(id);
+        this.requestedWindowRestores.delete(id);
+        changed = true;
+        continue;
+      }
+      const target = entry.kind === 'container' ? this.world.getItem(serial) : this.world.getMobile(serial);
+      if (!target) {
+        waiting.push(entry);
+        continue;
+      }
+      if (!this.requestedWindowRestores.has(id)) {
+        this.world.socket.out.doubleClick(serial);
+        this.requestedWindowRestores.add(id);
+      }
+      waiting.push(entry);
+    }
+    if (changed) this.persistOpenWindows();
+    if (!waiting.length) return;
+    if (attempt >= SERVER_WINDOW_RETRIES) {
+      for (const entry of waiting) {
+        const id = windowRestoreId(entry.kind, entry.key);
+        this.pendingWindowRestores.delete(id);
+        this.requestedWindowRestores.delete(id);
+      }
+      this.persistOpenWindows();
+      return;
+    }
+    this.serverWindowRetryTimer = setTimeout(
+      () => this.restoreServerWindows(waiting, attempt + 1),
+      SERVER_WINDOW_RETRY_MS
+    );
   }
 
   get topWindow() {
@@ -1542,6 +1916,7 @@ export class UI {
     if (this.focusedGumpEntry && removed.some((w) => w.obj === this.focusedGumpEntry.gump)) {
       this.clearGumpFocus();
     }
+    if (PERSISTED_WINDOW_KINDS.has(kind)) this.persistOpenWindows();
   }
 
   raiseWindow(obj) {
@@ -1551,6 +1926,7 @@ export class UI {
       this.windows.push(entry);
     }
     this.keepTopWindow();
+    this.updateJournalPointerEvents();
   }
 
   setGumpFocus(gump, control) {
@@ -1580,6 +1956,29 @@ export class UI {
       if (this.windows[i].obj.contains(mx, my)) return this.windows[i];
     }
     return null;
+  }
+
+  updateJournalPointerEvents() {
+    const root = this.journal?.root;
+    if (!root) return;
+    if (!this.journal.isOpen()) {
+      root.style.pointerEvents = '';
+      return;
+    }
+    const index = this.windows.indexOf(this.journalEntry);
+    let covered = false;
+    if (index >= 0) {
+      const { x, y } = this.mouse;
+      for (let i = this.windows.length - 1; i > index; i--) {
+        const obj = this.windows[i].obj;
+        if (obj === this.journal) continue;
+        if (obj.contains?.(x, y)) {
+          covered = true;
+          break;
+        }
+      }
+    }
+    root.style.pointerEvents = covered ? 'none' : 'auto';
   }
 
   openGump(gump) {
@@ -2184,11 +2583,11 @@ export class UI {
     const last = this.lastTarget;
     if (!t.active) {
       this.addJournal('No target cursor is active.', '#c56a4a', true);
-      return;
+      return false;
     }
     if (!last) {
       this.addJournal('No previous target.', '#c56a4a', true);
-      return;
+      return false;
     }
     if (last.serial) {
       const entity = this.world.get(last.serial);
@@ -2206,6 +2605,7 @@ export class UI {
     }
     this.world.clearTarget();
     this.onTargetChanged();
+    return true;
   }
 
   onEquipmentChanged(serial) {
@@ -2626,7 +3026,7 @@ export class UI {
   }
 
   isDomUiTarget(target) {
-    return !!target?.closest?.('#hud, #gameTitleBar, #gameResize, #loginScreen, #modalBackdrop');
+    return !!target?.closest?.('#hud, #journalPanel, #gameTitleBar, #gameResize, #loginScreen, #modalBackdrop, #macroWindow');
   }
 
   onMouseMove(e) {
@@ -2635,6 +3035,7 @@ export class UI {
     this.mouse = ui;
     this.gameMouse = game;
     this.pointerOverDomUi = this.isDomUiTarget(e.target);
+    this.updateJournalPointerEvents();
     this.game.renderer.mouse.x = game.x;
     this.game.renderer.mouse.y = game.y;
     this.game.renderer.mouse.world = this.game.renderer.screenToTile(game.x, game.y);
@@ -2830,6 +3231,7 @@ export class UI {
   }
 
   startMouseWalk() {
+    this.cancelMacroPlayback('Macro stopped.');
     this.mouseWalk = true;
     this.game.cancelWalkPath();
   }
@@ -3176,9 +3578,9 @@ export class UI {
     if (e.key === 'Escape') {
       if (this.world.target.active) {
         this.cancelTarget();
-      } else if (this.windows.length) {
-        const top = this.windows[this.windows.length - 1].obj;
-        if (top.canCloseWithEsc !== false) top.close?.();
+      } else {
+        const top = [...this.windows].reverse().find((w) => w.kind !== 'journal')?.obj;
+        if (top && top.canCloseWithEsc !== false) top.close?.();
       }
       return;
     }
@@ -3209,6 +3611,7 @@ export class UI {
     }
     if (e.key.startsWith('Arrow') || ['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) {
       e.preventDefault();
+      this.cancelMacroPlayback('Macro stopped.');
       this.keyDir = this.keyDir || {};
       this.keyDir[e.code] = true;
       this.game.cancelWalkPath();
@@ -3292,14 +3695,18 @@ export class UI {
 
   /* ----------------------------- drawing ----------------------------- */
 
-  draw(ctx, now) {
+  draw(ctx, now, topCtx = null) {
     this.drawSelection(ctx);
     const top = this.topWindow;
-    for (const w of this.windows) {
+    const journalIndex = this.journal?.isOpen?.() ? this.windows.indexOf(this.journalEntry) : -1;
+    const topIndex = top ? this.windows.findIndex((w) => w.obj === top) : -1;
+    const targetFor = (index) => (topCtx && journalIndex >= 0 && index > journalIndex ? topCtx : ctx);
+    for (let i = 0; i < this.windows.length; i++) {
+      const w = this.windows[i];
       if (w.obj === top) continue;
-      w.obj.draw?.(ctx, now);
+      w.obj.draw?.(targetFor(i), now);
     }
-    top?.draw?.(ctx, now);
+    top?.draw?.(targetFor(topIndex), now);
   }
 
   requestMissingNames(now) {
@@ -3320,6 +3727,7 @@ export class UI {
 
   update(now) {
     if (!this.world.inGame) return;
+    this.updateJournalPointerEvents();
     if (now - this.lastStatusRefresh > 150) {
       this.lastStatusRefresh = now;
       this.refreshStatus();

@@ -311,6 +311,7 @@ export class World {
     player.isDead = true;
     player.isGhost = true;
     player.moving = false;
+    player.running = false;
     player.motion = null;
     player.walkQueue = [];
     player.renderX = player.x;
@@ -521,6 +522,7 @@ export class World {
       player.renderY = pos.y;
       player.renderZ = pos.z;
       player.moving = true;
+      player.running = !!step.run;
       player.stepProgress = step.duration > 0 ? Math.max(0, Math.min(1, (now - step.startTime) / step.duration)) : 1;
       return;
     }
@@ -529,6 +531,7 @@ export class World {
     player.renderY = last ? last.toY : player.y;
     player.renderZ = last ? last.toZ : player.z;
     player.moving = false;
+    player.running = false;
     player.stepProgress = null;
   }
 
@@ -539,6 +542,7 @@ export class World {
       entity.motion = entity.motionQueue.shift();
       entity.motion.start = now;
       entity.walkStepIndex = (entity.walkStepIndex ?? -1) + 1;
+      entity.running = !!entity.motion.run;
     }
 
     let motion = entity.motion;
@@ -550,6 +554,7 @@ export class World {
         entity.renderY = motion.fromY + (motion.toY - motion.fromY) * t;
         entity.renderZ = motion.fromZ + (motion.toZ - motion.fromZ) * t;
         entity.moving = true;
+        entity.running = !!motion.run;
         entity.stepProgress = t;
         return;
       }
@@ -560,6 +565,7 @@ export class World {
       const next = entity.motionQueue.length ? entity.motionQueue.shift() : null;
       if (!next) {
         entity.moving = false;
+        entity.running = false;
         entity.stepProgress = null;
         entity.walkStepIndex = -1;
         return;
@@ -567,6 +573,7 @@ export class World {
       next.start = end;
       entity.motion = next;
       entity.walkStepIndex = (entity.walkStepIndex ?? -1) + 1;
+      entity.running = !!next.run;
       motion = next;
     }
 
@@ -574,6 +581,7 @@ export class World {
     entity.renderY = entity.y;
     entity.renderZ = entity.z;
     entity.moving = false;
+    entity.running = false;
     entity.stepProgress = null;
     entity.walkStepIndex = -1;
   }
@@ -905,7 +913,10 @@ export class World {
     this.pendingSteps = [];
     this.steps = [];
     this.nextStepTime = 0;
-    if (this.player) this.player.moving = false;
+    if (this.player) {
+      this.player.moving = false;
+      this.player.running = false;
+    }
   }
 
   resetSteps() {
@@ -921,6 +932,7 @@ export class World {
     this.setEntityPosition(player, x, y, z);
     if (direction !== undefined && direction !== null) player.direction = direction & 7;
     player.moving = false;
+    player.running = false;
   }
 
   walk(direction, run = false) {

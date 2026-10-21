@@ -58,6 +58,7 @@ export class UOSocket {
         resolve(true);
       };
       ws.onmessage = (event) => {
+        if (this.ws !== ws) return;
         if (typeof event.data === 'string') {
           try {
             this.handleControl(JSON.parse(event.data));
@@ -69,6 +70,7 @@ export class UOSocket {
         this.handleMessage(new Uint8Array(event.data));
       };
       ws.onerror = () => {
+        if (this.ws !== ws) return;
         this.emit('error', 'WebSocket connection failed');
         if (!settled) {
           settled = true;
@@ -76,6 +78,7 @@ export class UOSocket {
         }
       };
       ws.onclose = () => {
+        if (this.ws !== ws) return;
         this.connected = false;
         this.tcpOpen = false;
         if (!settled) {
@@ -89,6 +92,11 @@ export class UOSocket {
 
   async connect(host, port, options = {}) {
     this.manualClose = false;
+    this.compressionEnabled = false;
+    this.initialized = false;
+    this.buffer = new Uint8Array(0);
+    this.huffman.reset();
+    this.ignoreCloseUntil = 0;
     const opened = await this.openWebSocket();
     if (!opened) return false;
     this.pendingConnect = { host, port };

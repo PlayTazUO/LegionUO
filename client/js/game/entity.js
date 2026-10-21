@@ -302,6 +302,7 @@ export class Entity {
     this.walking = false;
     this.lastStepTime = 0;
     this.moving = false;
+    this.running = false;
     this.animRender = null;
     this.turnAnimGraceUntil = 0;
     this.moveStart = 0;
