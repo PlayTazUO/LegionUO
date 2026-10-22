@@ -356,8 +356,8 @@ export class UI {
     try {
       const [config, hues, skills] = await Promise.all([
         fetch('/api/config').then((r) => r.json()),
-        fetch('/api/hues').then((r) => r.json()),
-        fetch('/api/skills').then((r) => r.json()),
+        fetch(this.game.assets.url('/api/hues')).then((r) => r.json()),
+        fetch(this.game.assets.url('/api/skills')).then((r) => r.json()),
       ]);
       this.config = config;
       this.hues = hues;

@@ -96,6 +96,9 @@ Then open <http://127.0.0.1:8080>.
   `multi.mul`/`MultiCollection.uop`, `fonts.mul`, `sound.mul`/`soundidx.mul`
 - Digital music (`Music/Digital/Config.txt` plus the referenced MP3 files)
 - Shard-local `Art/Statics`, `Art/Land`, `Gumps`, `Clilocs.txt`
+- Browser-side asset cache (Cache Storage service worker) keyed by asset server id,
+  so decoded art, terrain, statics, gumps, animations, maps and audio persist
+  across reloads and reduce repeat asset-server traffic
 
 ### Rendering
 

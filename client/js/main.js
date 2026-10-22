@@ -1,6 +1,11 @@
 import { Game } from './game/game.js';
 
 (async () => {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch((err) => {
+      console.warn('[assets] service worker registration failed:', err);
+    });
+  }
   let config = {};
   try {
     config = await fetch('/api/config').then((r) => r.json());
