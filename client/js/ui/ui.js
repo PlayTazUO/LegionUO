@@ -84,8 +84,11 @@ const DOUBLE_TAP_MS = 320;
 const DOUBLE_TAP_DISTANCE = 26;
 const JOYSTICK_DEADZONE = 0.22;
 const JOYSTICK_RUN_FRACTION = 0.72;
-// Screen angle bucket (0 = east, clockwise) to UO movement direction.
-const JOYSTICK_DIRECTIONS = [2, 3, 4, 5, 6, 7, 0, 1];
+// Screen angle bucket (0 = east, clockwise) to UO movement direction. The
+// world is isometric, so screen-right is world NE (direction 1), screen-down
+// is SE (3), etc. Rotating the buckets by one makes the stick follow the
+// direction the player actually sees on screen.
+const JOYSTICK_DIRECTIONS = [1, 2, 3, 4, 5, 6, 7, 0];
 // These windows are DOM elements rather than canvas panels, so the canvas
 // fit-scale must not be applied to them.
 const DOM_WINDOW_KINDS = new Set(['journal', 'macros']);
