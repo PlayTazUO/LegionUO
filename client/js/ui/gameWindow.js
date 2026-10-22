@@ -32,8 +32,8 @@ export class GameWindow {
     const minWidth = mobile ? MOBILE_MIN_WIDTH : MIN_WIDTH;
     const minHeight = mobile ? MOBILE_MIN_HEIGHT : MIN_HEIGHT;
     const titleHeight = this.titleHeight();
-    const maxWidth = Math.max(minWidth, vp.width);
-    const maxHeight = Math.max(minHeight, vp.height - titleHeight);
+    const maxWidth = Math.max(1, vp.width);
+    const maxHeight = Math.max(1, vp.height - titleHeight);
     this.fillViewport = mobile && !saved.width && !saved.height;
 
     if (!saved.width && !saved.height) {
@@ -180,10 +180,13 @@ export class GameWindow {
       if (ev.pointerId !== pointerId) return;
       if (ev.cancelable) ev.preventDefault();
       const vp = viewportSize();
-      const maxW = Math.max(MIN_WIDTH, vp.width - this.x);
-      const maxH = Math.max(MIN_HEIGHT, vp.height - this.y - this.titleHeight());
-      this.width = clamp(originW + ev.clientX - startX, Math.min(MIN_WIDTH, maxW), maxW);
-      this.height = clamp(originH + ev.clientY - startY, Math.min(MIN_HEIGHT, maxH), maxH);
+      const mobile = isMobileLayout();
+      const minWidth = mobile ? MOBILE_MIN_WIDTH : MIN_WIDTH;
+      const minHeight = mobile ? MOBILE_MIN_HEIGHT : MIN_HEIGHT;
+      const maxW = Math.max(1, vp.width - this.x);
+      const maxH = Math.max(1, vp.height - this.y - this.titleHeight());
+      this.width = clamp(originW + ev.clientX - startX, Math.min(minWidth, maxW), maxW);
+      this.height = clamp(originH + ev.clientY - startY, Math.min(minHeight, maxH), maxH);
       this.apply();
       this.notify();
     };
@@ -205,8 +208,8 @@ export class GameWindow {
     const vp = viewportSize();
     const minWidth = mobile ? MOBILE_MIN_WIDTH : MIN_WIDTH;
     const minHeight = mobile ? MOBILE_MIN_HEIGHT : MIN_HEIGHT;
-    const maxW = Math.max(minWidth, vp.width);
-    const maxH = Math.max(minHeight, vp.height - this.titleHeight());
+    const maxW = Math.max(1, vp.width);
+    const maxH = Math.max(1, vp.height - this.titleHeight());
     if (this.fillViewport) {
       this.width = maxW;
       this.height = maxH;

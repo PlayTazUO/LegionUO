@@ -3,12 +3,20 @@ export function clamp(value, min, max) {
 }
 
 /**
- * The visible layout viewport. Kept in one place so every panel uses the same
- * dimensions when the client is running on a phone or tablet.
+ * The visible viewport. Kept in one place so every panel uses the same
+ * dimensions when the client is running on a phone or tablet. The visual
+ * viewport tracks the actual on-screen area while mobile browser chrome and
+ * orientation change, whereas window.innerWidth/innerHeight can lag behind it
+ * and let fixed elements extend past the edge of the screen.
  */
 export function viewportSize() {
-  const width = Math.round(window.innerWidth || document.documentElement?.clientWidth || 1);
-  const height = Math.round(window.innerHeight || document.documentElement?.clientHeight || 1);
+  const visual = window.visualViewport;
+  const width = Math.round(
+    visual?.width || window.innerWidth || document.documentElement?.clientWidth || 1
+  );
+  const height = Math.round(
+    visual?.height || window.innerHeight || document.documentElement?.clientHeight || 1
+  );
   return { width: Math.max(1, width), height: Math.max(1, height) };
 }
 
