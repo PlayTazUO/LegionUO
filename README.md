@@ -147,7 +147,7 @@ Then open <http://127.0.0.1:8080>.
   paperdoll/skills/journal/war/refresh/logout actions), skills list and chat
   commands.
 - Options window (`OPT` / `-options`) with General, Display, Audio, and Keys tabs for
-  always-run, journal timestamps, names, health bars, speech, lighting, weather,
+  always-run, auto-open doors, journal timestamps, names, health bars, speech, lighting, weather,
   quest arrow, waypoints, audio, volume, footsteps, and rebindable shortcuts;
   settings apply live and persist per account in `localStorage`.
 - Custom-house design window with floor/category controls, add/delete prompts,

@@ -2,12 +2,16 @@ import { Entity, isGhostGraphic, isMobileSerial, Layer } from './entity.js';
 import { OPLManager } from './opl.js';
 import { UltimaLiveManager } from './uolive.js';
 import { decodeCustomHouseDesign, multiBounds } from './housing.js';
+import { settings } from './settings.js';
 import { accountStorageKey } from '../util/ui.js';
 
 const TILE_FLAG_IMPASSABLE = 0x00000040;
 const TILE_FLAG_SURFACE = 0x00000200;
 const TILE_FLAG_BRIDGE = 0x00000400;
 const TILE_FLAG_NO_DIAGONAL = 0x02000000;
+const TILE_FLAG_DOOR = 0x20000000;
+const DOOR_Z_RANGE = 15;
+const DOOR_OPEN_COOLDOWN = 500;
 const STEP_UP_Z = 8;
 const STEP_DOWN_Z = 16;
 const MAP_BATCH_SIZE = 256;
@@ -69,6 +73,7 @@ export class World {
     this.denyCooldownUntil = 0;
     this.lastBlockedDirection = -1;
     this.lastBlockedTurn = 0;
+    this.nextDoorOpenAttempt = 0;
     this.alwaysRun = false;
     this.stunnedUntil = 0;
     this.maxPendingSteps = 5;
@@ -765,6 +770,34 @@ export class World {
     return { walkable: !blocked, z, tile: cell.tile, noDiagonal };
   }
 
+  hasDoorAt(x, y, z) {
+    for (const entity of this.entities.values()) {
+      if (!entity.isItem || entity.isMulti || !entity.hasPosition || entity.container) continue;
+      if (entity.x !== x || entity.y !== y) continue;
+      if (Math.abs(entity.z - z) > DOOR_Z_RANGE) continue;
+      const flags = (this.assets.staticFlags(entity.graphic) || 0) >>> 0;
+      if (flags & TILE_FLAG_DOOR) return true;
+    }
+    const block = this.getBlock(x >> 3, y >> 3);
+    if (!block || !block.cells) return false;
+    for (const s of this.staticsAt(block, x & 7, y & 7)) {
+      if (Math.abs(s.z - z) > DOOR_Z_RANGE) continue;
+      const flags = (this.assets.staticFlags(s.graphic) || 0) >>> 0;
+      if (flags & TILE_FLAG_DOOR) return true;
+    }
+    return false;
+  }
+
+  tryOpenDoor(x, y, z) {
+    if (!settings.get('autoOpenDoors')) return false;
+    const now = performance.now();
+    if (now < (this.nextDoorOpenAttempt || 0)) return false;
+    if (!this.hasDoorAt(x, y, z)) return false;
+    this.nextDoorOpenAttempt = now + DOOR_OPEN_COOLDOWN;
+    this.socket.out.openDoor();
+    return true;
+  }
+
   multiAt(x, y, z, fromZ = z) {
     const referenceZ = Number.isFinite(fromZ) ? fromZ : z;
     let result = null;
@@ -1149,18 +1182,20 @@ export class World {
     const fromX = lastStep ? lastStep.toX : player.x;
     const fromY = lastStep ? lastStep.toY : player.y;
     const fromZ = lastStep ? lastStep.toZ : player.z;
+    const next = this.nextTile(fromX, fromY, dir);
+    const info = this.tileInfo(next.x, next.y, fromZ);
 
     if (dir !== (player.direction & 7)) {
       player.direction = dir;
       this.socket.out.walkRequest(dir, this.walkSeq & 0xff, run);
       this.advanceWalkSeq();
+      this.tryOpenDoor(next.x, next.y, fromZ);
       this.nextStepTime = Math.max(this.nextStepTime, now + this.turnDelay + this.stepLead);
       return false;
     }
 
-    const next = this.nextTile(fromX, fromY, dir);
-    const info = this.tileInfo(next.x, next.y, fromZ);
     if (!this.game?.debug && info && !info.walkable) {
+      this.tryOpenDoor(next.x, next.y, fromZ);
       return false;
     }
 
@@ -1337,6 +1372,7 @@ export class World {
     this.denyCooldownUntil = 0;
     this.lastBlockedDirection = -1;
     this.lastBlockedTurn = 0;
+    this.nextDoorOpenAttempt = 0;
     this.alwaysRun = false;
     this.target = { active: false, type: 0, cursorId: 0, cursorType: 0, multi: null };
     this.gumps.clear();

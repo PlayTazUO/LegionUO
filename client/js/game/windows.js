@@ -4043,6 +4043,7 @@ export class OptionsWindow {
     if (this.tab === 'general') {
       return [
         { type: 'toggle', key: 'alwaysRun', label: 'Always run', hint: 'Move at running speed without holding Shift' },
+        { type: 'toggle', key: 'autoOpenDoors', label: 'Auto open doors', hint: 'Open a door when walking or turning into it' },
         { type: 'toggle', action: 'journalTimestamps', label: 'Journal timestamps' },
         { type: 'button', action: 'journalSettings', label: 'Journal settings...' },
       ];

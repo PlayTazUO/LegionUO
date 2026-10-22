@@ -3,6 +3,7 @@ const LEGACY_KEY = 'legionuo.options.v1';
 
 const DEFAULTS = {
   alwaysRun: false,
+  autoOpenDoors: false,
   showNames: true,
   showHealthBars: true,
   dragSelectHealthBars: true,
@@ -30,6 +31,7 @@ const DEFAULTS = {
 
 const BOOLEAN_KEYS = [
   'alwaysRun',
+  'autoOpenDoors',
   'showNames',
   'showHealthBars',
   'dragSelectHealthBars',
