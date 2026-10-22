@@ -65,24 +65,22 @@ export class GameWindow {
   updateTitleBar(player = this.game.world?.player) {
     const name = player?.name || '';
     const stats = [
-      ['hits', 'HP', player?.hits, player?.hitsMax],
-      ['stamina', 'STAM', player?.stamina, player?.staminaMax],
-      ['mana', 'MANA', player?.mana, player?.manaMax],
+      ['hits', player?.hits, player?.hitsMax],
+      ['stamina', player?.stamina, player?.staminaMax],
+      ['mana', player?.mana, player?.manaMax],
     ];
-    const key = [name, ...stats.map(([, , value, max]) => `${value ?? ''}/${max ?? ''}`)].join('|');
+    const key = [name, ...stats.map(([, value, max]) => `${value ?? ''}/${max ?? ''}`)].join('|');
     if (key === this.titleStatKey) return;
     this.titleStatKey = key;
     if (this.titleName) this.titleName.textContent = name;
-    for (const [stat, label, value, max] of stats) {
+    for (const [stat, value, max] of stats) {
       const entry = this.titleStats[stat];
       if (!entry) continue;
       const maxValue = Number(max);
       const hasMax = maxValue > 0;
       const current = hasMax ? clamp(Number(value) || 0, 0, maxValue) : 0;
       if (entry.fill) entry.fill.style.width = `${hasMax ? (current / maxValue) * 100 : 0}%`;
-      if (entry.text) {
-        entry.text.textContent = hasMax ? `${label} ${current}/${maxValue}` : `${label} --`;
-      }
+      if (entry.text) entry.text.textContent = hasMax ? `${current}/${maxValue}` : '--/--';
     }
   }
 
