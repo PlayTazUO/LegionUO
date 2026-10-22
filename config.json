@@ -14,6 +14,7 @@
   "runDelay": 200,
   "mountedWalkDelay": 200,
   "mountedRunDelay": 100,
-  "moveSpeedMultiplier": 1
+  "moveSpeedMultiplier": 1,
+  "shutdownPassphrase": "memento-03d6e88c"
 }
 

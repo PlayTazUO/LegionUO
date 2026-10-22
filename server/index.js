@@ -1,5 +1,6 @@
 import http from 'node:http';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import os from 'node:os';
 import zlib from 'node:zlib';
@@ -93,6 +94,7 @@ function loadConfig() {
     mountedWalkDelay: 200,
     mountedRunDelay: 100,
     moveSpeedMultiplier: 1,
+    shutdownPassphrase: '',
   };
   try {
     Object.assign(config, JSON.parse(fs.readFileSync(path.join(root, 'config.json'), 'utf8')));
@@ -233,10 +235,72 @@ function serveStatic(res, urlPath) {
   });
 }
 
+let shuttingDown = false;
+
+function passphraseMatches(supplied) {
+  const expected = String(config.shutdownPassphrase || '');
+  if (!expected) return false;
+  const a = Buffer.from(String(supplied || ''));
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function requestPassphrase(res) {
+  res.writeHead(401, {
+    'WWW-Authenticate': 'Basic realm="LegionUO shutdown", charset="UTF-8"',
+    'Content-Type': 'text/plain; charset=utf-8',
+    'Cache-Control': 'no-store',
+  });
+  res.end('Shutdown passphrase required.\n');
+}
+
+/** Secret hook: `<any url>?shutdown` stops the server after a passphrase check. */
+function handleShutdown(req, res) {
+  if (!config.shutdownPassphrase) {
+    sendJSON(res, 403, { error: 'shutdown disabled: set shutdownPassphrase in config.json' });
+    return;
+  }
+
+  const auth = String(req.headers.authorization || '');
+  const match = auth.match(/^Basic\s+(.+)$/i);
+  let allowed = false;
+  if (match) {
+    try {
+      const decoded = Buffer.from(match[1].trim(), 'base64').toString('utf8');
+      const colon = decoded.indexOf(':');
+      // Browsers show username and password fields; accept the passphrase in
+      // either one so it does not matter which the user fills in.
+      const user = colon === -1 ? '' : decoded.slice(0, colon);
+      const pass = colon === -1 ? decoded : decoded.slice(colon + 1);
+      allowed = passphraseMatches(pass) || passphraseMatches(user);
+    } catch {
+      allowed = false;
+    }
+  }
+  if (!allowed) {
+    requestPassphrase(res);
+    return;
+  }
+
+  if (shuttingDown) {
+    sendJSON(res, 202, { ok: true, shuttingDown: true });
+    return;
+  }
+  shuttingDown = true;
+  console.log(`[legionuo] shutdown requested via ?shutdown from ${req.socket.remoteAddress}`);
+  sendJSON(res, 200, { ok: true, shuttingDown: true });
+  setTimeout(() => process.exit(0), 100);
+}
+
 const server = http.createServer((req, res) => {
   reloadConfigIfChanged();
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const pathname = url.pathname;
+
+  if (url.searchParams.has('shutdown')) {
+    handleShutdown(req, res);
+    return;
+  }
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
