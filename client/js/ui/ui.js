@@ -56,7 +56,7 @@ import { findSpellByName } from '../game/spells.js';
 import { MapGumpWindow, MinimapWindow, WorldMapWindow } from '../game/maps.js';
 import { WaypointWindow, addLocalWaypoint, clearLocalWaypoints, loadLocalWaypoints } from '../game/waypoints.js';
 import { Reader } from '../util/binary.js';
-import { accountStorageKey, isMobileLayout, viewportSize } from '../util/ui.js';
+import { accountStorageKey, clampPosition, isMobileLayout, viewportSize } from '../util/ui.js';
 import { Journal } from './journal.js';
 
 const $ = (id) => document.getElementById(id);
@@ -2484,11 +2484,13 @@ export class UI {
         if (obj.scale > maxScale) obj.scale = maxScale;
       }
     }
+    if (entry.kind === 'gump') return;
     const { width, height } = this.windowSize(obj);
     if (!width || !height) return;
     const scale = this.windowRenderScale(entry);
-    obj.x = Math.max(0, Math.min(obj.x, Math.max(0, vp.width - width * scale)));
-    obj.y = Math.max(0, Math.min(obj.y, Math.max(0, vp.height - height * scale)));
+    const pos = clampPosition(obj.x, obj.y, width * scale, height * scale);
+    obj.x = pos.x;
+    obj.y = pos.y;
   }
 
   fitAllWindows() {

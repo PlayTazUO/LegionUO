@@ -1,5 +1,6 @@
 import { drawUoHtml, color16ToCss, parseUoHtml, hasUoHtmlMarkup } from './html.js';
 import { settings } from './settings.js';
+import { clampPosition } from '../util/ui.js';
 
 function tokenize(layout) {
   const out = [];
@@ -69,6 +70,7 @@ export class Gump {
     this.scrollDrag = null;
     this.scale = world.getGumpScale?.(this.id) || 1;
     this.parseLayout();
+    this.clampToViewport();
   }
 
   parseLayout() {
@@ -100,6 +102,7 @@ export class Gump {
     this.noResize = false;
     this.masterGump = 0;
     this.parseLayout();
+    this.clampToViewport();
     for (const control of this.controls) {
       if ((control.type === 'checkbox' || control.type === 'radio') && switches.has(control.switchId)) {
         control.state = !!switches.get(control.switchId);
@@ -118,6 +121,13 @@ export class Gump {
   setScale(scale) {
     this.scale = Math.max(0.5, Math.min(2, scale));
     this.world.rememberGumpScale?.(this.id, this.scale);
+    this.clampToViewport();
+  }
+
+  clampToViewport() {
+    const pos = clampPosition(this.x, this.y, this.width * this.scale, this.height * this.scale);
+    this.x = pos.x;
+    this.y = pos.y;
   }
 
   resolveText(index) {
@@ -327,6 +337,7 @@ export class Gump {
     if (this.dragging) {
       this.x = mx - this.dragOffset.x;
       this.y = my - this.dragOffset.y;
+      this.clampToViewport();
       return true;
     }
     return false;

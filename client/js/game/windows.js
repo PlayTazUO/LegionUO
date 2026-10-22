@@ -2177,8 +2177,9 @@ export class SpellbookWindow {
   }
 
   clampPosition() {
-    this.x = Math.max(0, Math.min(window.innerWidth - this.width, this.x));
-    this.y = Math.max(0, Math.min(window.innerHeight - this.height, this.y));
+    const pos = clampPosition(this.x, this.y, this.width, this.height);
+    this.x = pos.x;
+    this.y = pos.y;
   }
 
   cast(spell) {

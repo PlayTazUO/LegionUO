@@ -32,9 +32,13 @@ export function isMobileLayout() {
 
 export function clampPosition(x, y, width, height) {
   const { width: vw, height: vh } = viewportSize();
+  // Windows and gumps may be moved partly outside the viewport, but at least
+  // this much of them stays reachable so they can be dragged back.
+  const keepX = Math.min(20, Math.max(0, width));
+  const keepY = Math.min(20, Math.max(0, height));
   return {
-    x: Math.max(0, Math.min(x, Math.max(0, vw - width))),
-    y: Math.max(0, Math.min(y, Math.max(0, vh - height))),
+    x: Math.max(-(width - keepX), Math.min(x, vw - keepX)),
+    y: Math.max(-(height - keepY), Math.min(y, vh - keepY)),
   };
 }
 
