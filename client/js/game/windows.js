@@ -151,7 +151,7 @@ export class ContainerWindow {
   get height() {
     if (this.mobileView) {
       const vp = viewportSize();
-      return Math.max(220, Math.min(560, vp.height - 140));
+      return Math.max(110, Math.min(280, (vp.height - 140) / 2));
     }
     return this.background()?.height || 220;
   }
