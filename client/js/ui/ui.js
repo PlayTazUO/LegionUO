@@ -3812,9 +3812,10 @@ export class UI {
     this.onMouseDown(
       this.makeTouchEvent(touch, gesture.baseEvent, { button: 0, buttons: 1, detail })
     );
-    this.onMouseUp(
-      this.makeTouchEvent(touch, gesture.baseEvent, { button: 0, buttons: 0, detail })
-    );
+    const tapEvent = this.makeTouchEvent(touch, gesture.baseEvent, { button: 0, buttons: 0, detail });
+    this.onMouseUp(tapEvent);
+    this.syncPointer(tapEvent);
+    this.refreshTooltip(true);
     if (double) {
       this.onDoubleClick(
         this.makeTouchEvent(touch, gesture.baseEvent, { button: 0, buttons: 0, detail: 2 })
@@ -3927,16 +3928,21 @@ export class UI {
     if (!show) this.resetJoystick();
   }
 
-  onMouseMove(e) {
+  syncPointer(e) {
     const ui = this.uiPos(e);
     const game = this.canvasPos(e);
     this.mouse = ui;
     this.gameMouse = game;
     this.pointerOverDomUi = this.isDomUiTarget(e.target);
-    this.updateJournalPointerEvents();
     this.game.renderer.mouse.x = game.x;
     this.game.renderer.mouse.y = game.y;
     this.game.renderer.mouse.world = this.game.renderer.screenToTile(game.x, game.y);
+    return { ui, game };
+  }
+
+  onMouseMove(e) {
+    const { ui, game } = this.syncPointer(e);
+    this.updateJournalPointerEvents();
     if (this.selection) {
       this.selection.x = ui.x;
       this.selection.y = ui.y;
