@@ -33,6 +33,10 @@ const DEFAULTS = {
 
 const STORAGE_BASE = 'legionuo.journal.v1';
 
+const OVERLAY_LIFETIME = 5000;
+const OVERLAY_FADE = 400;
+const OVERLAY_LIMIT = 6;
+
 function pad(value) {
   return String(value).padStart(2, '0');
 }
@@ -61,6 +65,8 @@ export class Journal {
 
     this.root = $('journalPanel');
     this.log = $('journal');
+    this.overlay = $('systemMessages');
+    this.overlayItems = new Map();
     this.tabs = $('journalTabs');
     this.options = $('journalOptions');
     this.title = $('journalTitle');
@@ -235,7 +241,53 @@ export class Journal {
     this.log.appendChild(node);
     this.trim();
     if (nearBottom) this.log.scrollTop = this.log.scrollHeight;
+    if (item.kind === 'system') this.showOverlayMessage(item);
     return item;
+  }
+
+  showOverlayMessage(item) {
+    if (!this.overlay || this.isOpen()) return;
+    if ($('hud')?.classList.contains('hidden')) return;
+    if (item.ignored) return;
+
+    const node = document.createElement('div');
+    node.className = 'systemMessage';
+    if (item.color) node.style.color = item.color;
+    if (hasUoHtmlMarkup(item.text)) {
+      node.append(uoHtmlFragment(item.text, { defaultColor: item.color || undefined }));
+    } else {
+      node.textContent = item.text;
+    }
+
+    this.overlay.appendChild(node);
+    const record = { node, timer: 0 };
+    this.overlayItems.set(item.id, record);
+
+    while (this.overlayItems.size > OVERLAY_LIMIT) {
+      const oldest = this.overlayItems.keys().next().value;
+      this.removeOverlayMessage(oldest, true);
+    }
+
+    record.timer = setTimeout(() => this.removeOverlayMessage(item.id), OVERLAY_LIFETIME);
+  }
+
+  removeOverlayMessage(id, immediate = false) {
+    const record = this.overlayItems.get(id);
+    if (!record) return;
+    this.overlayItems.delete(id);
+    clearTimeout(record.timer);
+    if (immediate) {
+      record.node.remove();
+      return;
+    }
+    record.node.classList.add('leaving');
+    setTimeout(() => record.node.remove(), OVERLAY_FADE);
+  }
+
+  clearOverlay() {
+    for (const record of this.overlayItems.values()) clearTimeout(record.timer);
+    this.overlayItems.clear();
+    this.overlay?.replaceChildren();
   }
 
   renderEntry(item) {
@@ -298,6 +350,7 @@ export class Journal {
     this.entries = [];
     this.nodes.clear();
     this.log.replaceChildren();
+    this.clearOverlay();
   }
 
   rerender() {
@@ -383,6 +436,7 @@ export class Journal {
 
   show(persist = true) {
     if (!this.root) return;
+    this.clearOverlay();
     this.root.classList.remove('hidden');
     this.ui?.raiseWindow?.(this);
     if (persist && this.settings.open !== true) {
