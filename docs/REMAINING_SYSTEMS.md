@@ -501,7 +501,7 @@ Current status at a glance:
 
 - `PartyWindow` in `client/js/game/windows.js` shows the manifest with up to ten
   member slots, leader marker, live HP bars, and saved position; it opens from the
-  `PT` HUD button or the `-partywindow` command.
+  Party HUD button or the `-partywindow` command.
 - `0xBF 0x06` manifests (add/remove) update the member list and leader; invite
   (`0x07`) opens a movable accept/decline prompt, and party messages (`0x03/0x04`)
   are added to the journal's party tab.

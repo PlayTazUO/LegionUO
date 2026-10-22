@@ -349,8 +349,9 @@ button:hover {
 
 #topButtons button {
   min-width: 42px;
-  padding: 6px 6px;
+  padding: 6px 10px;
   font-size: 11px;
+  white-space: nowrap;
 }
 
 #perfStats {

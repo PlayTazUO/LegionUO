@@ -589,7 +589,7 @@ export class UI {
     this.restoreSkillButtons();
     this.restoreMacroButtons();
     if (document.activeElement && typeof document.activeElement.blur === 'function') document.activeElement.blur();
-    $('btnWar').textContent = this.world.player?.inWarMode ? 'WAR' : 'PEACE';
+    $('btnWar').textContent = this.world.player?.inWarMode ? 'War Mode' : 'Peace Mode';
   }
 
   /* ----------------------------- HUD ----------------------------- */
@@ -597,7 +597,7 @@ export class UI {
   refreshStatus() {
     const p = this.world.player;
     if (!p) return;
-    $('btnWar').textContent = p.inWarMode ? 'WAR' : 'PEACE';
+    $('btnWar').textContent = p.inWarMode ? 'War Mode' : 'Peace Mode';
   }
 
   refreshSkills() {
@@ -610,7 +610,7 @@ export class UI {
     const state = !player.inWarMode;
     player.inWarMode = state;
     this.world.socket.out.warMode(state);
-    $('btnWar').textContent = state ? 'WAR' : 'PEACE';
+    $('btnWar').textContent = state ? 'War Mode' : 'Peace Mode';
   }
 
   logout() {
