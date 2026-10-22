@@ -431,6 +431,7 @@ export class UI {
   }
 
   connect() {
+    this.autoSelectedServer = false;
     const account = $('account').value.trim();
     const password = $('password').value;
     const host = this.config?.defaultLoginHost || '127.0.0.1';
@@ -460,6 +461,13 @@ export class UI {
       this.showLoginError('The login server returned an empty server list.');
       return;
     }
+    // With a single shard there is nothing to choose, so join it right away.
+    // The flag keeps "Back to servers" from immediately re-entering it.
+    if (servers.length === 1 && !this.autoSelectedServer) {
+      this.autoSelectedServer = true;
+      this.selectServer(servers[0]);
+      return;
+    }
     for (const s of servers) {
       const b = document.createElement('button');
       const name = document.createElement('span');
@@ -469,16 +477,19 @@ export class UI {
       meta.className = 'serverMeta';
       meta.textContent = s.percentFull ? `${s.percentFull}%` : '';
       b.append(name, meta);
-      b.addEventListener('click', () => {
-        this.setLoginStatus(`Joining ${s.name}...`);
-        list.classList.add('hidden');
-        this.world.login.serverIndex = s.index;
-        this.world.login.step = 'relay';
-        this.game.startLoginWatchdog();
-        this.world.socket.out.selectServer(s.index);
-      });
+      b.addEventListener('click', () => this.selectServer(s));
       list.appendChild(b);
     }
+  }
+
+  selectServer(s) {
+    const list = $('serverList');
+    this.setLoginStatus(`Joining ${s.name}...`);
+    list.classList.add('hidden');
+    this.world.login.serverIndex = s.index;
+    this.world.login.step = 'relay';
+    this.game.startLoginWatchdog();
+    this.world.socket.out.selectServer(s.index);
   }
 
   showCharacters(chars, cities) {
