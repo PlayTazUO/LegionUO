@@ -79,6 +79,9 @@ const SERVER_WINDOW_KINDS = new Set(['paperdoll', 'container']);
 const SERVER_WINDOW_RETRIES = 10;
 const SERVER_WINDOW_RETRY_MS = 500;
 const TOUCH_DRAG_THRESHOLD = 10;
+const TOUCH_SCROLL_PIXELS = 18;
+const TOUCH_WHEEL_DELTA = 46;
+const TOUCH_HEADER_HEIGHT = 28;
 const TOUCH_TWO_FINGER_MS = 500;
 const DOUBLE_TAP_MS = 320;
 const DOUBLE_TAP_DISTANCE = 26;
@@ -3676,6 +3679,7 @@ export class UI {
         startTime: performance.now(),
         started: false,
         moved: false,
+        scrolling: null,
         twoFinger: touches.length >= 2,
         twoMoved: false,
         secondStart:
@@ -3694,7 +3698,7 @@ export class UI {
     }
 
     const gesture = this.touchGesture;
-    if (touches.length === 2 && !gesture.started && !gesture.moved) {
+    if (touches.length === 2 && !gesture.started && !gesture.moved && !gesture.scrolling) {
       gesture.twoFinger = true;
       gesture.twoMoved = false;
       const other = [...touches].find((entry) => entry.identifier !== gesture.id) || touches[1];
@@ -3732,8 +3736,9 @@ export class UI {
     gesture.lastY = touch.clientY;
     const dx = touch.clientX - gesture.startX;
     const dy = touch.clientY - gesture.startY;
-    if (!gesture.started) {
+    if (!gesture.started && !gesture.scrolling) {
       if (dx * dx + dy * dy < TOUCH_DRAG_THRESHOLD * TOUCH_DRAG_THRESHOLD) return;
+      if (this.beginTouchScroll(gesture, touch, dx, dy)) return;
       gesture.started = true;
       gesture.moved = true;
       this.lastTap = null;
@@ -3744,9 +3749,64 @@ export class UI {
       );
       this.onMouseDown(synthetic);
     }
+    if (gesture.scrolling) {
+      this.updateTouchScroll(gesture, touch);
+      return;
+    }
     this.onMouseMove(
       this.makeTouchEvent(touch, gesture.baseEvent, { button: 0, buttons: 1, detail: 1 })
     );
+  }
+
+  beginTouchScroll(gesture, touch, dx, dy) {
+    if (Math.abs(dy) <= Math.abs(dx)) return false;
+    const hit = this.hitTest(gesture.startX, gesture.startY);
+    if (!hit || hit.obj?.mobileView) return false;
+    if (!(hit.obj instanceof Gump) && !(hit.obj instanceof ContainerWindow)) {
+      const scale = this.windowRenderScale(hit);
+      if (gesture.startY < hit.obj.y + TOUCH_HEADER_HEIGHT * scale) return false;
+    }
+    const delta = dy < 0 ? TOUCH_WHEEL_DELTA : -TOUCH_WHEEL_DELTA;
+    if (!this.windowWheel(hit, gesture.startX, gesture.startY, delta, gesture.baseEvent)) return false;
+    gesture.scrolling = {
+      entry: hit,
+      x: gesture.startX,
+      y: gesture.startY,
+      lastY: touch.clientY,
+      accum: 0,
+    };
+    gesture.moved = true;
+    gesture.lastX = touch.clientX;
+    gesture.lastY = touch.clientY;
+    this.lastTap = null;
+    return true;
+  }
+
+  updateTouchScroll(gesture, touch) {
+    const scroll = gesture.scrolling;
+    if (!scroll) return;
+    gesture.lastX = touch.clientX;
+    gesture.lastY = touch.clientY;
+    scroll.accum += touch.clientY - scroll.lastY;
+    scroll.lastY = touch.clientY;
+    while (
+      scroll.accum <= -TOUCH_SCROLL_PIXELS ||
+      scroll.accum >= TOUCH_SCROLL_PIXELS
+    ) {
+      const direction = scroll.accum < 0 ? 1 : -1;
+      scroll.accum += direction > 0 ? TOUCH_SCROLL_PIXELS : -TOUCH_SCROLL_PIXELS;
+      if (
+        !this.windowWheel(
+          scroll.entry,
+          scroll.x,
+          scroll.y,
+          direction * TOUCH_WHEEL_DELTA,
+          gesture.baseEvent
+        )
+      ) {
+        break;
+      }
+    }
   }
 
   onTouchEnd(event) {
@@ -3786,6 +3846,12 @@ export class UI {
         const my = (gesture.startY + gesture.secondStart.y) / 2;
         this.dispatchTwoFingerTap(mx, my, gesture);
       }
+      return;
+    }
+
+    if (gesture.scrolling) {
+      this.touchGesture = null;
+      this.lastTap = null;
       return;
     }
 
