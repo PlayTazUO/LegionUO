@@ -7,6 +7,7 @@ import { AssetManager } from './assets.js';
 import { EffectsManager } from './effects.js';
 import { AudioManager } from './audio.js';
 import { Renderer } from './renderer.js';
+import { GameCursor } from './cursor.js';
 import { Gump } from './gump.js';
 import { findPath } from './pathfinding.js';
 import { UI } from '../ui/ui.js';
@@ -52,8 +53,10 @@ export class Game {
       this.resizeHeldLayer();
       this.resizeUiLayer();
       this.resizeUiTopLayer();
+      this.cursor?.resize();
     });
     this.ui = new UI(this);
+    this.cursor = new GameCursor(this);
     this.held = null;
     this.clilocs = new Map();
     this.walkTarget = null;
@@ -650,6 +653,7 @@ export class Game {
     this.ui.update(now);
     if (this.world.target.active) this.drawTargetCursor();
     this.drawHeldOverlay();
+    this.cursor.draw();
     requestAnimationFrame((t) => this.loop(t));
   }
 
