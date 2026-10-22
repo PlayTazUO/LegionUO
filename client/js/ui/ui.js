@@ -87,6 +87,8 @@ const DOUBLE_TAP_MS = 320;
 const DOUBLE_TAP_DISTANCE = 26;
 const NEARBY_ITEM_RANGE = 2;
 const NEARBY_ITEM_UPDATE_MS = 250;
+const ITEM_FLAG_MOVABLE = 0x20;
+const TILE_FLAG_CONTAINER = 0x00200000;
 const JOYSTICK_DEADZONE = 0.22;
 const JOYSTICK_RUN_FRACTION = 0.72;
 // Screen angle bucket (0 = east, clockwise) to UO movement direction. The
@@ -4101,6 +4103,10 @@ export class UI {
     const nearby = [];
     for (const entity of this.world.entities.values()) {
       if (!entity.isItem || entity.container !== 0 || !entity.hasPosition || entity.isMulti) continue;
+      if ((entity.flags & ITEM_FLAG_MOVABLE) === 0) {
+        const isContainer = (this.world.assets.staticFlags(entity.graphic) & TILE_FLAG_CONTAINER) !== 0;
+        if (!isContainer && !entity.isCorpse && entity.graphic !== 0x2006) continue;
+      }
       const dx = Math.abs(entity.x - player.x);
       const dy = Math.abs(entity.y - player.y);
       if (dx > NEARBY_ITEM_RANGE || dy > NEARBY_ITEM_RANGE) continue;

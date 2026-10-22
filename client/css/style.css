@@ -771,15 +771,16 @@ body.uo-cursor * {
 }
 
 #nearbyItems {
+  --nearby-row-height: 20px;
   position: absolute;
   left: 50%;
-  bottom: calc(162px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(154px + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
-  width: min(320px, calc(100vw - 24px));
-  max-height: min(38vh, 300px);
-  padding: 5px;
+  width: min(170px, calc(100vw - 24px));
+  padding: 3px;
+  background: rgba(18, 15, 10, 0.3);
   pointer-events: auto;
   z-index: 3;
 }
@@ -787,8 +788,9 @@ body.uo-cursor * {
 #nearbyItemsList {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   min-height: 0;
+  max-height: calc(var(--nearby-row-height) * 3 + 2px);
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
@@ -798,14 +800,14 @@ body.uo-cursor * {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 8px;
-  min-height: 36px;
-  padding: 2px 8px;
+  gap: 4px;
+  min-height: var(--nearby-row-height);
+  padding: 0 5px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(133, 112, 65, 0.35);
   border-radius: 2px;
   color: #e5cd8d;
-  font: 13px/1.2 'Segoe UI', Tahoma, sans-serif;
+  font: 10px/1.1 'Segoe UI', Tahoma, sans-serif;
   text-align: left;
   touch-action: manipulation;
 }
@@ -820,8 +822,8 @@ body.uo-cursor * {
 
 .nearbyItemIcon {
   flex: 0 0 auto;
-  width: 26px;
-  height: 26px;
+  width: 14px;
+  height: 14px;
   object-fit: contain;
   pointer-events: none;
 }
@@ -838,7 +840,7 @@ body.uo-cursor * {
 .nearbyItemAmount {
   flex: 0 0 auto;
   color: #bfa96f;
-  font-size: 11px;
+  font-size: 9px;
   pointer-events: none;
 }
 
