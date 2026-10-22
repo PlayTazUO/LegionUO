@@ -12,6 +12,7 @@ const DEFAULTS = {
   dayNight: true,
   questArrow: true,
   waypoints: true,
+  mobileContainerView: true,
   audioEnabled: typeof location !== 'undefined' && new URLSearchParams(location.search).has('audio'),
   audioVolume: 60,
   footsteps: true,
@@ -37,6 +38,7 @@ const BOOLEAN_KEYS = [
   'dayNight',
   'questArrow',
   'waypoints',
+  'mobileContainerView',
   'audioEnabled',
   'footsteps',
 ];

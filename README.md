@@ -157,6 +157,8 @@ Then open <http://127.0.0.1:8080>.
   gumps and most panels, or cancelling a target), double-tapping the ground pathfinds, and a
   translucent touch joystick in the lower-right corner drives movement (push farther to run).
   The HUD wraps on narrow screens and the journal and game window use touch dragging/resizing.
+  Containers open as a large, touch-friendly item list on mobile; this can be disabled with
+  the `Touch container view` option on the Display tab.
 
 ## Asset endpoints
 

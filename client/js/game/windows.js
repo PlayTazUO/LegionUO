@@ -10,7 +10,7 @@ import { settings } from './settings.js';
 import { buffText } from './buffs.js';
 import { hotbarSkillSlot, hotbarSpellSlot } from './hotbar.js';
 import { SPELLS_PER_PAGE, getBookSpells, getCircleName, getSpellbookInfo, getSpellbookInfoByOffset } from './spells.js';
-import { accountStorageKey, clampPosition, fitText, notorietyColor } from '../util/ui.js';
+import { accountStorageKey, clampPosition, fitText, notorietyColor, viewportSize } from '../util/ui.js';
 
 const CONTAINER_STORAGE_BASE = 'legionuo.container.v1';
 const CONTAINER_MARGIN = 6;
@@ -21,6 +21,12 @@ const LIST_HEADER_HEIGHT = 20;
 const LIST_ROW_HEIGHT = 24;
 const LIST_MAX_ROWS = 8;
 const LIST_ICON_SIZE = 20;
+const MOBILE_PANEL_MARGIN = 8;
+const MOBILE_HEADER_HEIGHT = 46;
+const MOBILE_ROW_HEIGHT = 48;
+const MOBILE_ROW_PAD = 6;
+const MOBILE_ICON_SIZE = 34;
+const MOBILE_SCROLLBAR_WIDTH = 8;
 const SKILL_BUTTON_WIDTH = 128;
 const SKILL_BUTTON_HEIGHT = 30;
 
@@ -80,7 +86,39 @@ export class ContainerWindow {
     this.listPress = null;
     this.listHover = -1;
     this.listScrollDrag = false;
+    this.mobileListScroll = 0;
+    this.mobileScrollDrag = false;
+    this.mobileSwipe = null;
+    this.lastMobileView = this.mobileView;
+    if (this.lastMobileView) this.layoutMobile();
     this.requestContentsOpl();
+  }
+
+  get mobileView() {
+    return !!this.world.game?.ui?.mobileLayout && settings.get('mobileContainerView') !== false;
+  }
+
+  layoutMobile() {
+    const vp = viewportSize();
+    const width = this.width;
+    const height = this.height;
+    const step = (this.serial % 4) * 10;
+    this.x = Math.max(MOBILE_PANEL_MARGIN, Math.round((vp.width - width) / 2) - step);
+    this.y = Math.max(MOBILE_PANEL_MARGIN, Math.round((vp.height - height) / 2) - step);
+  }
+
+  syncMobileView() {
+    const mobile = this.mobileView;
+    if (mobile === this.lastMobileView) return;
+    this.lastMobileView = mobile;
+    this.mobileSwipe = null;
+    this.mobileScrollDrag = false;
+    if (mobile) this.layoutMobile();
+    else {
+      const pos = clampPosition(this.x, this.y, this.width, this.height);
+      this.x = pos.x;
+      this.y = pos.y;
+    }
   }
 
   get item() {
@@ -103,10 +141,18 @@ export class ContainerWindow {
   }
 
   get width() {
+    if (this.mobileView) {
+      const vp = viewportSize();
+      return Math.max(220, Math.min(400, vp.width - MOBILE_PANEL_MARGIN * 2));
+    }
     return this.background()?.width || 240;
   }
 
   get height() {
+    if (this.mobileView) {
+      const vp = viewportSize();
+      return Math.max(220, Math.min(560, vp.height - 140));
+    }
     return this.background()?.height || 220;
   }
 
@@ -268,6 +314,85 @@ export class ContainerWindow {
     this.listScroll = ratio * this.listScrollMax;
   }
 
+  get mobileHeaderRect() {
+    return { x: this.x, y: this.y, w: this.width, h: MOBILE_HEADER_HEIGHT };
+  }
+
+  get mobileBodyRect() {
+    return {
+      x: this.x,
+      y: this.y + MOBILE_HEADER_HEIGHT,
+      w: this.width,
+      h: Math.max(0, this.height - MOBILE_HEADER_HEIGHT),
+    };
+  }
+
+  get mobileCloseRect() {
+    return { x: this.x + this.width - 42, y: this.y + 6, w: 34, h: 34 };
+  }
+
+  get mobileListHeight() {
+    return Math.max(0, this.mobileBodyRect.h - MOBILE_ROW_PAD * 2);
+  }
+
+  get mobileScrollMax() {
+    return Math.max(0, this.items.length * MOBILE_ROW_HEIGHT - this.mobileListHeight);
+  }
+
+  get mobileScrollbarRect() {
+    const body = this.mobileBodyRect;
+    return {
+      x: this.x + this.width - MOBILE_SCROLLBAR_WIDTH - 4,
+      y: body.y + MOBILE_ROW_PAD,
+      w: MOBILE_SCROLLBAR_WIDTH,
+      h: Math.max(0, body.h - MOBILE_ROW_PAD * 2),
+    };
+  }
+
+  mobileScrollbarThumb() {
+    const track = this.mobileScrollbarRect;
+    if (this.mobileScrollMax <= 0 || track.h <= 0) return null;
+    const ratio = this.mobileListHeight / (this.items.length * MOBILE_ROW_HEIGHT);
+    const h = Math.max(32, track.h * ratio);
+    const top = track.y + (this.mobileListScroll / this.mobileScrollMax) * (track.h - h);
+    return { x: track.x, y: top, w: track.w, h };
+  }
+
+  setMobileScrollFromMouse(my) {
+    const track = this.mobileScrollbarRect;
+    const thumb = this.mobileScrollbarThumb();
+    if (!thumb) return;
+    const travel = track.h - thumb.h;
+    if (travel <= 0) return;
+    const ratio = Math.max(0, Math.min(1, (my - track.y - thumb.h / 2) / travel));
+    this.mobileListScroll = ratio * this.mobileScrollMax;
+  }
+
+  mobileRowRect(index) {
+    const body = this.mobileBodyRect;
+    return {
+      x: body.x + MOBILE_ROW_PAD,
+      y: body.y + MOBILE_ROW_PAD + index * MOBILE_ROW_HEIGHT - this.mobileListScroll,
+      w: Math.max(0, body.w - MOBILE_ROW_PAD * 2 - MOBILE_SCROLLBAR_WIDTH - 4),
+      h: MOBILE_ROW_HEIGHT - 2,
+    };
+  }
+
+  mobileRowIndexAt(mx, my) {
+    const body = this.mobileBodyRect;
+    const top = body.y + MOBILE_ROW_PAD;
+    const bottom = top + this.mobileListHeight;
+    if (mx < body.x || mx >= body.x + body.w || my < top || my >= bottom) return -1;
+    const index = Math.floor((my - top + this.mobileListScroll) / MOBILE_ROW_HEIGHT);
+    return index >= 0 && index < this.items.length ? index : -1;
+  }
+
+  mobileItemAt(mx, my) {
+    const index = this.mobileRowIndexAt(mx, my);
+    if (index < 0) return null;
+    return this.listSortedItems[index] || null;
+  }
+
   listRowRect(index) {
     const body = this.listBodyRect;
     return {
@@ -323,11 +448,14 @@ export class ContainerWindow {
 
   targetAt(mx, my) {
     if (!this.contains(mx, my)) return null;
+    if (this.mobileView) return this.mobileItemAt(mx, my);
     return this.listItemAt(mx, my) || this.itemAt(mx, my);
   }
 
   tooltipAt(mx, my) {
-    const item = this.listItemAt(mx, my) || this.itemAt(mx, my);
+    const item = this.mobileView
+      ? this.mobileItemAt(mx, my)
+      : this.listItemAt(mx, my) || this.itemAt(mx, my);
     if (!item) return null;
     return { id: `container:${this.serial}:${item.serial}`, serial: item.serial, title: resolveItemName(this.world, item) };
   }
@@ -356,6 +484,7 @@ export class ContainerWindow {
   }
 
   onMouseDown(mx, my, button, event) {
+    if (this.mobileView) return this.onMobileMouseDown(mx, my, button, event);
     this.listPress = null;
     this.press = null;
     if (button === 2) {
@@ -421,7 +550,103 @@ export class ContainerWindow {
     return true;
   }
 
+  onMobileMouseDown(mx, my, button, event) {
+    this.listPress = null;
+    this.mobileSwipe = null;
+    if (button === 2) {
+      if (!this.mobileItemAt(mx, my)) this.close();
+      return true;
+    }
+    if (this.hitRect(this.mobileCloseRect, mx, my)) {
+      this.close();
+      return true;
+    }
+    if (button === 0 && this.mobileScrollMax > 0) {
+      const track = this.mobileScrollbarRect;
+      if (
+        mx >= track.x - 6 &&
+        mx < track.x + track.w + 6 &&
+        my >= track.y &&
+        my < track.y + track.h
+      ) {
+        this.mobileScrollDrag = true;
+        this.setMobileScrollFromMouse(my);
+        return true;
+      }
+    }
+    const item = this.mobileItemAt(mx, my);
+    if (item) {
+      if (!this.world.held) {
+        this.listPress = { item, x: mx, y: my, moved: false, split: !!event?.shiftKey };
+      }
+      return true;
+    }
+    if (this.hitRect(this.mobileHeaderRect, mx, my)) {
+      this.dragging = true;
+      this.dragOffset.x = mx - this.x;
+      this.dragOffset.y = my - this.y;
+      return true;
+    }
+    const body = this.mobileBodyRect;
+    if (this.hitRect(body, mx, my)) {
+      this.mobileSwipe = { y: my, start: this.mobileListScroll };
+    }
+    return true;
+  }
+
+  onMobileMouseMove(mx, my, event) {
+    if (this.mobileScrollDrag) {
+      this.setMobileScrollFromMouse(my);
+      return;
+    }
+    if (this.mobileSwipe) {
+      const dy = my - this.mobileSwipe.y;
+      this.mobileListScroll = Math.max(
+        0,
+        Math.min(this.mobileSwipe.start - dy, this.mobileScrollMax)
+      );
+      return;
+    }
+    if (this.listPress && !this.listPress.moved) {
+      const dx = mx - this.listPress.x;
+      const dy = my - this.listPress.y;
+      if (dx * dx + dy * dy >= 16) {
+        this.listPress.moved = true;
+        this.mobileSwipe = null;
+        if (!this.world.held) {
+          const item = this.listPress.item;
+          if ((this.listPress.split || event?.shiftKey) && item.amount > 1) {
+            this.promptSplit(item);
+            return;
+          }
+          this.pickupItem(item);
+        }
+      }
+    }
+    if (this.dragging) {
+      this.x = mx - this.dragOffset.x;
+      this.y = my - this.dragOffset.y;
+    }
+  }
+
+  onMobileMouseUp(mx, my) {
+    this.mobileScrollDrag = false;
+    this.mobileSwipe = null;
+    if (this.dragging) this.savePosition();
+    this.dragging = false;
+    if (this.listPress && !this.listPress.moved) {
+      if (this.listPress.split && this.listPress.item.amount > 1) this.promptSplit(this.listPress.item);
+      else {
+        this.world.socket.out.singleClick(this.listPress.item.serial);
+        this.world.game.ui.requestContextMenu(this.listPress.item.serial, mx, my);
+      }
+    }
+    this.listPress = null;
+    if (this.world.held && this.contains(mx, my)) this.dropHeld(mx, my);
+  }
+
   onMouseUp(mx, my) {
+    if (this.mobileView) return this.onMobileMouseUp(mx, my);
     this.scrollDrag = false;
     this.listScrollDrag = false;
     if (this.dragging) this.savePosition();
@@ -494,6 +719,12 @@ export class ContainerWindow {
   }
 
   onWheel(mx, my, deltaY) {
+    if (this.mobileView) {
+      if (!this.contains(mx, my)) return false;
+      const step = deltaY > 0 ? MOBILE_ROW_HEIGHT : -MOBILE_ROW_HEIGHT;
+      this.mobileListScroll = Math.max(0, Math.min(this.mobileListScroll + step, this.mobileScrollMax));
+      return true;
+    }
     if (this.pointInList(mx, my)) {
       if (this.listCollapsed || this.listScrollMax <= 0) return true;
       const step = deltaY > 0 ? LIST_ROW_HEIGHT : -LIST_ROW_HEIGHT;
@@ -507,6 +738,7 @@ export class ContainerWindow {
   }
 
   onMouseMove(mx, my, event) {
+    if (this.mobileView) return this.onMobileMouseMove(mx, my, event);
     this.listHover = this.listRowIndexAt(mx, my);
     if (this.scrollDrag) {
       this.setScrollFromMouse(my);
@@ -553,7 +785,9 @@ export class ContainerWindow {
   }
 
   onDoubleClick(mx, my) {
-    const item = this.listItemAt(mx, my) || this.itemAt(mx, my);
+    const item = this.mobileView
+      ? this.mobileItemAt(mx, my)
+      : this.listItemAt(mx, my) || this.itemAt(mx, my);
     if (item) this.world.socket.out.doubleClick(item.serial);
   }
 
@@ -566,9 +800,12 @@ export class ContainerWindow {
   }
 
   savePosition() {
-    const pos = clampPosition(this.x, this.y, 240, 220);
+    const width = this.mobileView ? this.width : 240;
+    const height = this.mobileView ? this.height : 220;
+    const pos = clampPosition(this.x, this.y, width, height);
     this.x = pos.x;
     this.y = pos.y;
+    if (this.mobileView) return;
     saveContainerPosition(this.world, this.serial, this.x, this.y, this.listCollapsed);
   }
 
@@ -585,7 +822,16 @@ export class ContainerWindow {
     const mx = ui.mouse?.x ?? 0;
     const my = ui.mouse?.y ?? 0;
     let rect = null;
-    if (this.pointInList(mx, my)) {
+    if (this.mobileView) {
+      const index = this.listSortedItems.findIndex((item) => item.serial === (serial >>> 0));
+      if (index >= 0) {
+        const row = this.mobileRowRect(index);
+        const body = this.mobileBodyRect;
+        if (row.y + row.h > body.y + MOBILE_ROW_PAD && row.y < body.y + body.h - MOBILE_ROW_PAD) {
+          rect = row;
+        }
+      }
+    } else if (this.pointInList(mx, my)) {
       const index = this.listSortedItems.findIndex((item) => item.serial === (serial >>> 0));
       if (index >= 0 && !this.listCollapsed) {
         const row = this.listRowRect(index);
@@ -618,7 +864,13 @@ export class ContainerWindow {
   }
 
   draw(ctx, now) {
+    this.syncMobileView();
     this.requestContentsOpl();
+    if (this.mobileView) {
+      this.drawMobile(ctx);
+      this.drawDebugHover(ctx);
+      return;
+    }
     this.scroll = Math.max(0, Math.min(this.scroll, this.scrollMax));
     const bg = this.background();
     if (bg) {
@@ -673,6 +925,137 @@ export class ContainerWindow {
     }
     this.drawList(ctx);
     this.drawDebugHover(ctx);
+  }
+
+  drawMobile(ctx) {
+    this.mobileListScroll = Math.max(0, Math.min(this.mobileListScroll, this.mobileScrollMax));
+    const header = this.mobileHeaderRect;
+    const body = this.mobileBodyRect;
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.65)';
+    ctx.shadowBlur = 18;
+    ctx.fillStyle = 'rgba(18,15,10,0.98)';
+    ctx.fillRect(this.x, this.y, this.width, this.height);
+    ctx.restore();
+    ctx.strokeStyle = '#8d7a52';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(this.x + 0.5, this.y + 0.5, this.width - 1, this.height - 1);
+
+    ctx.fillStyle = 'rgba(201,176,108,0.10)';
+    ctx.fillRect(header.x + 1, header.y + 1, header.w - 2, header.h - 1);
+    ctx.fillStyle = '#5f5133';
+    ctx.fillRect(header.x + 1, header.y + header.h - 1, header.w - 2, 1);
+
+    const title = resolveItemName(this.world, this.item) || 'Container';
+    ctx.fillStyle = '#e8d7a8';
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(fitText(ctx, title, this.width - 106), this.x + 12, this.y + 8);
+    ctx.fillStyle = '#9e8e65';
+    ctx.font = '10px monospace';
+    ctx.fillText(
+      `${this.items.length} item${this.items.length === 1 ? '' : 's'} - tap or drag`,
+      this.x + 12,
+      this.y + 28
+    );
+
+    const close = this.mobileCloseRect;
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.fillRect(close.x, close.y, close.w, close.h);
+    ctx.strokeStyle = '#8d7a52';
+    ctx.strokeRect(close.x + 0.5, close.y + 0.5, close.w - 1, close.h - 1);
+    ctx.fillStyle = '#e8d7a8';
+    ctx.font = 'bold 18px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('X', close.x + close.w / 2, close.y + close.h / 2 + 1);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(body.x + 1, body.y, body.w - 2, body.h);
+    ctx.clip();
+    const items = this.listSortedItems;
+    const rowHeight = MOBILE_ROW_HEIGHT;
+    const first = Math.max(0, Math.floor(this.mobileListScroll / rowHeight));
+    const last = Math.min(
+      items.length,
+      Math.ceil((this.mobileListScroll + this.mobileListHeight) / rowHeight) + 1
+    );
+    for (let i = first; i < last; i++) {
+      const item = items[i];
+      const row = this.mobileRowRect(i);
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.10)';
+      ctx.fillRect(row.x, row.y, row.w, row.h);
+
+      const img = this.world.assets.getStatic(item.graphic, item.hue);
+      if (img) {
+        const scale = Math.min(1, MOBILE_ICON_SIZE / Math.max(img.width, img.height));
+        const iw = img.width * scale;
+        const ih = img.height * scale;
+        ctx.drawImage(
+          img,
+          row.x + 6 + (MOBILE_ICON_SIZE - iw) / 2,
+          row.y + (row.h - ih) / 2,
+          iw,
+          ih
+        );
+      }
+
+      const name = resolveItemName(this.world, item);
+      const countText = `x${item.amount || 1}`;
+      ctx.font = 'bold 13px monospace';
+      const countWidth = ctx.measureText(countText).width;
+      const nameX = row.x + MOBILE_ICON_SIZE + 12;
+      const nameWidth = Math.max(0, row.x + row.w - 10 - countWidth - 8 - nameX);
+      if (
+        !drawServerText(ctx, name, {
+          x: nameX,
+          y: row.y + 8,
+          width: nameWidth,
+          height: row.h - 16,
+          defaultColor: '#f0dfa8',
+          fontSize: 13,
+          bold: true,
+          fontFamily: 'monospace',
+          clip: true,
+        })
+      ) {
+        ctx.fillStyle = '#f0dfa8';
+        ctx.font = 'bold 13px monospace';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(fitText(ctx, name, nameWidth), nameX, row.y + row.h / 2 + 1);
+      }
+
+      ctx.fillStyle = item.amount > 1 ? '#ffe08a' : '#9e8e65';
+      ctx.font = 'bold 13px monospace';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(countText, row.x + row.w - 10, row.y + row.h / 2 + 1);
+    }
+    ctx.restore();
+
+    const thumb = this.mobileScrollbarThumb();
+    if (thumb) {
+      const track = this.mobileScrollbarRect;
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.fillRect(track.x, track.y, track.w, track.h);
+      ctx.fillStyle = 'rgba(206,184,126,0.72)';
+      ctx.fillRect(thumb.x, thumb.y, thumb.w, thumb.h);
+    }
+
+    if (!items.length) {
+      ctx.fillStyle = '#7b6d4d';
+      ctx.font = '13px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText('Empty container.', body.x + body.w / 2, body.y + 28);
+    }
+
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
   }
 
   drawList(ctx) {
@@ -3570,7 +3953,7 @@ export class OptionsWindow {
   constructor(world) {
     this.world = world;
     this.width = 400;
-    this.height = 348;
+    this.height = 384;
     const savedX = settings.get('optionsX');
     const savedY = settings.get('optionsY');
     const pos = clampPosition(
@@ -3616,6 +3999,12 @@ export class OptionsWindow {
     }
     if (this.tab === 'display') {
       return [
+        {
+          type: 'toggle',
+          key: 'mobileContainerView',
+          label: 'Touch container view',
+          hint: 'Large tap-friendly item list on touch devices',
+        },
         { type: 'toggle', key: 'showNames', label: 'Show mobile names' },
         { type: 'toggle', key: 'showHealthBars', label: 'Show health bars' },
         { type: 'toggle', key: 'dragSelectHealthBars', label: 'Drag-select health bars' },
