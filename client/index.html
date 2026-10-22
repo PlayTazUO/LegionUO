@@ -15,7 +15,21 @@
   <body>
     <div id="gameWindow">
       <div id="gameTitleBar">
-        <span id="gameTitle">LEGIONUO</span>
+        <span id="gameTitle"></span>
+        <div id="gameStatusBars">
+          <div class="titleStat hp" data-stat="hits">
+            <span class="titleStatFill"></span>
+            <span class="titleStatText">HP --</span>
+          </div>
+          <div class="titleStat stam" data-stat="stamina">
+            <span class="titleStatFill"></span>
+            <span class="titleStatText">STAM --</span>
+          </div>
+          <div class="titleStat mana" data-stat="mana">
+            <span class="titleStatFill"></span>
+            <span class="titleStatText">MANA --</span>
+          </div>
+        </div>
       </div>
       <div id="gameViewport">
         <canvas id="game"></canvas>

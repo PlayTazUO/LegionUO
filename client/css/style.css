@@ -37,17 +37,80 @@ body {
   flex: 0 0 26px;
   display: flex;
   align-items: center;
+  gap: 10px;
   padding: 0 10px;
   cursor: move;
   background: linear-gradient(180deg, #2a2212, #17130c);
   border-bottom: 1px solid #6c5c38;
   color: #bfa96f;
   font-size: 11px;
-  letter-spacing: 2px;
+  letter-spacing: 1px;
 }
 
 #gameTitle {
+  flex: 0 1 34%;
+  max-width: 34%;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #e5cd8d;
+  font-family: Georgia, serif;
+  text-shadow: 0 1px 0 #000;
   pointer-events: none;
+}
+
+#gameStatusBars {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 6px;
+  min-width: 0;
+  pointer-events: none;
+}
+
+.titleStat {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 38px;
+  height: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.75);
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.titleStatFill {
+  position: absolute;
+  inset: 0;
+  width: 0;
+  transition: width 0.18s linear;
+}
+
+.titleStatText {
+  position: relative;
+  z-index: 1;
+  display: block;
+  padding: 0 4px;
+  overflow: hidden;
+  color: #f2e6c6;
+  font: 9px/12px Consolas, 'SF Mono', monospace;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 0 #000;
+}
+
+.titleStat.hp .titleStatFill {
+  background: linear-gradient(180deg, #d45744, #8f2f24);
+}
+
+.titleStat.stam .titleStatFill {
+  background: linear-gradient(180deg, #74c662, #3e7d2e);
+}
+
+.titleStat.mana .titleStatFill {
+  background: linear-gradient(180deg, #6ba6ef, #2f5fa8);
 }
 
 #gameViewport {

@@ -14,7 +14,16 @@ export class GameWindow {
     this.onChange = onChange;
     this.root = document.getElementById('gameWindow');
     this.titleBar = document.getElementById('gameTitleBar');
+    this.titleName = document.getElementById('gameTitle');
     this.resizeHandle = document.getElementById('gameResize');
+    this.titleStats = {};
+    this.titleStatKey = '';
+    for (const el of this.titleBar?.querySelectorAll('.titleStat') || []) {
+      this.titleStats[el.dataset.stat] = {
+        fill: el.querySelector('.titleStatFill'),
+        text: el.querySelector('.titleStatText'),
+      };
+    }
     if (!this.root || !this.titleBar || !this.resizeHandle) return;
 
     const saved = this.load();
@@ -51,6 +60,30 @@ export class GameWindow {
 
   titleHeight() {
     return this.titleBar?.offsetHeight || 26;
+  }
+
+  updateTitleBar(player = this.game.world?.player) {
+    const name = player?.name || '';
+    const stats = [
+      ['hits', 'HP', player?.hits, player?.hitsMax],
+      ['stamina', 'STAM', player?.stamina, player?.staminaMax],
+      ['mana', 'MANA', player?.mana, player?.manaMax],
+    ];
+    const key = [name, ...stats.map(([, , value, max]) => `${value ?? ''}/${max ?? ''}`)].join('|');
+    if (key === this.titleStatKey) return;
+    this.titleStatKey = key;
+    if (this.titleName) this.titleName.textContent = name;
+    for (const [stat, label, value, max] of stats) {
+      const entry = this.titleStats[stat];
+      if (!entry) continue;
+      const maxValue = Number(max);
+      const hasMax = maxValue > 0;
+      const current = hasMax ? clamp(Number(value) || 0, 0, maxValue) : 0;
+      if (entry.fill) entry.fill.style.width = `${hasMax ? (current / maxValue) * 100 : 0}%`;
+      if (entry.text) {
+        entry.text.textContent = hasMax ? `${label} ${current}/${maxValue}` : `${label} --`;
+      }
+    }
   }
 
   load() {

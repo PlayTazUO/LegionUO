@@ -598,6 +598,7 @@ export class UI {
     const p = this.world.player;
     if (!p) return;
     $('btnWar').textContent = p.inWarMode ? 'War Mode' : 'Peace Mode';
+    this.game.gameWindow?.updateTitleBar?.(p);
   }
 
   refreshSkills() {
