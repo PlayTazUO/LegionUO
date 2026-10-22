@@ -494,10 +494,14 @@ export class World {
     const chebyshev = Math.max(Math.abs(x - previousX), Math.abs(y - previousY));
     const dz = Math.abs(z - previousZ);
     const sinceLastStep = entity.lastStepTime ? now - entity.lastStepTime : Infinity;
+    const renderX = Number.isFinite(entity.renderX) ? entity.renderX : previousX;
+    const renderY = Number.isFinite(entity.renderY) ? entity.renderY : previousY;
+    const visibleDistance = Math.max(Math.abs(x - renderX), Math.abs(y - renderY));
 
-    // Genuine teleports/resyncs snap; ordinary movement updates are walked
-    // tile by tile so mobiles never visibly jump between tiles.
-    if (chebyshev > 32 || dz > 24) {
+    // Snap when the server position is well ahead of what is being rendered so
+    // mobiles recover from packet loss instead of slowly walking to catch up.
+    // Short jumps are still walked tile by tile.
+    if (visibleDistance > 4 || dz > 24) {
       this.setEntityPosition(entity, x, y, z);
       return;
     }

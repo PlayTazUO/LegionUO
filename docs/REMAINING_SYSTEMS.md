@@ -114,7 +114,7 @@ The remaining items are mostly polish or shard-dependent features.
   timings from config), keeps at most 5 unacknowledged steps, and predicts the player tile.
 - Render positions are interpolated from step progress; the renderer draws mobiles and the
   camera from `renderX/Y/Z`, and walk/run animation frames follow step progress.
-- Other mobiles walk tile-by-tile to each position update instead of teleporting.
+- Other mobiles walk tile-by-tile to nearby position updates; jumps over 4 tiles teleport.
 - Confirm (`0x22`) removes a pending step without snapping. Deny (`0x21`) clears the queue,
   resets the sequence, snaps to server coordinates, and cancels click paths. Server
   corrections (`0x20/0x77/0x78/0x97/0xF3`) cancel or reconcile pending prediction.
@@ -176,7 +176,7 @@ The remaining items are mostly polish or shard-dependent features.
 
 - Footstep sounds at step completion (mounted, running, and terrain variants).
 - Smooth camera follow; camera should use interpolated player position.
-- Other mobiles walk tile-by-tile to position updates; large teleports/resyncs snap.
+- Other mobiles walk tile-by-tile to nearby position updates; jumps over 4 tiles and large resyncs snap.
 
 ### Acceptance
 
