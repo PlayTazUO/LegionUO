@@ -312,6 +312,14 @@ export class UI {
     $('btnWaypoints')?.addEventListener('click', () => this.toggleWaypoints());
     $('btnWar').addEventListener('click', () => this.toggleWarMode());
     $('btnStatus').addEventListener('click', () => this.showStatus());
+    const fullscreenButton = $('btnFullscreen');
+    if (fullscreenButton) {
+      if (this.fullscreenSupported()) {
+        fullscreenButton.addEventListener('click', () => this.toggleFullscreen());
+      } else {
+        fullscreenButton.classList.add('hidden');
+      }
+    }
     $('btnOptions')?.addEventListener('click', () => this.showOptions());
     $('btnJournal').addEventListener('click', () => this.journal.toggle());
     $('btnLogout').addEventListener('click', () => this.logout());
@@ -346,6 +354,8 @@ export class UI {
     window.addEventListener('resize', () => this.onViewportResize());
     window.visualViewport?.addEventListener('resize', () => this.onViewportResize());
     window.addEventListener('orientationchange', () => setTimeout(() => this.onViewportResize(), 120));
+    document.addEventListener('fullscreenchange', () => this.updateFullscreenButton());
+    document.addEventListener('webkitfullscreenchange', () => this.updateFullscreenButton());
 
     window.addEventListener('keydown', (e) => this.onKeyDown(e));
     window.addEventListener('keyup', (e) => this.onKeyUp(e));
@@ -588,6 +598,7 @@ export class UI {
     login.style.display = 'none';
     $('hud').classList.remove('hidden');
     this.closeTopMenu?.();
+    this.updateFullscreenButton();
     if (!this._enteredWorld) {
       this._enteredWorld = true;
       settings.setAccount(this.game.loginCredentials?.account || '');
@@ -660,6 +671,47 @@ export class UI {
 
   closeStatus() {
     this.removeWindow('status', 'player');
+  }
+
+  fullscreenElement() {
+    return (
+      document.fullscreenElement ||
+      document.webkitFullscreenElement ||
+      document.msFullscreenElement ||
+      null
+    );
+  }
+
+  fullscreenSupported() {
+    const el = document.documentElement;
+    return !!(el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen);
+  }
+
+  updateFullscreenButton() {
+    const button = $('btnFullscreen');
+    if (!button) return;
+    const active = !!this.fullscreenElement();
+    button.textContent = active ? 'Exit Fullscreen' : 'Fullscreen';
+    button.title = active ? 'Exit fullscreen' : 'Toggle fullscreen';
+  }
+
+  async toggleFullscreen() {
+    try {
+      if (this.fullscreenElement()) {
+        const exit = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+        const result = exit?.call(document);
+        if (result && typeof result.then === 'function') await result;
+      } else {
+        const el = document.documentElement;
+        const request = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+        if (!request) return;
+        const result = request.call(el, { navigationUI: 'hide' });
+        if (result && typeof result.then === 'function') await result;
+      }
+    } catch {
+      /* Browsers may reject fullscreen requests (permissions, iframe, iOS). */
+    }
+    this.updateFullscreenButton();
   }
 
   showOptions() {
