@@ -61,8 +61,8 @@ function heuristic(x, y, goalX, goalY) {
   return 10 * (dx + dy) + (14 - 2 * 10) * Math.min(dx, dy);
 }
 
-function nearestWalkable(world, targetX, targetY, radius, cache) {
-  const exact = tileAt(world, targetX, targetY, cache);
+function nearestWalkable(world, targetX, targetY, radius, cache, fromZ) {
+  const exact = tileAt(world, targetX, targetY, cache, fromZ);
   if (exact?.walkable) return { x: targetX, y: targetY };
   for (let r = 1; r <= radius; r++) {
     let best = null;
@@ -72,7 +72,7 @@ function nearestWalkable(world, targetX, targetY, radius, cache) {
         if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
         const x = targetX + dx;
         const y = targetY + dy;
-        const info = tileAt(world, x, y, cache);
+        const info = tileAt(world, x, y, cache, fromZ);
         if (!info?.walkable) continue;
         const dist = dx * dx + dy * dy;
         if (dist < bestDist) {
@@ -86,11 +86,12 @@ function nearestWalkable(world, targetX, targetY, radius, cache) {
   return null;
 }
 
-function tileAt(world, x, y, cache) {
+function tileAt(world, x, y, cache, fromZ) {
   if (x < 0 || y < 0) return null;
-  const key = keyOf(x, y);
+  const zKey = Number.isFinite(fromZ) ? Math.round(fromZ) : 'p';
+  const key = `${keyOf(x, y)},${zKey}`;
   if (cache.has(key)) return cache.get(key);
-  const info = world.tileInfo(x, y);
+  const info = world.tileInfo(x, y, fromZ);
   cache.set(key, info);
   return info;
 }
@@ -106,20 +107,22 @@ export async function findPath(world, startX, startY, targetX, targetY, options 
   await world.preloadRegion(minX, minY, maxX, maxY);
 
   const cache = new Map();
-  const goal = nearestWalkable(world, targetX, targetY, options.targetRadius ?? 3, cache);
+  const startZ = world.player?.z;
+  const goal = nearestWalkable(world, targetX, targetY, options.targetRadius ?? 3, cache, startZ);
   if (!goal) return null;
   if (goal.x === startX && goal.y === startY) return [];
 
   const open = new MinHeap();
   const openByKey = new Map();
   const closed = new Set();
-  const startInfo = tileAt(world, startX, startY, cache);
+  const startInfo = tileAt(world, startX, startY, cache, startZ);
   const startNode = {
     x: startX,
     y: startY,
     g: 0,
     f: heuristic(startX, startY, goal.x, goal.y),
     parent: null,
+    info: startInfo,
   };
   open.push(startNode);
   openByKey.set(keyOf(startX, startY), startNode);
@@ -145,19 +148,20 @@ export async function findPath(world, startX, startY, targetX, targetY, options 
     }
 
     if (explored > maxNodes) break;
-    const currentInfo = currentKey === keyOf(startX, startY) ? startInfo : tileAt(world, current.x, current.y, cache);
+    const currentInfo = current.info;
+    const currentZ = currentInfo?.z ?? startZ;
 
     for (const dir of DIRECTIONS) {
       const nx = current.x + dir.dx;
       const ny = current.y + dir.dy;
       const nextKey = keyOf(nx, ny);
       if (closed.has(nextKey)) continue;
-      const info = tileAt(world, nx, ny, cache);
+      const info = tileAt(world, nx, ny, cache, currentZ);
       if (!info?.walkable) continue;
 
       if (dir.dx !== 0 && dir.dy !== 0) {
-        const sideA = tileAt(world, current.x + dir.dx, current.y, cache);
-        const sideB = tileAt(world, current.x, current.y + dir.dy, cache);
+        const sideA = tileAt(world, current.x + dir.dx, current.y, cache, currentZ);
+        const sideB = tileAt(world, current.x, current.y + dir.dy, cache, currentZ);
         if (!sideA?.walkable || !sideB?.walkable) continue;
         if (currentInfo?.noDiagonal || info.noDiagonal) continue;
       }
@@ -173,6 +177,7 @@ export async function findPath(world, startX, startY, targetX, targetY, options 
         g,
         f: g + heuristic(nx, ny, goal.x, goal.y),
         parent: current,
+        info,
       };
       openByKey.set(nextKey, node);
       open.push(node);

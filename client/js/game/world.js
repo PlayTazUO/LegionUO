@@ -4,6 +4,13 @@ import { UltimaLiveManager } from './uolive.js';
 import { decodeCustomHouseDesign, multiBounds } from './housing.js';
 import { accountStorageKey } from '../util/ui.js';
 
+const TILE_FLAG_IMPASSABLE = 0x00000040;
+const TILE_FLAG_SURFACE = 0x00000200;
+const TILE_FLAG_BRIDGE = 0x00000400;
+const TILE_FLAG_NO_DIAGONAL = 0x02000000;
+const STEP_UP_Z = 8;
+const STEP_DOWN_Z = 16;
+
 export class Mobile extends Entity {
   constructor(serial) {
     super(serial, true);
@@ -691,7 +698,12 @@ export class World {
     return this.staticGrid(block)[(ly << 3) | lx] || [];
   }
 
-  tileInfo(x, y) {
+  staticCalcHeight(graphic, flags) {
+    const height = this.assets.staticHeight(graphic) || 0;
+    return (flags & TILE_FLAG_BRIDGE) !== 0 ? height >> 1 : height;
+  }
+
+  tileInfo(x, y, fromZ = this.player?.z) {
     if (x < 0 || y < 0) return null;
     const block = this.getBlock(x >> 3, y >> 3);
     if (!block || !block.cells) return null;
@@ -700,41 +712,53 @@ export class World {
     const cell = block.cells[(ly << 3) | lx];
     if (!cell) return null;
     const landFlags = (this.assets.landFlags(cell.tile) || 0) >>> 0;
-    let noDiagonal = (landFlags & 0x01000000) !== 0;
-    if (landFlags & 0x40) {
-      return { walkable: false, z: cell.z, tile: cell.tile, noDiagonal };
-    }
+    const landBlocked = (landFlags & TILE_FLAG_IMPASSABLE) !== 0;
+    let noDiagonal = (landFlags & TILE_FLAG_NO_DIAGONAL) !== 0;
 
+    const referenceZ = Number.isFinite(fromZ) ? fromZ : cell.z;
     const statics = this.staticsAt(block, lx, ly);
     let z = cell.z;
+    let zDistance = Math.abs(z - referenceZ);
+    let hasSurface = false;
     for (const s of statics) {
       const flags = (this.assets.staticFlags(s.graphic) || 0) >>> 0;
-      if (flags & 0x01000000) noDiagonal = true;
-      const surface = (flags & 0x00000100) !== 0 || (flags & 0x00000200) !== 0;
-      if (surface && s.z >= z - 1 && s.z <= z + 8) z = Math.max(z, s.z);
+      if (flags & TILE_FLAG_NO_DIAGONAL) noDiagonal = true;
+      if (!(flags & (TILE_FLAG_SURFACE | TILE_FLAG_BRIDGE))) continue;
+      const surfaceZ = s.z + this.staticCalcHeight(s.graphic, flags);
+      const delta = surfaceZ - referenceZ;
+      if (delta > STEP_UP_Z || delta < -STEP_DOWN_Z) continue;
+      hasSurface = true;
+      const distance = Math.abs(delta);
+      if (distance < zDistance || (distance === zDistance && surfaceZ > z)) {
+        z = surfaceZ;
+        zDistance = distance;
+      }
     }
 
-    let blocked = false;
+    let staticBlocked = false;
     for (const s of statics) {
       const flags = (this.assets.staticFlags(s.graphic) || 0) >>> 0;
-      if (!(flags & 0x40)) continue;
-      const height = this.assets.staticHeight(s.graphic) || 0;
-      const top = s.z + Math.max(1, height);
+      if (!(flags & TILE_FLAG_IMPASSABLE)) continue;
+      const top = s.z + Math.max(1, this.staticCalcHeight(s.graphic, flags));
       if (top > z + 1 && s.z < z + 16) {
-        blocked = true;
+        staticBlocked = true;
         break;
       }
     }
-    const multi = this.multiAt(x, y, z);
+    const multi = this.multiAt(x, y, z, referenceZ);
     if (multi) {
-      blocked = blocked || multi.blocked;
       noDiagonal = noDiagonal || multi.noDiagonal;
-      if (multi.surface != null) z = Math.max(z, multi.surface);
+      if (multi.surface != null) {
+        z = multi.surface;
+        hasSurface = true;
+      }
     }
+    const blocked = staticBlocked || (multi?.blocked ?? false) || (landBlocked && !hasSurface);
     return { walkable: !blocked, z, tile: cell.tile, noDiagonal };
   }
 
-  multiAt(x, y, z) {
+  multiAt(x, y, z, fromZ = z) {
+    const referenceZ = Number.isFinite(fromZ) ? fromZ : z;
     let result = null;
     for (const entity of this.entities.values()) {
       if (!entity.isItem || !entity.isMulti || !entity.hasPosition) continue;
@@ -749,17 +773,24 @@ export class World {
         const flags = (this.assets.staticFlags(part.graphic) || 0) >>> 0;
         if (!flags) continue;
         const partZ = entity.z + (part.z || 0);
-        if (flags & 0x01000000) {
+        if (flags & TILE_FLAG_NO_DIAGONAL) {
           result = result || { blocked: false, noDiagonal: true, surface: null };
           result.noDiagonal = true;
         }
-        if ((flags & 0x00000100) !== 0 || (flags & 0x00000200) !== 0) {
-          result = result || { blocked: false, noDiagonal: false, surface: null };
-          if (partZ >= z - 1 && partZ <= z + 8) result.surface = Math.max(result.surface ?? partZ, partZ);
+        if ((flags & (TILE_FLAG_SURFACE | TILE_FLAG_BRIDGE)) !== 0) {
+          const surfaceZ = partZ + this.staticCalcHeight(part.graphic, flags);
+          const baseline = result?.surface ?? z;
+          const delta = surfaceZ - referenceZ;
+          if (delta > STEP_UP_Z || delta < -STEP_DOWN_Z) continue;
+          const distance = Math.abs(delta);
+          const baselineDistance = Math.abs(baseline - referenceZ);
+          if (distance < baselineDistance || (distance === baselineDistance && surfaceZ >= baseline)) {
+            result = result || { blocked: false, noDiagonal: false, surface: null };
+            result.surface = surfaceZ;
+          }
         }
-        if (!(flags & 0x40)) continue;
-        const height = this.assets.staticHeight(part.graphic) || 0;
-        const top = partZ + Math.max(1, height);
+        if (!(flags & TILE_FLAG_IMPASSABLE)) continue;
+        const top = partZ + Math.max(1, this.staticCalcHeight(part.graphic, flags));
         if (top > z + 1 && partZ < z + 16) {
           result = result || { blocked: false, noDiagonal: false, surface: null };
           result.blocked = true;
@@ -1050,7 +1081,7 @@ export class World {
     }
 
     const next = this.nextTile(fromX, fromY, dir);
-    const info = this.tileInfo(next.x, next.y);
+    const info = this.tileInfo(next.x, next.y, fromZ);
     if (!this.game?.debug && info && !info.walkable) {
       return false;
     }
@@ -1104,7 +1135,7 @@ export class World {
     const fromY = lastStep ? lastStep.toY : player.y;
     const fromZ = lastStep ? lastStep.toZ : player.z;
     const next = this.nextTile(fromX, fromY, dir);
-    const info = this.tileInfo(next.x, next.y);
+    const info = this.tileInfo(next.x, next.y, fromZ);
     if (info && !info.walkable) return false;
 
     const startTime = Math.max(now, this.nextStepTime);
