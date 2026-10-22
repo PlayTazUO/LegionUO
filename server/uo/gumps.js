@@ -100,7 +100,7 @@ export class GumpsManager {
     return this.aliasFor(id) >= 0;
   }
 
-  get(id, hue = 0) {
+  get(id, hue = 0, partial = false) {
     this.load();
     if (this.ours.has(id)) {
       const ours = this.readOurs(this.ours.get(id));
@@ -117,17 +117,17 @@ export class GumpsManager {
       found = this.entryFor(source);
       if (!found) return this.empty;
     }
-    return this.readEntry(found.file, found.entry, hue);
+    return this.readEntry(found.file, found.entry, hue, partial);
   }
 
-  readEntry(file, entry, hue = 0) {
+  readEntry(file, entry, hue = 0, partial = false) {
     if (entry.compression >= 1) {
       const data = this.files.readEntry(file, entry);
       if (!data || data.length < 8) return this.empty;
       const width = data.readUInt32LE(0);
       const height = data.readUInt32LE(4);
       if (width <= 0 || height <= 0 || width > 4096 || height > 4096) return this.empty;
-      return this.decode(data.subarray(8), width, height, hue);
+      return this.decode(data.subarray(8), width, height, hue, partial);
     }
 
     const width = entry.width;
@@ -135,7 +135,7 @@ export class GumpsManager {
     if (width <= 0 || height <= 0 || width > 4096 || height > 4096) return this.empty;
     const data = this.files.readEntry(file, { ...entry, compression: 0 });
     if (!data || data.length < height * 4) return this.empty;
-    return this.decode(data, width, height, hue);
+    return this.decode(data, width, height, hue, partial);
   }
 
   readOurs(file) {
@@ -151,7 +151,7 @@ export class GumpsManager {
     }
   }
 
-  decode(data, width, height, hue = 0) {
+  decode(data, width, height, hue = 0, partial = false) {
     const pixels = new Uint32Array(width * height);
     const rowLookup = new Int32Array(height);
     for (let i = 0; i < height; i++) rowLookup[i] = data.readInt32LE(i * 4);
@@ -168,7 +168,7 @@ export class GumpsManager {
         const run = data.readUInt16LE(ptr + 2);
         ptr += 4;
         if (pixelIndex < 0 || run <= 0 || pixelIndex + run > pixels.length) break;
-        const color = value !== 0 ? (255 << 24) | color16To32(this.hues.getColor16(value, hue)) : 0;
+        const color = value !== 0 ? (255 << 24) | color16To32(this.hues.getColor16(value, hue, partial)) : 0;
         pixels.fill(color, pixelIndex, pixelIndex + run);
         pixelIndex += run;
       }

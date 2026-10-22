@@ -104,11 +104,11 @@ export class AssetService {
   initManagers() {
     const config = this.config;
     this.hues = new HueManager(this.files);
+    this.tiledata = new TileDataManager(this.files, config.clientVersion);
     this.art = new ArtManager(this.files, this.hues);
     this.texmaps = new TexmapManager(this.files, this.hues);
     this.gumps = new GumpsManager(this.files, this.hues);
     this.maps = new MapManager(this.files, config.mapCount || 6);
-    this.tiledata = new TileDataManager(this.files, config.clientVersion);
     this.equipconv = new EquipConvManager(this.files);
     this.tileart = new TileArtManager(this.files);
     this.animations = new AnimationsManager(this.files, this.hues);
@@ -216,43 +216,51 @@ export class AssetService {
     return png;
   }
 
-  artLand(id, hue) {
-    return this.pngCache(`land|${id}|${hue}`, () => {
-      const img = this.art.getLand(id, hue);
+  artLand(id, hue, partial) {
+    // Land graphics are their own tiledata rows; when the caller does not say,
+    // let the tile's PartialHue flag decide.
+    const usePartial = partial == null ? this.tiledata.isPartialHue(id, true) : !!partial;
+    return this.pngCache(`land|${id}|${hue}|${usePartial ? 1 : 0}`, () => {
+      const img = this.art.getLand(id, hue, usePartial);
       if (!img || !img.width) return TRANSPARENT_PNG;
       return encodePNG(img.width, img.height, img.pixels);
     });
   }
 
-  artStatic(id, hue) {
-    return this.pngCache(`static|${id}|${hue}`, () => {
-      const img = this.art.getStatic(id, hue);
+  artStatic(id, hue, partial) {
+    // Item art carries the hue in two halves: the graphic supplies the mask
+    // (which texels are grey) and the tiledata flag says whether to use it.
+    const usePartial = partial == null ? this.tiledata.isPartialHue(id, false) : !!partial;
+    return this.pngCache(`static|${id}|${hue}|${usePartial ? 1 : 0}`, () => {
+      const img = this.art.getStatic(id, hue, usePartial);
       if (!img || !img.width) return TRANSPARENT_PNG;
       return encodePNG(img.width, img.height, applyBlackTransparency(img.pixels));
     });
   }
 
-  texmap(id, hue) {
-    return this.pngCache(`texmap|${id}|${hue}`, () => {
-      const img = this.texmaps.get(id, hue);
+  texmap(id, hue, partial = false) {
+    return this.pngCache(`texmap|${id}|${hue}|${partial ? 1 : 0}`, () => {
+      const img = this.texmaps.get(id, hue, partial);
       if (!img || !img.width) return TRANSPARENT_PNG;
       return encodePNG(img.width, img.height, img.pixels);
     });
   }
 
-  gump(id, hue) {
-    return this.pngCache(`gump|${id}|${hue}`, () => {
-      const img = this.gumps.get(id, hue);
+  gump(id, hue, partial = false) {
+    return this.pngCache(`gump|${id}|${hue}|${partial ? 1 : 0}`, () => {
+      const img = this.gumps.get(id, hue, partial);
       if (!img || !img.width) return TRANSPARENT_PNG;
       return encodePNG(img.width, img.height, applyBlackTransparency(img.pixels));
     });
   }
 
-  animation(body, action, direction, hue, equip = false) {
-    const key = this.cacheKey(`anim|${body}|${action}|${direction}|${hue}|${equip ? 'e' : ''}`);
+  animation(body, action, direction, hue, equip = false, partial = false) {
+    const key = this.cacheKey(
+      `anim|${body}|${action}|${direction}|${hue}|${equip ? 'e' : ''}|${partial ? 'p' : ''}`
+    );
     const cached = this.cache.get(key);
     if (cached) return cached;
-    const frames = this.animations.getFrames(body, action, direction, hue, equip) || [];
+    const frames = this.animations.getFrames(body, action, direction, hue, equip, partial) || [];
     const type = this.animations.resolve(body).type;
     if (!frames.length) {
       const result = { meta: { frames: [], sheet: { width: 0, height: 0 }, type }, png: TRANSPARENT_PNG };

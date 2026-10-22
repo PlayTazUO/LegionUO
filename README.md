@@ -160,16 +160,16 @@ Then open <http://127.0.0.1:8080>.
 | `GET /api/skills` | Skill names |
 | `GET /api/cliloc/:id`, `/api/cliloc?ids=1,2`, `/api/cliloc/all` | Cliloc strings |
 | `GET /api/multi/:id` | Multi components |
-| `GET /api/art/land/:id.png?hue=` | Land tile |
-| `GET /api/art/static/:id.png?hue=` | Static/item art |
-| `GET /api/texmap/:id.png?hue=` | Land terrain texture (stretched slopes) |
-| `GET /api/gump/:id.png?hue=` | Gump art |
+| `GET /api/art/land/:id.png?hue=&partial=` | Land tile |
+| `GET /api/art/static/:id.png?hue=&partial=` | Static/item art (partial defaults to the tiledata flag) |
+| `GET /api/texmap/:id.png?hue=&partial=` | Land terrain texture (stretched slopes) |
+| `GET /api/gump/:id.png?hue=&partial=` | Gump art |
 | `GET /api/font/:id` | Bitmap font glyph metadata |
 | `GET /api/font/:id.png?hue=` | Bitmap font atlas |
 | `GET /api/sound/:id.wav` | Decoded `sound.mul` effect |
 | `GET /api/music/:id.mp3` | Digital music track |
 | `GET /api/anim/:body/:action/:dir` | Animation sheet metadata |
-| `GET /api/anim/:body/:action/:dir.png?hue=` | Animation sheet PNG |
+| `GET /api/anim/:body/:action/:dir.png?hue=&partial=` | Animation sheet PNG |
 | `GET /api/map/:map/:blockX/:blockY` | Map block cells and statics |
 | `GET /api/radarcol` | Raw `radarcol.mul` palette (16-bit colours) |
 | `GET /api/mapimage?facet=&x0=&y0=&x1=&y1=&w=&h=` | Cropped facet map PNG |

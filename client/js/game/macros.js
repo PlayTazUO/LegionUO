@@ -3,6 +3,9 @@ import { accountStorageKey, clampPosition, fitText } from '../util/ui.js';
 const MACRO_STORAGE_BASE = 'legionuo.macros.v1';
 const MACRO_BUTTON_STORAGE_BASE = 'legionuo.macrobuttons.v1';
 
+export const MACRO_BUTTON_WIDTH = 140;
+export const MACRO_BUTTON_HEIGHT = 30;
+
 export const MACRO_DIRECTIONS = [
   { value: 0, label: 'North' },
   { value: 1, label: 'Northeast' },
@@ -126,11 +129,15 @@ export function loadMacroButtons(world) {
     if (!Array.isArray(saved)) return [];
     return saved
       .filter((entry) => entry && String(entry.name || '').trim())
-      .map((entry) => ({
-        name: String(entry.name).trim(),
-        x: Number(entry.x) || 40,
-        y: Number(entry.y) || 40,
-      }));
+      .map((entry) => {
+        const x = Number(entry.x);
+        const y = Number(entry.y);
+        return {
+          name: String(entry.name).trim(),
+          x: Number.isFinite(x) ? x : 40,
+          y: Number.isFinite(y) ? y : 40,
+        };
+      });
   } catch {
     return [];
   }
@@ -159,13 +166,14 @@ export class MacroButtonWindow {
   constructor(world, name, x = 40, y = 40) {
     this.world = world;
     this.name = String(name || 'Macro');
-    this.width = 140;
-    this.height = 30;
+    this.width = MACRO_BUTTON_WIDTH;
+    this.height = MACRO_BUTTON_HEIGHT;
     this.dragging = false;
     this.dragMoved = false;
     this.dragOffset = { x: 0, y: 0 };
     this.start = { x: 0, y: 0 };
-    const pos = clampPosition(x - this.width / 2, y - this.height / 2, this.width, this.height);
+    // x/y are the top-left corner, matching what persistMacroButtons stores.
+    const pos = clampPosition(x, y, this.width, this.height);
     this.x = pos.x;
     this.y = pos.y;
   }
@@ -536,7 +544,9 @@ export class MacroWindow {
     }
 
     if (ui.hitTest?.(event.clientX, event.clientY)) return;
-    if (!ui.createMacroButton?.(drag.name, event.clientX, event.clientY)) return;
+    const x = event.clientX - MACRO_BUTTON_WIDTH / 2;
+    const y = event.clientY - MACRO_BUTTON_HEIGHT / 2;
+    if (!ui.createMacroButton?.(drag.name, x, y)) return;
     ui.raiseWindow?.(this);
     this.setStatus(`Created a Macro button for ${drag.name}.`);
   }

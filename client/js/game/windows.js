@@ -21,6 +21,8 @@ const LIST_HEADER_HEIGHT = 20;
 const LIST_ROW_HEIGHT = 24;
 const LIST_MAX_ROWS = 8;
 const LIST_ICON_SIZE = 20;
+const SKILL_BUTTON_WIDTH = 128;
+const SKILL_BUTTON_HEIGHT = 30;
 
 function resolveItemName(world, item) {
   if (!item) return '';
@@ -1960,6 +1962,63 @@ function savePaperdollPosition(world, serial, x, y) {
   } catch {}
 }
 
+// Paperdoll name/title text arrives as plain text, so drawServerText bails out
+// and the caller is left to render it. Break it into lines that fit the plate
+// instead of letting a long title run past the gump.
+function wrapPlainText(ctx, text, maxWidth) {
+  const lines = [];
+  for (const paragraph of String(text ?? '').split(/\r?\n/)) {
+    let line = '';
+    for (const word of paragraph.split(/\s+/).filter(Boolean)) {
+      let rest = word;
+      while (ctx.measureText(rest).width > maxWidth && rest.length > 1) {
+        if (line) {
+          lines.push(line);
+          line = '';
+        }
+        let cut = rest.length - 1;
+        while (cut > 1 && ctx.measureText(rest.slice(0, cut)).width > maxWidth) cut--;
+        lines.push(rest.slice(0, cut));
+        rest = rest.slice(cut);
+      }
+      const test = line ? `${line} ${rest}` : rest;
+      if (line && ctx.measureText(test).width > maxWidth) {
+        lines.push(line);
+        line = rest;
+      } else {
+        line = test;
+      }
+    }
+    if (line) lines.push(line);
+  }
+  return lines;
+}
+
+function drawWrappedText(ctx, text, options) {
+  const { x, y, width, height, align = 'center', color = '#fff', fontSize = 12, bold = false } = options;
+  const lineHeight = fontSize + 3;
+  const maxLines = Math.max(1, Math.floor(height / lineHeight));
+  if (!text || width <= 0 || height <= 0) return;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, width, height);
+  ctx.clip();
+  ctx.font = `${bold ? 'bold ' : ''}${fontSize}px ${options.fontFamily || 'monospace'}`;
+  ctx.fillStyle = color;
+  ctx.textBaseline = 'top';
+  ctx.textAlign = align;
+
+  const lines = wrapPlainText(ctx, text, width);
+  const visible = lines.slice(0, maxLines);
+  if (lines.length > maxLines) {
+    visible[visible.length - 1] = fitText(ctx, `${visible[visible.length - 1]}...`, width);
+  }
+  const textX = align === 'center' ? x + width / 2 : align === 'right' ? x + width : x;
+  visible.forEach((line, index) => ctx.fillText(line, textX, y + index * lineHeight));
+  ctx.restore();
+}
+
 export class PaperdollWindow {
   constructor(world, mobile) {
     this.world = world;
@@ -2012,7 +2071,9 @@ export class PaperdollWindow {
       slots.push({ layer, x: 2, y: 67 + index * 21, w: 19, h: 20, item: this.mobile.getItem(layer) });
     });
     PAPERDOLL_RIGHT_LAYERS.forEach((layer, index) => {
-      slots.push({ layer, x: 166, y: 67 + index * 21, w: 19, h: 20, item: this.mobile.getItem(layer) });
+      // Half a slot higher than the left column so the last row clears the
+      // name/title plate at the bottom of the gump.
+      slots.push({ layer, x: 166, y: 57 + index * 21, w: 19, h: 20, item: this.mobile.getItem(layer) });
     });
     return slots;
   }
@@ -2272,21 +2333,24 @@ export class PaperdollWindow {
 
   bodyGump() {
     const graphic = this.mobile.graphic;
-    if (graphic === 0x0191 || graphic === 0x0193) return { id: 0x0d, hue: this.mobile.hue || 0 };
-    if (graphic === 0x025d) return { id: 0x0e, hue: this.mobile.hue || 0 };
-    if (graphic === 0x025e) return { id: 0x0f, hue: this.mobile.hue || 0 };
-    if (graphic === 0x029a || graphic === 0x02b6) return { id: 0x029a, hue: this.mobile.hue || 0 };
-    if (graphic === 0x029b || graphic === 0x02b7) return { id: 0x0299, hue: this.mobile.hue || 0 };
-    if (graphic === 0x04e5) return { id: 0xc835, hue: this.mobile.hue || 0 };
-    if (graphic === 0x03db) return { id: 0x0c, hue: 0x03ea };
-    return { id: isFemaleMobile(this.mobile) ? 0x0d : 0x0c, hue: this.mobile.hue || 0 };
+    const hue = this.mobile.hue || 0;
+    // TazUO's paperdoll body is always partial-hued: skin and cloth are grey
+    // in the body gump, while the outline and details stay their own colour.
+    if (graphic === 0x0191 || graphic === 0x0193) return { id: 0x0d, hue, partial: true };
+    if (graphic === 0x025d) return { id: 0x0e, hue, partial: true };
+    if (graphic === 0x025e) return { id: 0x0f, hue, partial: true };
+    if (graphic === 0x029a || graphic === 0x02b6) return { id: 0x029a, hue, partial: true };
+    if (graphic === 0x029b || graphic === 0x02b7) return { id: 0x0299, hue, partial: true };
+    if (graphic === 0x04e5) return { id: 0xc835, hue, partial: true };
+    if (graphic === 0x03db) return { id: 0x0c, hue: 0x03ea, partial: true };
+    return { id: isFemaleMobile(this.mobile) ? 0x0d : 0x0c, hue, partial: true };
   }
 
   equipGump(item) {
     const assets = this.world.assets;
-    if (!assets.tileData) return 0;
+    if (!assets.tileData) return null;
     let animId = assets.staticAnimId(item.graphic) || 0;
-    if (!animId) return 0;
+    if (!animId) return null;
     if ((this.mobile.graphic === 0x02b6 || this.mobile.graphic === 0x02b7) && animId === 0x03ca) {
       animId = 0x0223;
     }
@@ -2301,9 +2365,12 @@ export class PaperdollWindow {
       } else {
         animId = conv.gump;
       }
-      if (!animId) return 0;
+      if (!animId) return null;
     }
     const hue = (item.hue || 0) & 0x3fff;
+    // The paperdoll gump is a different graphic number to the item, so the
+    // partial flag has to come from the item's own tiledata row.
+    const partial = assets.staticIsPartialHue(item.graphic) || ((item.hue || 0) & 0x8000) !== 0;
 
     // Some shards (UOAlive, Enhanced Client art) map an item graphic and body
     // to a newer appearance id in tileart.uop. TazUO checks this before the
@@ -2311,17 +2378,19 @@ export class PaperdollWindow {
     const appearance = assets.tileArtAppearance(item.graphic, baseBodyGraphic(this.mobile));
     if (appearance) {
       const tileArtGump = PAPERDOLL_MALE_GUMP_OFFSET + appearance;
-      if (assets.gumpProbe(tileArtGump, hue) !== false) return tileArtGump;
+      if (assets.gumpProbe(tileArtGump, hue, partial) !== false) {
+        return { id: tileArtGump, hue, partial };
+      }
     }
 
     const offset = female ? PAPERDOLL_FEMALE_GUMP_OFFSET : PAPERDOLL_MALE_GUMP_OFFSET;
     const alternateOffset = female ? PAPERDOLL_MALE_GUMP_OFFSET : PAPERDOLL_FEMALE_GUMP_OFFSET;
     const primary = animId + offset;
-    if (assets.gumpProbe(primary, hue) === false) {
+    if (assets.gumpProbe(primary, hue, partial) === false) {
       const alternate = animId + alternateOffset;
-      if (assets.gumpProbe(alternate, hue)) return alternate;
+      if (assets.gumpProbe(alternate, hue, partial)) return { id: alternate, hue, partial };
     }
-    return primary;
+    return { id: primary, hue, partial };
   }
 
   backpackGump() {
@@ -2351,7 +2420,7 @@ export class PaperdollWindow {
     ctx.rect(this.x, this.y, this.width, this.height);
     ctx.clip();
     const body = this.bodyGump();
-    const bodyImg = this.world.assets.getGump(body.id, body.hue);
+    const bodyImg = this.world.assets.getGump(body.id, body.hue, body.partial);
     if (bodyImg) ctx.drawImage(bodyImg, avatar.x, avatar.y);
     const layerOrder = buildEquipmentOrder(m, this.world.assets, {
       altTorso: isFemaleMobile(m) || isGargoyleBody(m.graphic),
@@ -2360,9 +2429,9 @@ export class PaperdollWindow {
       const item = m.getItem(layer);
       if (!item) continue;
       this.world.assets.getTileArt(item.graphic);
-      const gumpId = this.equipGump(item);
-      if (!gumpId) continue;
-      const img = this.world.assets.getGump(gumpId, (item.hue || 0) & 0x3fff);
+      const gump = this.equipGump(item);
+      if (!gump) continue;
+      const img = this.world.assets.getGump(gump.id, gump.hue, gump.partial);
       if (img) ctx.drawImage(img, avatar.x, avatar.y);
     }
     const backpack = this.backpackGump();
@@ -2437,7 +2506,7 @@ export class PaperdollWindow {
         x: this.x + 39,
         y: this.y + 270,
         width: 185,
-        height: 16,
+        height: 32,
         align: 'center',
         defaultColor: '#bfa96f',
         fontSize: 12,
@@ -2445,11 +2514,16 @@ export class PaperdollWindow {
         clip: true,
       })
     ) {
-      ctx.fillStyle = '#bfa96f';
-      ctx.font = '12px monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(charTitle, this.x + 39 + 185 / 2, this.y + 278);
+      drawWrappedText(ctx, charTitle, {
+        x: this.x + 39,
+        y: this.y + 270,
+        width: 185,
+        height: 32,
+        align: 'center',
+        color: '#bfa96f',
+        fontSize: 12,
+        fontFamily: 'monospace',
+      });
     }
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
@@ -4124,7 +4198,9 @@ export class SkillsWindow {
         return;
       }
     }
-    if (!ui.hitTest?.(mx, my)) ui.createSkillButton?.(skill, mx, my);
+    if (!ui.hitTest?.(mx, my)) {
+      ui.createSkillButton?.(skill, mx - SKILL_BUTTON_WIDTH / 2, my - SKILL_BUTTON_HEIGHT / 2);
+    }
   }
 
   onDoubleClick(mx, my) {
@@ -4370,13 +4446,14 @@ export class SkillButtonWindow {
       name: String(skill?.name || `Skill ${skill?.index ?? 0}`),
       hasAction: skill?.hasAction !== false,
     };
-    this.width = 128;
-    this.height = 30;
+    this.width = SKILL_BUTTON_WIDTH;
+    this.height = SKILL_BUTTON_HEIGHT;
     this.dragging = false;
     this.dragMoved = false;
     this.dragOffset = { x: 0, y: 0 };
     this.start = { x: 0, y: 0 };
-    const pos = clampPosition(x - this.width / 2, y - this.height / 2, this.width, this.height);
+    // x/y are the top-left corner, matching what persistSkillButtons stores.
+    const pos = clampPosition(x, y, this.width, this.height);
     this.x = pos.x;
     this.y = pos.y;
   }

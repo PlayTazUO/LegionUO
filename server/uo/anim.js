@@ -240,7 +240,7 @@ export class AnimationsManager {
    * Get decoded frames for a mobile graphic/action/direction.
    * Returns [{centerX, centerY, width, height, pixels}]
    */
-  getFrames(body, action, direction, hue = 0, equip = false) {
+  getFrames(body, action, direction, hue = 0, equip = false, partial = false) {
     this.load();
     const resolved = this.resolve(body);
     const type = resolved.type;
@@ -279,10 +279,10 @@ export class AnimationsManager {
     }
     const frameEntry = this.frameEntryCache.get(frameKey);
     if (frameEntry) {
-      return this.readUopFrames(frameEntry.spec, frameEntry.entry, uopAction, direction, type, hue);
+      return this.readUopFrames(frameEntry.spec, frameEntry.entry, uopAction, direction, type, hue, partial);
     }
 
-    const primary = this.readMulAt(fileIndex, graphic, type, action, direction, hue);
+    const primary = this.readMulAt(fileIndex, graphic, type, action, direction, hue, partial);
     if (primary.length || equip) return primary;
 
     // Legacy MUL installs often have a bodyconv row pointing at the wrong
@@ -304,13 +304,13 @@ export class AnimationsManager {
     const rawType = this.calcType(body, 0);
     for (let i = 0; i < this.filesMul.length; i++) add(i, body, rawType);
     for (const [index, value, valueType] of candidates) {
-      const frames = this.readMulAt(index, value, valueType, action, direction, hue);
+      const frames = this.readMulAt(index, value, valueType, action, direction, hue, partial);
       if (frames.length) return frames;
     }
     return this.empty;
   }
 
-  readMulAt(fileIndex, graphic, type, action, direction, hue) {
+  readMulAt(fileIndex, graphic, type, action, direction, hue, partial) {
     const mul = this.filesMul[fileIndex];
     if (!mul || action >= this.actionCount(type)) return this.empty;
     const offset = this.offsetFor(graphic, type) + (action * MAX_DIRECTIONS + direction) * 12;
@@ -321,10 +321,10 @@ export class AnimationsManager {
     if (!size || position === 0xffffffff || size === 0xffffffff) return this.empty;
     const data = mul.reader.readAt(position, size);
     if (!data || data.length < 512) return this.empty;
-    return this.readMulFrames(data, hue);
+    return this.readMulFrames(data, hue, partial);
   }
 
-  readMulFrames(data, hue) {
+  readMulFrames(data, hue, partial) {
     const palette = new Uint16Array(256);
     for (let i = 0; i < 256; i++) palette[i] = data.readUInt16LE(i * 2);
     let ptr = 512;
@@ -340,13 +340,13 @@ export class AnimationsManager {
     }
     const frames = [];
     for (let i = 0; i < frameCount; i++) {
-      const frame = readSprite(data, dataStart + offsets[i], palette, false, this.hues, hue);
+      const frame = readSprite(data, dataStart + offsets[i], palette, false, this.hues, hue, partial);
       if (frame) frames.push(frame);
     }
     return frames;
   }
 
-  readUopFrames(spec, entry, animGroup, direction, type, hue) {
+  readUopFrames(spec, entry, animGroup, direction, type, hue, partial) {
     const buf = this.files.readEntry(spec, entry);
     if (!buf || buf.length < 40) return this.empty;
     let ptr = 32;
@@ -393,13 +393,13 @@ export class AnimationsManager {
       if (paletteStart + 512 > buf.length) continue;
       const palette = new Uint16Array(256);
       for (let i = 0; i < 256; i++) palette[i] = buf.readUInt16LE(paletteStart + i * 2);
-      frames[idx] = readSprite(buf, paletteStart + 512, palette, true, this.hues, hue);
+      frames[idx] = readSprite(buf, paletteStart + 512, palette, true, this.hues, hue, partial);
     }
     return frames.filter((f) => f);
   }
 }
 
-function readSprite(buf, offset, palette, alphaCheck, hues, hue) {
+function readSprite(buf, offset, palette, alphaCheck, hues, hue, partial) {
   let ptr = offset;
   if (ptr + 8 > buf.length) return null;
   const centerX = buf.readInt16LE(ptr);
@@ -427,7 +427,7 @@ function readSprite(buf, offset, palette, alphaCheck, hues, hue) {
       const val = palette[buf[ptr++]];
       if (block >= 0 && block < pixels.length) {
         if (!alphaCheck || val !== 0) {
-          const color = hues.getColor16(val, hue);
+          const color = hues.getColor16(val, hue, partial);
           pixels[block] = (255 << 24) | color16To32(color);
         }
       }

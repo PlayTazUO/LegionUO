@@ -3,6 +3,8 @@ import { Reader } from '../lib/reader.js';
 const LAND_GROUPS = 512;
 const LAND_PER_GROUP = 32;
 
+export const TILE_FLAG_PARTIAL_HUE = 0x00040000;
+
 export class TileDataManager {
   constructor(files, version = '7.0.104.0', versionAtLeast = (v) => true) {
     this.files = files;
@@ -88,6 +90,13 @@ export class TileDataManager {
       }
     }
     reader.close();
+  }
+
+  /** Whether this land/static graphic is flagged for partial hueing. */
+  isPartialHue(id, isLand = false) {
+    this.load();
+    const entry = isLand ? this.land[id] : this.statics[id];
+    return !!entry && (entry.flags & TILE_FLAG_PARTIAL_HUE) !== 0;
   }
 
   toJSON() {

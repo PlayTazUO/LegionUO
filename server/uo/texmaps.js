@@ -58,7 +58,7 @@ export class TexmapManager {
     return entry;
   }
 
-  get(index, hue = 0) {
+  get(index, hue = 0, partial = false) {
     const entry = this.entry(index);
     if (!entry) return this.empty;
     const raw = this.files.readEntry(this.file, entry);
@@ -73,7 +73,7 @@ export class TexmapManager {
     const pixels = new Uint32Array(size * size);
     for (let i = 0; i < pixels.length; i++) {
       const c = raw[i * 2] | (raw[i * 2 + 1] << 8);
-      pixels[i] = color16To32(this.hues.getColor16(c, hue));
+      pixels[i] = color16To32(this.hues.getColor16(c, hue, partial));
     }
     return { width: size, height: size, pixels };
   }

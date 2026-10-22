@@ -63,29 +63,29 @@ export class ArtManager {
     return this.entryFor(index)?.entry || null;
   }
 
-  getLand(id, hue = 0) {
+  getLand(id, hue = 0, partial = false) {
     this.load();
     if (this.ourLand.has(id)) {
       const raw = readFileSafe(this.ourLand.get(id));
-      if (raw && raw.length >= 2024) return makeLand(raw.subarray(0, 2024), this.hues, hue);
+      if (raw && raw.length >= 2024) return makeLand(raw.subarray(0, 2024), this.hues, hue, partial);
     }
     for (const file of this.filesList) {
       const entry = file.entries[id];
       if (!entry || entry.length <= 0) continue;
       const raw = this.files.readEntry(file, { ...entry, compression: 0 });
-      if (raw && raw.length >= 2024) return makeLand(raw.subarray(0, 2024), this.hues, hue);
+      if (raw && raw.length >= 2024) return makeLand(raw.subarray(0, 2024), this.hues, hue, partial);
     }
     return this.empty;
   }
 
-  getStatic(id, hue = 0) {
+  getStatic(id, hue = 0, partial = false) {
     this.load();
     if (this.ourStatics.has(id)) {
       const raw = readFileSafe(this.ourStatics.get(id));
       if (raw && raw.length >= 8) {
         const width = raw.readInt16LE(4);
         const height = raw.readInt16LE(6);
-        if (width > 0 && height > 0) return runs(raw.subarray(8), width, height, this.hues, hue);
+        if (width > 0 && height > 0) return runs(raw.subarray(8), width, height, this.hues, hue, partial);
       }
     }
     const index = id + MAX_LAND;
@@ -98,7 +98,7 @@ export class ArtManager {
       const height = raw.readInt16LE(6);
       if (width <= 0 || height <= 0 || width > 4096 || height > 4096) continue;
       if (raw.length < 8 + height * 2 + 4) continue;
-      return runs(raw.subarray(8), width, height, this.hues, hue);
+      return runs(raw.subarray(8), width, height, this.hues, hue, partial);
     }
     return this.empty;
   }
@@ -112,7 +112,7 @@ function readFileSafe(file) {
   }
 }
 
-function makeLand(raw, hues, hue) {
+function makeLand(raw, hues, hue, partial) {
   const pixels = new Uint32Array(44 * 44);
   let at = 0;
   for (let i = 0; i < 22; ++i) {
@@ -120,7 +120,7 @@ function makeLand(raw, hues, hue) {
     const end = 22 - (i + 1) + ((i + 1) << 1);
     for (let j = 22 - (i + 1); j < end; ++j, at += 2) {
       const c = raw[at] | (raw[at + 1] << 8);
-      pixels[pos++] = (255 << 24) | color16To32(hues.getColor16(c, hue));
+      pixels[pos++] = (255 << 24) | color16To32(hues.getColor16(c, hue, partial));
     }
   }
   for (let i = 0; i < 22; ++i) {
@@ -128,13 +128,13 @@ function makeLand(raw, hues, hue) {
     const end = i + ((22 - i) << 1);
     for (let j = i; j < end; ++j, at += 2) {
       const c = raw[at] | (raw[at + 1] << 8);
-      pixels[pos++] = (255 << 24) | color16To32(hues.getColor16(c, hue));
+      pixels[pos++] = (255 << 24) | color16To32(hues.getColor16(c, hue, partial));
     }
   }
   return { width: 44, height: 44, pixels };
 }
 
-function runs(buf, width, height, hues, hue) {
+function runs(buf, width, height, hues, hue, partial) {
   const pixels = new Uint32Array(width * height);
   const lineOffsets = new Uint16Array(height);
   for (let i = 0; i < height; i++) lineOffsets[i] = buf.readUInt16LE(i * 2);
@@ -157,7 +157,7 @@ function runs(buf, width, height, hues, hue) {
       for (let j = 0; j < run; ++j, ++pos) {
         const val = buf.readUInt16LE(ptr);
         ptr += 2;
-        if (val !== 0) pixels[pos] = (255 << 24) | color16To32(hues.getColor16(val, hue));
+        if (val !== 0) pixels[pos] = (255 << 24) | color16To32(hues.getColor16(val, hue, partial));
       }
       x += run;
     } else {

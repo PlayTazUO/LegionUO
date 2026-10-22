@@ -610,10 +610,12 @@ export class UI {
         this.skillInfo?.find((skill) => Number(skill.index) === index) ||
         this.world.skillList?.find((skill) => Number(skill.index) === index);
       if (info && info.hasAction === false) continue;
+      const x = Number(entry.x);
+      const y = Number(entry.y);
       this.createSkillButton(
         { index, name: entry.name || info?.name, hasAction: info?.hasAction },
-        Number(entry.x) || 40,
-        Number(entry.y) || 40,
+        Number.isFinite(x) ? x : 40,
+        Number.isFinite(y) ? y : 40,
         false
       );
     }
@@ -662,7 +664,7 @@ export class UI {
   restoreMacroButtons() {
     const saved = loadMacroButtons(this.world);
     for (const entry of saved) {
-      this.createMacroButton(entry.name, Number(entry.x) || 40, Number(entry.y) || 40, false);
+      this.createMacroButton(entry.name, entry.x, entry.y, false);
     }
     this.persistMacroButtons();
   }

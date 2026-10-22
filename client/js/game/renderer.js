@@ -19,6 +19,10 @@ const MIN_OBJECT_Z = -128;
 const TRANSPARENT_FLAG = 0x00000004;
 const FOLIAGE_FLAG = 0x00020000;
 const ROOF_FLAG = 0x10000000;
+// UO's flat land art (land.mul) is pre-shaded for the isometric key light, so
+// a raw texmap drawn on a slope reads ~15% brighter. ClassicUO compensates
+// with get_light(normal); for a flat tile that evaluates to 0.5 + cos(45)/2.
+const LAND_LIGHT = 0.5 + Math.SQRT1_2 / 2;
 
 const GARGOYLE_EQUIPMENT = new Map([
   [0x01d5, 0x0156],
@@ -445,6 +449,13 @@ export class Renderer {
     this.drawTexturedTriangle(c, tex, { x: 0, y: 0 }, { x: w, y: 0 }, { x: 0, y: h }, top, right, left);
     this.drawTexturedTriangle(c, tex, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }, right, bottom, left);
 
+    // Darken to the same level as the pre-shaded land art. 'source-atop'
+    // keeps the tile's alpha intact so the diamond edge stays transparent.
+    c.globalCompositeOperation = 'source-atop';
+    c.fillStyle = `rgba(0,0,0,${1 - LAND_LIGHT})`;
+    c.fillRect(0, 0, width, height);
+    c.globalCompositeOperation = 'source-over';
+
     tile = {
       canvas,
       x: minX,
@@ -632,7 +643,16 @@ export class Renderer {
         const item = mobile.getItem(layer);
         if (!item) continue;
         const equipment = this.equipmentGraphics(mobile, item, gargoyle);
-        if (equipment) this.assets.getAnim(equipment.animId, prefetchGroup, dir, equipment.hue, true);
+        if (equipment) {
+          this.assets.getAnim(
+            equipment.animId,
+            prefetchGroup,
+            dir,
+            equipment.hue,
+            true,
+            equipment.partial
+          );
+        }
       }
     }
     // The player turns constantly; load the body for every isometric
@@ -706,8 +726,8 @@ export class Renderer {
           if (mobile.isDead && (layer === Layer.Hair || layer === Layer.Beard)) continue;
           const equipment = this.equipmentGraphics(mobile, item, gargoyle);
           if (!equipment) continue;
-          const { animId, hue } = equipment;
-          const equip = this.assets.getAnim(animId, group, dir, hue, true);
+          const { animId, hue, partial } = equipment;
+          const equip = this.assets.getAnim(animId, group, dir, hue, true, partial);
           if (!equip || !equip.meta.frames.length) {
             // Hold the previous pose for this layer while it streams in.
             const previous = previousEquipment.get(animId);
@@ -741,7 +761,18 @@ export class Renderer {
     const conv = this.assets.equipConv(baseBodyGraphic(mobile), animId);
     if (gargoyle) animId = GARGOYLE_EQUIPMENT.get(animId) ?? animId;
     if (conv && conv.graphic > 0 && conv.graphic < 0x8000) animId = conv.graphic;
-    return { animId, hue: item.hue || conv?.color || 0 };
+    let hue = item.hue || 0;
+    let partial = this.assets.staticIsPartialHue(item.graphic);
+    // 0x8000 on the wire is an explicit "hue only the grey parts" request.
+    if (hue & 0x8000) {
+      hue &= 0x7fff;
+      partial = true;
+    }
+    if (!hue) {
+      hue = conv?.color || 0;
+      partial = false;
+    }
+    return { animId, hue, partial };
   }
 
   animFrameSource(mobile, serverPlaying, walking) {

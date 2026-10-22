@@ -65,6 +65,8 @@ export class FontManager {
     if (index < 0 || index >= this.fonts.length) return null;
     const key = `${index}|${hue >>> 0}`;
     if (this.cache.has(key)) return this.cache.get(key);
+    // TazUO keeps fonts 5 and 8 fully hued and partial-hues the rest.
+    const partial = index !== 5 && index !== 8;
     const glyphs = this.fonts[index];
     let width = 0;
     let height = 0;
@@ -86,7 +88,7 @@ export class FontManager {
         for (let x = 0; x < glyph.width; x++) {
           const value = glyph.pixels[y * glyph.width + x];
           if (!value) continue;
-          const color = this.hues.getColor16(value, hue);
+          const color = this.hues.getColor16(value, hue, partial);
           pixels[y * width + offsetX + x] = color16To32(color);
         }
       }

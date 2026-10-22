@@ -177,6 +177,13 @@ function sendJSON(res, status, obj) {
   res.end(body);
 }
 
+/** `?partial=` is opt-in; absent means "let the asset type decide". */
+function queryPartial(url) {
+  if (!url.searchParams.has('partial')) return undefined;
+  const value = String(url.searchParams.get('partial')).toLowerCase();
+  return value === '1' || value === 'true' || value === 'yes';
+}
+
 function sendBuffer(res, status, body, type, cache = 'public, max-age=86400') {
   res.writeHead(status, {
     'Content-Type': type,
@@ -338,21 +345,21 @@ const server = http.createServer((req, res) => {
     m = pathname.match(/^\/api\/art\/land\/(\d+)\.png$/);
     if (m) {
       const hue = Number(url.searchParams.get('hue') || 0);
-      sendBuffer(res, 200, assets.artLand(Number(m[1]), hue), 'image/png');
+      sendBuffer(res, 200, assets.artLand(Number(m[1]), hue, queryPartial(url)), 'image/png');
       return;
     }
 
     m = pathname.match(/^\/api\/art\/static\/(\d+)\.png$/);
     if (m) {
       const hue = Number(url.searchParams.get('hue') || 0);
-      sendBuffer(res, 200, assets.artStatic(Number(m[1]), hue), 'image/png');
+      sendBuffer(res, 200, assets.artStatic(Number(m[1]), hue, queryPartial(url)), 'image/png');
       return;
     }
 
     m = pathname.match(/^\/api\/texmap\/(\d+)\.png$/);
     if (m) {
       const hue = Number(url.searchParams.get('hue') || 0);
-      sendBuffer(res, 200, assets.texmap(Number(m[1]), hue), 'image/png');
+      sendBuffer(res, 200, assets.texmap(Number(m[1]), hue, !!queryPartial(url)), 'image/png');
       return;
     }
 
@@ -372,7 +379,7 @@ const server = http.createServer((req, res) => {
         return;
       }
       const hue = Number(url.searchParams.get('hue') || 0);
-      sendBuffer(res, 200, assets.gump(id, hue), 'image/png');
+      sendBuffer(res, 200, assets.gump(id, hue, !!queryPartial(url)), 'image/png');
       return;
     }
 
@@ -383,11 +390,12 @@ const server = http.createServer((req, res) => {
       const dir = Number(m[3]);
       const hue = Number(url.searchParams.get('hue') || 0);
       const equip = url.searchParams.get('equip') === '1';
+      const partial = !!queryPartial(url);
       if (action >= 80 || dir >= 5) {
         sendJSON(res, 400, { error: 'invalid animation' });
         return;
       }
-      const result = assets.animation(body, action, dir, hue, equip);
+      const result = assets.animation(body, action, dir, hue, equip, partial);
       if (m[4]) sendBuffer(res, 200, result.png, 'image/png', 'public, max-age=86400');
       else sendJSON(res, 200, result.meta);
       return;

@@ -148,12 +148,16 @@ export class AssetManager {
     return this.image(`texmap|${id}|${hue}`, this.url(`/api/texmap/${id}.png?hue=${hue}`));
   }
 
-  getGump(id, hue = 0) {
-    return this.image(`gump|${id}|${hue}`, this.url(`/api/gump/${id}.png?hue=${hue}`));
+  getGump(id, hue = 0, partial = false) {
+    const suffix = partial ? '&partial=1' : '';
+    return this.image(
+      `gump|${id}|${hue}|${partial ? 1 : 0}`,
+      this.url(`/api/gump/${id}.png?hue=${hue}${suffix}`)
+    );
   }
 
-  gumpState(id, hue = 0) {
-    const entry = this.images.get(this.imageKey(`gump|${id}|${hue}`));
+  gumpState(id, hue = 0, partial = false) {
+    const entry = this.images.get(this.imageKey(`gump|${id}|${hue}|${partial ? 1 : 0}`));
     if (!entry) return 'unknown';
     if (entry.ready) return 'ready';
     if (entry.failed) return 'failed';
@@ -164,18 +168,19 @@ export class AssetManager {
    * Probe whether a gump id exists. Returns true/false once the image has
    * loaded/failed, or null while the check is still in flight.
    */
-  gumpProbe(id, hue = 0) {
-    this.getGump(id, hue);
-    const state = this.gumpState(id, hue);
+  gumpProbe(id, hue = 0, partial = false) {
+    this.getGump(id, hue, partial);
+    const state = this.gumpState(id, hue, partial);
     if (state === 'unknown' || state === 'loading') return null;
     return state === 'ready';
   }
 
-  getAnim(body, action, dir, hue = 0, equip = false) {
-    const key = `${body}|${action}|${dir}|${hue}|${equip ? 'e' : ''}`;
+  getAnim(body, action, dir, hue = 0, equip = false, partial = false) {
+    const key = `${body}|${action}|${dir}|${hue}|${equip ? 'e' : ''}|${partial ? 'p' : ''}`;
     const meta = this.animMeta.get(key);
     const imageKey = `animimg|${key}`;
-    this.image(imageKey, this.url(`/api/anim/${body}/${action}/${dir}.png?hue=${hue}${equip ? '&equip=1' : ''}`));
+    const params = `hue=${hue}${equip ? '&equip=1' : ''}${partial ? '&partial=1' : ''}`;
+    this.image(imageKey, this.url(`/api/anim/${body}/${action}/${dir}.png?${params}`));
     if (meta) {
       const entry = this.images.get(this.imageKey(imageKey));
       if (entry && entry.ready) return { meta, img: entry.img };
@@ -184,7 +189,7 @@ export class AssetManager {
     if (!this.animPromise.has(key)) {
       this.animPromise.set(
         key,
-        fetch(this.url(`/api/anim/${body}/${action}/${dir}?hue=${hue}${equip ? '&equip=1' : ''}`))
+        fetch(this.url(`/api/anim/${body}/${action}/${dir}?${params}`))
           .then((r) => (r.ok ? r.json() : null))
           .then((m) => {
             if (m) {
@@ -340,6 +345,11 @@ export class AssetManager {
 
   staticFlags(graphic) {
     return this.tileData?.statics?.[graphic]?.[0] ?? 0;
+  }
+
+  /** Tiledata PartialHue flag: only the grey texels of this graphic take a hue. */
+  staticIsPartialHue(graphic) {
+    return (this.staticFlags(graphic) & 0x00040000) !== 0;
   }
 
   staticHeight(graphic) {
