@@ -139,6 +139,8 @@ export class Renderer {
     const y = Math.floor(player.y);
     const z = player.z | 0;
     const block = this.world.getBlock(x >> 3, y >> 3);
+    const cell = block?.cells[((y & 7) << 3) | (x & 7)];
+    const landZ = cell ? this.landAverageZ(block, x, y, cell.z) : null;
     const cached = this.overheadCache;
     if (
       cached &&
@@ -146,6 +148,7 @@ export class Renderer {
       cached.x === x &&
       cached.y === y &&
       cached.z === z &&
+      cached.landZ === landZ &&
       cached.multiVersion === this.world.multiVersion
     ) {
       return cached;
@@ -171,6 +174,10 @@ export class Renderer {
     };
 
     if (block) {
+      if (landZ != null && landZ > headZ && landZ < cut) {
+        cut = landZ;
+        hideRoofs = true;
+      }
       for (const s of this.world.staticsAt(block, x & 7, y & 7)) consider(s.z, s.graphic);
     }
 
@@ -198,7 +205,7 @@ export class Renderer {
       }
     }
 
-    const state = { x, y, z, block, cut, hideRoofs, multiVersion: this.world.multiVersion };
+    const state = { x, y, z, block, landZ, cut, hideRoofs, multiVersion: this.world.multiVersion };
     // Re-scan until every multi around the player has loaded its parts.
     this.overheadCache = pendingMulti ? null : state;
     return state;
@@ -510,6 +517,17 @@ export class Renderer {
     ctx.transform(a, b, c, d, e, f);
     ctx.drawImage(img, 0, 0);
     ctx.restore();
+  }
+
+  landAverageZ(block, x, y, fallback = 0) {
+    const z = this.tileZ(block, x, y, fallback);
+    const zRight = this.tileZ(block, x + 1, y, z);
+    const zLeft = this.tileZ(block, x, y + 1, z);
+    const zBottom = this.tileZ(block, x + 1, y + 1, z);
+    if (zRight === z && zLeft === z && zBottom === z) return z;
+    return Math.abs(z - zBottom) <= Math.abs(zLeft - zRight)
+      ? (z + zBottom) >> 1
+      : (zLeft + zRight) >> 1;
   }
 
   tileZ(block, x, y, fallback = 0) {
