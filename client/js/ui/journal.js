@@ -27,6 +27,7 @@ const DEFAULTS = {
   filter: 'all',
   mode: 'say',
   language: 'ENU',
+  open: true,
   ignore: [],
 };
 
@@ -108,6 +109,7 @@ export class Journal {
       settings.mode = 'say';
     }
     settings.language = String(settings.language || 'ENU').toUpperCase().slice(0, 3) || 'ENU';
+    if (typeof settings.open !== 'boolean') settings.open = DEFAULTS.open;
     return settings;
   }
 
@@ -379,10 +381,14 @@ export class Journal {
     return mx >= rect.left && mx < rect.right && my >= rect.top && my < rect.bottom;
   }
 
-  show() {
+  show(persist = true) {
     if (!this.root) return;
     this.root.classList.remove('hidden');
     this.ui?.raiseWindow?.(this);
+    if (persist && this.settings.open !== true) {
+      this.settings.open = true;
+      this.save();
+    }
   }
 
   showSettings() {
@@ -390,8 +396,12 @@ export class Journal {
     this.options?.classList.remove('hidden');
   }
 
-  hide() {
+  hide(persist = true) {
     this.root?.classList.add('hidden');
+    if (persist && this.settings.open !== false) {
+      this.settings.open = false;
+      this.save();
+    }
   }
 
   toggle() {

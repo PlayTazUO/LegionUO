@@ -406,7 +406,7 @@ export class Game {
     this.held = null;
     this.cancelWalkPath();
     document.getElementById('hud').classList.add('hidden');
-    this.ui.journal?.hide();
+    this.ui.journal?.hide(false);
     const login = document.getElementById('loginScreen');
     login.classList.remove('hidden');
     login.style.display = 'flex';

@@ -571,7 +571,8 @@ export class UI {
       this.journal.setAccount(this.game.loginCredentials?.account || '');
       this.macros = null;
       this.journal.clear();
-      this.journal.show();
+      if (this.journal.settings.open !== false) this.journal.show(false);
+      else this.journal.hide(false);
       this.addJournal('Welcome to LegionUO.', '#d6b45d', true);
       this.restoreOpenWindows();
     }
