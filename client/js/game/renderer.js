@@ -898,10 +898,11 @@ export class Renderer {
       ctx.fillRect(x, y, (w * Math.max(0, m.hits)) / Math.max(1, m.hitsMax), 5);
     }
     if (showSpeech && m.lastSpeech && Date.now() - m.lastSpeech.time < 7000) {
+      const speechColor = this.game?.ui?.speechColor?.(m.lastSpeech.hue) || '#ffe6a3';
       if (hasUoHtmlMarkup(m.lastSpeech.text)) {
         const measured = measureUoHtml(ctx, m.lastSpeech.text, {
           width: 220,
-          defaultColor: '#ffe6a3',
+          defaultColor: speechColor,
           fontSize: 12,
           fontFamily: 'monospace',
         });
@@ -911,7 +912,7 @@ export class Renderer {
           width: 220,
           height: measured.height,
           align: 'center',
-          defaultColor: '#ffe6a3',
+          defaultColor: speechColor,
           fontSize: 12,
           fontFamily: 'monospace',
           clip: false,
@@ -925,7 +926,7 @@ export class Renderer {
         for (let i = lines.length - 1; i >= 0; i--) {
           ctx.lineWidth = 3;
           ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-          ctx.fillStyle = '#ffe6a3';
+          ctx.fillStyle = speechColor;
           ctx.strokeText(lines[i], pos.sx, y);
           ctx.fillText(lines[i], pos.sx, y);
           y -= 15;

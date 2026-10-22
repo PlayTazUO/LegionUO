@@ -61,10 +61,14 @@ export class HueManager {
     return color16ToRgb(this.getColor16(value, hue, partial));
   }
 
-  /** Resolve a UO hue to the representative text colour (color table index 8). */
+  /**
+   * Resolve a UO hue to the text colour used by the client. Text is drawn from
+   * the bright end of the ramp (index 31), matching TazUO's text color
+   * conversion; the mid-ramp index is far too dark on the journal background.
+   */
   getTextColor(hue) {
     this.load();
-    if (hue && hue < this.count && this.table) return this.table[(hue - 1) * 32 + 8];
+    if (hue && hue < this.count && this.table) return this.table[(hue - 1) * 32 + 31];
     return hue;
   }
 

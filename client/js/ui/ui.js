@@ -322,6 +322,11 @@ export class UI {
     return `rgb(${r},${g},${b})`;
   }
 
+  /** Hue 0 means "default speech", which UO treats as 0x03B2. */
+  speechColor(hue) {
+    return this.hueColor(hue || 0x3b2);
+  }
+
   /* ----------------------------- login ----------------------------- */
 
   loadSavedLogin() {
@@ -3617,7 +3622,6 @@ export class UI {
     if (this.dragTarget) {
       this.dragTarget.obj.onMouseUp?.(ui.x, ui.y);
       this.dragTarget = null;
-      return;
     }
     if (this.worldItemPress) {
       const item = this.worldItemPress.item;

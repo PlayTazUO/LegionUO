@@ -161,7 +161,7 @@ export class Journal {
       }
     }
     const kind = this.classify(msg);
-    const color = msg.color || (kind === 'speech' && msg.hue ? this.ui.hueColor(msg.hue) : '');
+    const color = msg.color || (kind === 'speech' ? this.ui.speechColor(msg.hue) : '');
     return this.addEntry({
       timestamp: msg.time || Date.now(),
       text: msg.text || '',

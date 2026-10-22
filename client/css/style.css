@@ -281,7 +281,9 @@ button:hover {
   inset: 0;
   display: block;
   pointer-events: none;
-  z-index: 15;
+  /* Dragged items must stay visible above every canvas window (including the
+     top UI layer used while the journal is open) and the HUD. */
+  z-index: 32;
 }
 
 #hud {
