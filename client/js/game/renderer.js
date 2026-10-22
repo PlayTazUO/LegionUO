@@ -135,9 +135,9 @@ export class Renderer {
     // from neighbouring tiles even when their base sits below the cut plane.
     const player = this.world.player;
     if (!player) return { cut: Infinity, hideRoofs: false };
-    const x = Math.floor(player.x);
-    const y = Math.floor(player.y);
-    const z = player.z | 0;
+    const x = Math.round(player.renderX ?? player.x);
+    const y = Math.round(player.renderY ?? player.y);
+    const z = Math.round(player.renderZ ?? player.z);
     const block = this.world.getBlock(x >> 3, y >> 3);
     const cell = block?.cells[((y & 7) << 3) | (x & 7)];
     const landZ = cell ? this.landAverageZ(block, x, y, cell.z) : null;
@@ -360,8 +360,9 @@ export class Renderer {
       });
     }
     for (const m of mobiles.get(`${x},${y}`) || []) {
-      if (m.z >= cutZ) continue;
-      drawables.push({ type: 'mobile', z: m.z, priorityZ: m.z + 1, entity: m });
+      const z = m.renderZ ?? m.z;
+      if (z >= cutZ) continue;
+      drawables.push({ type: 'mobile', z, priorityZ: z + 1, entity: m });
     }
     drawables.sort(
       (a, b) =>
@@ -393,7 +394,7 @@ export class Renderer {
 
     // Overhead names and bars are drawn after the tile's objects.
     for (const m of mobiles.get(`${x},${y}`) || []) {
-      if (m.z >= cutZ) continue;
+      if ((m.renderZ ?? m.z) >= cutZ) continue;
       this.drawMobileText(ctx, m);
     }
   }

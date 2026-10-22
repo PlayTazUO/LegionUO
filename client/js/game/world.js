@@ -731,7 +731,6 @@ export class World {
     const referenceZ = Number.isFinite(fromZ) ? fromZ : cell.z;
     const statics = this.staticsAt(block, lx, ly);
     let z = cell.z;
-    let zDistance = Math.abs(z - referenceZ);
     let hasSurface = false;
     for (const s of statics) {
       const flags = (this.assets.staticFlags(s.graphic) || 0) >>> 0;
@@ -741,11 +740,11 @@ export class World {
       const delta = surfaceZ - referenceZ;
       if (delta > STEP_UP_Z || delta < -STEP_DOWN_Z) continue;
       hasSurface = true;
-      const distance = Math.abs(delta);
-      if (distance < zDistance || (distance === zDistance && surfaceZ > z)) {
-        z = surfaceZ;
-        zDistance = distance;
-      }
+      // Stairs are separate surface tiles that each rise a few z units. Pick
+      // the highest reachable surface instead of the one closest to the
+      // current z, otherwise the lower land tile wins at every step and the
+      // player walks through the staircase until the server corrects the z.
+      if (surfaceZ > z) z = surfaceZ;
     }
 
     let staticBlocked = false;
@@ -820,15 +819,10 @@ export class World {
         }
         if ((flags & (TILE_FLAG_SURFACE | TILE_FLAG_BRIDGE)) !== 0) {
           const surfaceZ = partZ + this.staticCalcHeight(part.graphic, flags);
-          const baseline = result?.surface ?? z;
           const delta = surfaceZ - referenceZ;
           if (delta > STEP_UP_Z || delta < -STEP_DOWN_Z) continue;
-          const distance = Math.abs(delta);
-          const baselineDistance = Math.abs(baseline - referenceZ);
-          if (distance < baselineDistance || (distance === baselineDistance && surfaceZ >= baseline)) {
-            result = result || { blocked: false, noDiagonal: false, surface: null };
-            result.surface = surfaceZ;
-          }
+          result = result || { blocked: false, noDiagonal: false, surface: null };
+          if (result.surface == null || surfaceZ > result.surface) result.surface = surfaceZ;
         }
         if (!(flags & TILE_FLAG_IMPASSABLE)) continue;
         const top = partZ + Math.max(1, this.staticCalcHeight(part.graphic, flags));
