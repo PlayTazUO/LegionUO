@@ -188,6 +188,7 @@ export class World {
 
   createPlayer(serial) {
     this.playerSerial = serial >>> 0;
+    if (this.socket?.out) this.socket.out.playerSerial = this.playerSerial;
     let player = this.getMobile(serial);
     if (!player) {
       player = new Mobile(serial);
@@ -1201,6 +1202,7 @@ export class World {
     this.opl?.reset();
     this.player = null;
     this.playerSerial = 0;
+    if (this.socket?.out) this.socket.out.playerSerial = 0;
     this.inGame = false;
     this.mapIndex = 0;
     this.useXMapFiles = false;

@@ -40,11 +40,14 @@ import {
   hotbarSpellSlot,
 } from '../game/hotbar.js';
 import {
+  MACRO_POTIONS,
+  MACRO_VIRTUES,
   MacroButtonWindow,
   MacroWindow,
   WAIT_FOR_TARGET_MS,
   loadMacroButtons,
   loadMacros,
+  macroHasLoop,
   normalizeMacroActions,
   saveMacroButtons,
   saveMacros,
@@ -130,6 +133,10 @@ export class UI {
     this.worldItemPress = null;
     this.selection = null;
     this.lastTarget = null;
+    this.lastObject = 0;
+    this.lastSkill = null;
+    this.lastSpell = null;
+    this.savedHands = { main: 0, off: 0 };
     this.promptMode = false;
     this.chatHistory = [];
     this.chatIndex = -1;
@@ -159,6 +166,28 @@ export class UI {
     this.macros = null;
     this.macroPlayback = null;
     this.pendingResource = null;
+    // Outgoing actions are the single choke point for the "last ..." macro
+    // actions, whether they come from the world, a container, the hotbar,
+    // the spellbook, a skill button or another macro.
+    this.world.socket.out.onDoubleClick = (serial) => this.rememberLastObject(serial);
+    this.world.socket.out.onCastSpell = (id) => {
+      this.lastSpell = id;
+    };
+    this.world.socket.out.onUseSkill = (index) => {
+      this.lastSkill = index;
+    };
+    this.world.socket.out.onAttack = (serial) => {
+      const mobile = this.world.getMobile(serial);
+      if (mobile) {
+        this.lastTarget = {
+          serial: mobile.serial,
+          graphic: mobile.graphic,
+          x: mobile.x,
+          y: mobile.y,
+          z: mobile.z,
+        };
+      }
+    };
     const commands = this.createCommands();
     this.commandDefs = commands.defs;
     this.commandMap = commands.map;
@@ -477,6 +506,11 @@ export class UI {
       this.restoreOpenWindows();
     }
     this.cancelMacroPlayback();
+    this.lastTarget = null;
+    this.lastObject = 0;
+    this.lastSkill = null;
+    this.lastSpell = null;
+    this.savedHands = { main: 0, off: 0 };
     this.world.localWaypoints = loadLocalWaypoints(this.world);
     this.refreshStatus();
     this.refreshSkills();
@@ -1520,8 +1554,19 @@ export class UI {
       this.addJournal(`Macro ${name} has no actions.`, '#c56a4a', true);
       return false;
     }
+    // A loop macro is a toggle: pressing it again stops the running loop.
+    if (this.macroPlayback?.name === name && macroHasLoop(steps)) {
+      this.cancelMacroPlayback(`Macro ${name} stopped.`);
+      return true;
+    }
     this.cancelMacroPlayback();
-    this.macroPlayback = { name, actions: steps, index: 0, timer: 0, retries: 0 };
+    this.macroPlayback = {
+      name,
+      stack: [{ actions: steps, index: 0, loop: null }],
+      timer: 0,
+      retries: 0,
+      waitDeadline: 0,
+    };
     this.addJournal(`Playing macro ${name}.`, '#b8a06a', true);
     this.stepMacroPlayback();
     return true;
@@ -1534,61 +1579,367 @@ export class UI {
     if (reason) this.addJournal(reason, '#c56a4a', true);
   }
 
+  stopMacroPlayback(playback, message) {
+    this.cancelMacroPlayback(`Macro ${playback.name} stopped: ${message}`);
+    return null;
+  }
+
   stepMacroPlayback() {
     const playback = this.macroPlayback;
     if (!playback) return;
-    if (playback.index >= playback.actions.length) {
-      this.macroPlayback = null;
-      this.addJournal(`Macro ${playback.name} finished.`, '#b8a06a', true);
-      return;
-    }
-    const action = playback.actions[playback.index];
-    let delay = 140;
-    if (action.type === 'say') {
-      this.sendSpeech(action.text, 'say');
-    } else if (action.type === 'command') {
-      this.command(action.command);
-    } else if (action.type === 'wait') {
-      delay = action.ms;
-    } else if (action.type === 'waitForTarget') {
-      if (this.world.target.active) {
-        playback.waitDeadline = 0;
-        playback.index += 1;
-        playback.timer = setTimeout(() => this.stepMacroPlayback(), 100);
+    let guard = 0;
+    while (this.macroPlayback === playback) {
+      // Guards against an empty loop chain spinning the browser.
+      if (guard++ > 10000) {
+        this.cancelMacroPlayback(`Macro ${playback.name} stopped: loop did not make progress.`);
         return;
       }
-      if (!playback.waitDeadline) playback.waitDeadline = performance.now() + WAIT_FOR_TARGET_MS;
-      if (performance.now() >= playback.waitDeadline) {
-        this.cancelMacroPlayback(
-          `Macro ${playback.name} stopped: no target cursor within ${WAIT_FOR_TARGET_MS / 1000} seconds.`
-        );
+      const frame = playback.stack[playback.stack.length - 1];
+      if (!frame) {
+        this.macroPlayback = null;
+        this.addJournal(`Macro ${playback.name} finished.`, '#b8a06a', true);
         return;
       }
-      playback.timer = setTimeout(() => this.stepMacroPlayback(), 100);
-      return;
-    } else if (action.type === 'targetLast') {
-      if (!this.useLastTarget()) {
-        this.cancelMacroPlayback(`Macro ${playback.name} stopped: no target cursor or previous target.`);
-        return;
-      }
-      playback.index += 1;
-      playback.timer = setTimeout(() => this.stepMacroPlayback(), 140);
-      return;
-    } else if (action.type === 'move') {
-      if (!this.world.walk(action.direction, false)) {
-        playback.retries += 1;
-        if (playback.retries > 60) {
-          this.cancelMacroPlayback(`Macro ${playback.name} stopped: movement was blocked.`);
-          return;
+      if (frame.index >= frame.actions.length) {
+        if (frame.loop) {
+          const next = frame.loop.iteration + 1;
+          if (frame.loop.infinite || next < frame.loop.count) {
+            frame.loop.iteration = next;
+            frame.index = 0;
+            if (frame.loop.delay > 0) {
+              playback.timer = setTimeout(() => this.stepMacroPlayback(), frame.loop.delay);
+              return;
+            }
+            continue;
+          }
         }
-        playback.timer = setTimeout(() => this.stepMacroPlayback(), 50);
+        playback.stack.pop();
+        continue;
+      }
+
+      const action = frame.actions[frame.index];
+      const result = this.runMacroAction(playback, action);
+      if (!result || this.macroPlayback !== playback) return;
+      if (result.retry) {
+        playback.timer = setTimeout(() => this.stepMacroPlayback(), result.delay);
         return;
       }
-      playback.retries = 0;
-      delay = Math.max(120, this.world.stepDuration(false));
+      frame.index += 1;
+      if (result.push) {
+        playback.stack.push({ actions: result.push, index: 0, loop: result.loop });
+        continue;
+      }
+      playback.timer = setTimeout(() => this.stepMacroPlayback(), result.delay ?? 140);
+      return;
     }
-    playback.index += 1;
-    playback.timer = setTimeout(() => this.stepMacroPlayback(), delay);
+  }
+
+  runMacroAction(playback, action) {
+    if (action.type === 'say' || action.type === 'emote' || action.type === 'whisper' || action.type === 'yell') {
+      this.sendSpeech(action.text, action.type);
+      return { delay: 140 };
+    }
+
+    switch (action.type) {
+      case 'command':
+        this.command(action.command);
+        return { delay: 140 };
+
+      case 'wait':
+        return { delay: action.ms };
+
+      case 'waitForTarget':
+        if (this.world.target.active) {
+          playback.waitDeadline = 0;
+          return { delay: 100 };
+        }
+        if (!playback.waitDeadline) playback.waitDeadline = performance.now() + WAIT_FOR_TARGET_MS;
+        if (performance.now() >= playback.waitDeadline) {
+          return this.stopMacroPlayback(
+            playback,
+            `no target cursor within ${WAIT_FOR_TARGET_MS / 1000} seconds.`
+          );
+        }
+        return { retry: true, delay: 100 };
+
+      case 'targetLast':
+        if (!this.useLastTarget()) {
+          return this.stopMacroPlayback(playback, 'no target cursor or previous target.');
+        }
+        playback.waitDeadline = 0;
+        return { delay: 140 };
+
+      case 'targetSelf':
+        if (this.world.target.active && this.world.player) {
+          const previous = this.lastTarget;
+          this.sendTargetEntity(this.world.player);
+          // Targeting yourself should not replace the last enemy target.
+          this.lastTarget = previous;
+          playback.waitDeadline = 0;
+        }
+        return { delay: 140 };
+
+      case 'targetNext': {
+        const next = this.findNextMobile();
+        if (!next) return this.stopMacroPlayback(playback, 'no nearby mobile.');
+        if (this.world.target.active) {
+          this.sendTargetEntity(next);
+          playback.waitDeadline = 0;
+        } else {
+          this.lastTarget = {
+            serial: next.serial,
+            graphic: next.graphic,
+            x: next.x,
+            y: next.y,
+            z: next.z,
+          };
+        }
+        return { delay: 140 };
+      }
+
+      case 'attackLast': {
+        const last = this.lastTarget?.serial ? this.world.getMobile(this.lastTarget.serial) : null;
+        if (!last) return this.stopMacroPlayback(playback, 'no last target.');
+        this.world.socket.out.attack(last.serial);
+        return { delay: 140 };
+      }
+
+      case 'lastObject': {
+        const object = this.lastObject ? this.world.get(this.lastObject) : null;
+        if (!object) return this.stopMacroPlayback(playback, 'no last object.');
+        this.world.socket.out.doubleClick(object.serial);
+        return { delay: 140 };
+      }
+
+      case 'useItemInHand': {
+        const player = this.world.player;
+        const item = player?.getItem(Layer.OneHanded) || player?.getItem(Layer.TwoHanded);
+        if (!item) return this.stopMacroPlayback(playback, 'nothing is equipped in your hands.');
+        this.world.socket.out.doubleClick(item.serial);
+        return { delay: 140 };
+      }
+
+      case 'useObject': {
+        const item = this.findPlayerItem(
+          (entry) =>
+            entry.graphic === action.graphic && (action.hue == null || entry.hue === action.hue)
+        );
+        if (!item) {
+          return this.stopMacroPlayback(
+            playback,
+            `no item with graphic 0x${action.graphic.toString(16)} in your backpack.`
+          );
+        }
+        this.world.socket.out.doubleClick(item.serial);
+        return { delay: 140 };
+      }
+
+      case 'usePotion': {
+        const potion = this.findPotion(action.potion);
+        if (!potion) return this.stopMacroPlayback(playback, 'no matching potion in your backpack.');
+        this.world.socket.out.doubleClick(potion.serial);
+        return { delay: 140 };
+      }
+
+      case 'useSkill': {
+        const skill = this.findSkill(action.skill);
+        if (!skill) return this.stopMacroPlayback(playback, `unknown skill: ${action.skill}.`);
+        this.lastSkill = skill.index;
+        this.world.socket.out.useSkill(skill.index);
+        return { delay: 140 };
+      }
+
+      case 'lastSkill':
+        if (this.lastSkill == null) return this.stopMacroPlayback(playback, 'no last skill.');
+        this.world.socket.out.useSkill(this.lastSkill);
+        return { delay: 140 };
+
+      case 'castSpell': {
+        const spell = findSpellByName(action.spell);
+        if (!spell) return this.stopMacroPlayback(playback, `unknown spell: ${action.spell}.`);
+        this.lastSpell = spell.id;
+        this.world.socket.out.castSpell(spell.id);
+        return { delay: 140 };
+      }
+
+      case 'lastSpell':
+        if (this.lastSpell == null) return this.stopMacroPlayback(playback, 'no last spell.');
+        this.world.socket.out.castSpell(this.lastSpell);
+        return { delay: 140 };
+
+      case 'bandageSelf': {
+        const player = this.world.player;
+        const bandage = this.findBandage();
+        if (!player || !bandage) {
+          return this.stopMacroPlayback(playback, 'no bandages in your backpack.');
+        }
+        this.world.socket.out.targetSelectedObject(bandage.serial, player.serial);
+        this.lastObject = bandage.serial;
+        return { delay: 200 };
+      }
+
+      case 'combatAbility':
+        this.world.socket.out.useCombatAbility(action.ability);
+        return { delay: 140 };
+
+      case 'equipLastWeapon':
+        this.world.socket.out.equipLastWeapon();
+        return { delay: 140 };
+
+      case 'clearHands': {
+        const player = this.world.player;
+        if (!player) return { delay: 140 };
+        const main = player.getItem(Layer.OneHanded);
+        const off = player.getItem(Layer.TwoHanded);
+        this.savedHands = { main: main?.serial || 0, off: off?.serial || 0 };
+        const layers = [];
+        if (main) layers.push(Layer.OneHanded);
+        if (off) layers.push(Layer.TwoHanded);
+        if (layers.length) this.world.socket.out.unequipMacroKR(layers);
+        return { delay: 140 };
+      }
+
+      case 'equipHands': {
+        const serials = [this.savedHands.main, this.savedHands.off].filter(Boolean);
+        const items = serials
+          .map((serial) => this.world.getItem(serial))
+          .filter((item) => item && item.container !== this.world.player?.serial);
+        if (items.length) this.world.socket.out.equipMacroKR(items.map((item) => item.serial));
+        return { delay: 140 };
+      }
+
+      case 'warPeace':
+        this.toggleWarMode();
+        return { delay: 140 };
+
+      case 'invokeVirtue': {
+        const virtue = MACRO_VIRTUES.find((entry) => entry.value === action.virtue);
+        if (!virtue) return this.stopMacroPlayback(playback, `unknown virtue: ${action.virtue}.`);
+        this.world.socket.out.invokeVirtue(virtue.id);
+        return { delay: 140 };
+      }
+
+      case 'openDoor':
+        this.world.socket.out.openDoor();
+        return { delay: 140 };
+
+      case 'toggleMount': {
+        const player = this.world.player;
+        const mount = player?.mount || player?.getItem(Layer.Mount);
+        if (!mount) return this.stopMacroPlayback(playback, 'you are not mounted.');
+        this.world.socket.out.doubleClick(mount.serial);
+        return { delay: 140 };
+      }
+
+      case 'resync':
+        this.world.socket.out.resync();
+        return { delay: 140 };
+
+      case 'alwaysRun':
+        this.world.alwaysRun = !this.world.alwaysRun;
+        settings.set('alwaysRun', this.world.alwaysRun);
+        this.addJournal(`Movement: ${this.world.alwaysRun ? 'run' : 'walk'}`, '#b8a06a', true);
+        return { delay: 140 };
+
+      case 'names':
+        settings.toggle('showNames');
+        this.addJournal(`Names: ${settings.get('showNames') ? 'on' : 'off'}`, '#b8a06a', true);
+        return { delay: 140 };
+
+      case 'useHotbar': {
+        const hotbar = this.getWindow('hotbar', 'player') || this.showHotbar();
+        if (!hotbar) return this.stopMacroPlayback(playback, 'no hotbar is available.');
+        if (!hotbar.use(action.slot - 1)) {
+          return this.stopMacroPlayback(playback, `hotbar slot ${action.slot} is empty.`);
+        }
+        return { delay: 140 };
+      }
+
+      case 'move':
+        if (!this.world.walk(action.direction, false)) {
+          playback.retries += 1;
+          if (playback.retries > 60) {
+            return this.stopMacroPlayback(playback, 'movement was blocked.');
+          }
+          return { retry: true, delay: 50 };
+        }
+        playback.retries = 0;
+        return { delay: Math.max(120, this.world.stepDuration(false)) };
+
+      case 'loop':
+        if (!action.actions.length) return { delay: 0 };
+        return {
+          push: action.actions,
+          loop: {
+            iteration: 0,
+            count: action.count,
+            delay: action.delay,
+            infinite: action.count === 0,
+          },
+        };
+    }
+
+    return { delay: 140 };
+  }
+
+  rememberLastObject(serial) {
+    const entity = this.world.get(serial);
+    if (!entity) return;
+    if (entity.isItem || (entity.isMobile && entity.name)) this.lastObject = entity.serial;
+  }
+
+  findPlayerItem(predicate) {
+    const player = this.world.player;
+    if (!player) return null;
+    const seen = new Set();
+    const visit = (parent) => {
+      for (const item of parent.items.values()) {
+        if (seen.has(item.serial)) continue;
+        seen.add(item.serial);
+        if (predicate(item)) return item;
+        const nested = visit(item);
+        if (nested) return nested;
+      }
+      return null;
+    };
+    return visit(player);
+  }
+
+  findBandage() {
+    return this.findPlayerItem((item) => item.graphic === 0x0e21);
+  }
+
+  findPotion(potionKey) {
+    const potion = MACRO_POTIONS.find((entry) => entry.value === potionKey) || MACRO_POTIONS[0];
+    return this.findPlayerItem((item) => item.graphic === potion.graphic);
+  }
+
+  findSkill(query) {
+    const needle = String(query || '').trim().toLowerCase();
+    if (!needle) return null;
+    const skills = this.skillInfo?.length ? this.skillInfo : this.world.skillList || [];
+    if (Number.isFinite(Number(needle))) {
+      const byIndex = skills.find((skill) => Number(skill.index) === Number(needle));
+      if (byIndex) return byIndex;
+    }
+    return (
+      skills.find((skill) => String(skill.name || '').toLowerCase() === needle) ||
+      skills.find((skill) => String(skill.name || '').toLowerCase().includes(needle)) ||
+      null
+    );
+  }
+
+  findNextMobile() {
+    const player = this.world.player;
+    if (!player) return null;
+    const mobiles = [...this.world.entities.values()]
+      .filter((entity) => entity.isMobile && entity !== player && !entity.isDead)
+      .sort((a, b) => a.serial - b.serial);
+    if (!mobiles.length) return null;
+    const index = this.lastTarget?.serial
+      ? mobiles.findIndex((mobile) => mobile.serial === this.lastTarget.serial)
+      : -1;
+    return mobiles[(index + 1) % mobiles.length];
   }
 
   macroCommand(args) {

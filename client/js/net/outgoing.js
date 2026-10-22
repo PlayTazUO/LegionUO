@@ -115,6 +115,7 @@ export class Outgoing {
   }
 
   doubleClick(serial) {
+    this.onDoubleClick?.(serial >>> 0);
     this.send(this.make(0x06, (w) => w.writeU32BE(serial), 5));
   }
 
@@ -123,6 +124,7 @@ export class Outgoing {
   }
 
   attack(serial) {
+    this.onAttack?.(serial >>> 0);
     this.send(this.make(0x05, (w) => w.writeU32BE(serial), 5));
   }
 
@@ -215,6 +217,7 @@ export class Outgoing {
   }
 
   castSpell(index) {
+    this.onCastSpell?.(index);
     this.send(this.make(0xbf, (w) => {
       w.writeU16BE(0x1c);
       w.writeU16BE(0x02);
@@ -223,6 +226,7 @@ export class Outgoing {
   }
 
   useSkill(index, serial = 0) {
+    this.onUseSkill?.(index);
     this.send(this.make(0x12, (w) => {
       if (serial) {
         w.writeU8(0x27);
@@ -803,6 +807,7 @@ export class Outgoing {
 
 
   castSpellFromBook(index, serial) {
+    this.onCastSpell?.(index);
     this.send(this.make(0x12, (w) => {
       w.writeU8(0x27);
       w.writeASCII(`${index} ${serial}`);

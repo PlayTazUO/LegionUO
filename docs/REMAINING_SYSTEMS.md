@@ -548,7 +548,10 @@ Current status at a glance:
 - Options/settings window *(implemented)*.
 - Hotbar/desktop *(implemented)* with three pages, drag-from-spellbook binding, and
   a macro editor/playback (`-macro [edit]|list|play|stop|delete`) with draggable
-  macro buttons.
+  macro buttons. Macros cover the commonly used TazUO actions (speech, movement,
+  waits, targets, item/potion use, skills, spells, abilities, virtues, hands,
+  mount, war/peace, commands) and support nested loop sections with per-loop
+  repeat counts and delays; a running loop macro toggles off when triggered again.
 - Quest arrow and waypoint list UI *(implemented)*.
 - House/custom-house editing UI *(implemented: standard design commands, floor and
   category controls, add/delete prompts, and `0xD8` updates)*.

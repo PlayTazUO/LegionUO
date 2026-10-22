@@ -841,6 +841,52 @@ button:hover {
   white-space: nowrap;
 }
 
+.macroActionGroup {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.macroLoopBody {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-left: 14px;
+  padding: 4px 0 4px 8px;
+  border-left: 1px dashed #5b4e30;
+}
+
+.macroLoopBody .macroAction {
+  background: rgba(20, 24, 15, 0.55);
+}
+
+.macroLoopAdd {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.macroLoopAdd select {
+  flex: 0 1 190px;
+  min-width: 0;
+  margin: 0;
+  padding: 4px 6px;
+  background: #0d0c09;
+  border: 1px solid #50452b;
+  border-radius: 2px;
+  color: #f1e6c6;
+  font: 12px monospace;
+  cursor: pointer;
+  outline: none;
+}
+
+.macroLoopAdd button {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  font-size: 11px;
+}
+
 #modalBackdrop {
   z-index: 50;
   background: rgba(0, 0, 0, 0.6);

@@ -17,23 +17,164 @@ export const MACRO_DIRECTIONS = [
   { value: 7, label: 'Northwest' },
 ];
 
-const ACTION_LABELS = {
+export const MACRO_ACTION_LABELS = {
   say: 'Say',
+  emote: 'Emote',
+  whisper: 'Whisper',
+  yell: 'Yell',
   move: 'Move',
   wait: 'Wait (ms)',
   waitForTarget: 'Wait For Target',
   targetLast: 'Target Last',
+  targetSelf: 'Target Self',
+  targetNext: 'Target Next',
+  attackLast: 'Attack Last',
+  lastObject: 'Last Object',
+  useItemInHand: 'Use Item In Hand',
+  useObject: 'Use Object (graphic)',
+  usePotion: 'Use Potion',
+  useSkill: 'Use Skill',
+  lastSkill: 'Last Skill',
+  castSpell: 'Cast Spell',
+  lastSpell: 'Last Spell',
+  bandageSelf: 'Bandage Self',
+  combatAbility: 'Weapon Ability',
+  equipLastWeapon: 'Equip Last Weapon',
+  clearHands: 'Clear Hands',
+  equipHands: 'Equip Hands',
+  warPeace: 'Toggle War/Peace',
+  invokeVirtue: 'Invoke Virtue',
+  openDoor: 'Open Door',
+  toggleMount: 'Toggle Mount',
+  resync: 'Resync',
+  alwaysRun: 'Toggle Always Run',
+  names: 'Toggle Names',
+  useHotbar: 'Use Hotbar Slot',
   command: 'Command',
+  loop: 'Loop (repeat actions)',
 };
+
+const ACTION_LABELS = MACRO_ACTION_LABELS;
 
 export const WAIT_FOR_TARGET_MS = 10000;
 export const MAX_WAIT_MS = 3600000;
+export const MAX_LOOP_COUNT = 10000;
+export const MAX_LOOP_DEPTH = 8;
+
+export const SPEECH_ACTION_TYPES = ['say', 'emote', 'whisper', 'yell'];
+
+export const MACRO_VIRTUES = [
+  { value: 'Honor', id: 1 },
+  { value: 'Sacrifice', id: 2 },
+  { value: 'Valor', id: 3 },
+  { value: 'Spirituality', id: 4 },
+  { value: 'Humility', id: 5 },
+  { value: 'Justice', id: 6 },
+  { value: 'Compassion', id: 7 },
+];
+
+export const MACRO_POTIONS = [
+  { value: 'heal', label: 'Heal', graphic: 0x0f0c },
+  { value: 'cure', label: 'Cure', graphic: 0x0f07 },
+  { value: 'refresh', label: 'Refresh', graphic: 0x0f0b },
+  { value: 'agility', label: 'Agility', graphic: 0x0f08 },
+  { value: 'strength', label: 'Strength', graphic: 0x0f09 },
+  { value: 'explosion', label: 'Explosion', graphic: 0x0f0d },
+  { value: 'poison', label: 'Poison', graphic: 0x0f0a },
+  { value: 'confusionBlast', label: 'Confusion Blast', graphic: 0x0f06 },
+];
+
+export const MACRO_ABILITIES = [
+  { value: 1, label: 'Armor Ignore' },
+  { value: 2, label: 'Bleed Attack' },
+  { value: 3, label: 'Concussion Blow' },
+  { value: 4, label: 'Crushing Blow' },
+  { value: 5, label: 'Disarm' },
+  { value: 6, label: 'Dismount' },
+  { value: 7, label: 'Double Strike' },
+  { value: 8, label: 'Infectious Strike' },
+  { value: 9, label: 'Mortal Strike' },
+  { value: 10, label: 'Moving Shot' },
+  { value: 11, label: 'Paralyzing Blow' },
+  { value: 12, label: 'Shadow Strike' },
+  { value: 13, label: 'Whirlwind Attack' },
+  { value: 14, label: 'Riding Swipe' },
+  { value: 15, label: 'Frenzied Whirlwind' },
+  { value: 16, label: 'Block' },
+  { value: 17, label: 'Defense Mastery' },
+  { value: 18, label: 'Nerve Strike' },
+  { value: 19, label: 'Talon Strike' },
+  { value: 20, label: 'Feint' },
+  { value: 21, label: 'Dual Wield' },
+  { value: 22, label: 'Double Shot' },
+  { value: 23, label: 'Armor Pierce' },
+  { value: 24, label: 'Bladeweave' },
+  { value: 25, label: 'Force Arrow' },
+  { value: 26, label: 'Lightning Arrow' },
+  { value: 27, label: 'Psychic Attack' },
+  { value: 28, label: 'Serpent Arrow' },
+  { value: 29, label: 'Force of Nature' },
+  { value: 30, label: 'Infused Throw' },
+  { value: 31, label: 'Mystic Arc' },
+  { value: 32, label: 'Disrobe' },
+];
+
+const NO_PARAM_ACTIONS = new Set([
+  'waitForTarget',
+  'targetLast',
+  'targetSelf',
+  'targetNext',
+  'attackLast',
+  'lastObject',
+  'useItemInHand',
+  'lastSkill',
+  'lastSpell',
+  'bandageSelf',
+  'equipLastWeapon',
+  'clearHands',
+  'equipHands',
+  'warPeace',
+  'openDoor',
+  'toggleMount',
+  'resync',
+  'alwaysRun',
+  'names',
+]);
+
+export function parseMacroNumber(value, fallback = 0) {
+  const text = String(value ?? '').trim();
+  if (!text) return fallback;
+  const parsed = /^0x/i.test(text) ? Number.parseInt(text, 16) : Number.parseInt(text, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+export function defaultMacroAction(type) {
+  if (type === 'move') return { type: 'move', direction: 0 };
+  if (type === 'wait') return { type: 'wait', ms: 1000 };
+  if (type === 'useObject') return { type: 'useObject', graphic: 0x0f0c, hue: null };
+  if (type === 'usePotion') return { type: 'usePotion', potion: 'heal' };
+  if (type === 'useSkill') return { type: 'useSkill', skill: 'Healing' };
+  if (type === 'castSpell') return { type: 'castSpell', spell: 'Heal' };
+  if (type === 'invokeVirtue') return { type: 'invokeVirtue', virtue: 'Honor' };
+  if (type === 'combatAbility') return { type: 'combatAbility', ability: 1 };
+  if (type === 'useHotbar') return { type: 'useHotbar', slot: 1 };
+  if (type === 'command') return { type: 'command', command: '-' };
+  if (type === 'loop') return { type: 'loop', count: 10, delay: 0, actions: [] };
+  if (NO_PARAM_ACTIONS.has(type)) return { type };
+  return { type: SPEECH_ACTION_TYPES.includes(type) ? type : 'say', text: '' };
+}
+
+function clampInt(value, min, max, fallback = min) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.max(min, Math.min(max, Math.round(number)));
+}
 
 export function directionLabel(direction) {
   return MACRO_DIRECTIONS.find((entry) => entry.value === (Number(direction) & 7))?.label || 'North';
 }
 
-export function normalizeMacroAction(action) {
+export function normalizeMacroAction(action, depth = 0) {
   if (typeof action === 'string') {
     const text = action.trim();
     if (!text) return null;
@@ -41,9 +182,9 @@ export function normalizeMacroAction(action) {
     return { type: 'say', text };
   }
   if (!action || typeof action !== 'object') return null;
-  if (action.type === 'say') {
+  if (SPEECH_ACTION_TYPES.includes(action.type)) {
     const text = String(action.text ?? '').trim();
-    return text ? { type: 'say', text } : null;
+    return text ? { type: action.type, text } : null;
   }
   if (action.type === 'move') {
     const direction = Number(action.direction);
@@ -60,18 +201,68 @@ export function normalizeMacroAction(action) {
     if (!Number.isFinite(ms) || ms < 0) return null;
     return { type: 'wait', ms: Math.min(MAX_WAIT_MS, Math.round(ms)) };
   }
-  if (action.type === 'waitForTarget') {
-    return { type: 'waitForTarget' };
+  if (action.type === 'loop') {
+    if (depth >= MAX_LOOP_DEPTH) return null;
+    const nested = Array.isArray(action.actions) ? action.actions : Array.isArray(action.steps) ? action.steps : [];
+    return {
+      type: 'loop',
+      count: clampInt(action.count, 0, MAX_LOOP_COUNT, 1),
+      delay: clampInt(action.delay, 0, MAX_WAIT_MS, 0),
+      actions: nested.map((entry) => normalizeMacroAction(entry, depth + 1)).filter(Boolean),
+    };
   }
-  if (action.type === 'targetLast') {
-    return { type: 'targetLast' };
+  if (action.type === 'useObject') {
+    const graphic = clampInt(action.graphic, 0, 0xffff, 0);
+    if (!graphic) return null;
+    const hue = action.hue == null || action.hue === '' ? null : clampInt(action.hue, 0, 0xffff, 0);
+    return { type: 'useObject', graphic, hue };
+  }
+  if (action.type === 'usePotion') {
+    const potion = MACRO_POTIONS.find((entry) => entry.value === action.potion);
+    return { type: 'usePotion', potion: potion ? potion.value : 'heal' };
+  }
+  if (action.type === 'useSkill') {
+    const skill = String(action.skill ?? '').trim();
+    return skill ? { type: 'useSkill', skill } : null;
+  }
+  if (action.type === 'castSpell') {
+    const spell = String(action.spell ?? '').trim();
+    return spell ? { type: 'castSpell', spell } : null;
+  }
+  if (action.type === 'invokeVirtue') {
+    const virtue = MACRO_VIRTUES.find((entry) => entry.value === action.virtue);
+    return { type: 'invokeVirtue', virtue: virtue ? virtue.value : 'Honor' };
+  }
+  if (action.type === 'combatAbility') {
+    return { type: 'combatAbility', ability: clampInt(action.ability, 1, 32, 1) };
+  }
+  if (action.type === 'useHotbar') {
+    return { type: 'useHotbar', slot: clampInt(action.slot, 1, 12, 1) };
+  }
+  if (NO_PARAM_ACTIONS.has(action.type)) {
+    return { type: action.type };
   }
   return null;
 }
 
 export function normalizeMacroActions(actions) {
   if (!Array.isArray(actions)) return [];
-  return actions.map(normalizeMacroAction).filter(Boolean);
+  return actions.map((action) => normalizeMacroAction(action)).filter(Boolean);
+}
+
+export function macroHasLoop(actions) {
+  if (!Array.isArray(actions)) return false;
+  return actions.some((action) => action?.type === 'loop');
+}
+
+export function countMacroActions(actions) {
+  if (!Array.isArray(actions)) return 0;
+  let count = 0;
+  for (const action of actions) {
+    count += 1;
+    if (action?.type === 'loop') count += countMacroActions(action.actions);
+  }
+  return count;
 }
 
 export function normalizeMacro(macro, fallbackName = '') {
@@ -154,11 +345,49 @@ export function saveMacroButtons(world, buttons) {
 export function macroActionSummary(action) {
   const normalized = normalizeMacroAction(action);
   if (!normalized) return '';
-  if (normalized.type === 'say') return `Say: ${normalized.text}`;
+  if (SPEECH_ACTION_TYPES.includes(normalized.type)) {
+    return `${MACRO_ACTION_LABELS[normalized.type]}: ${normalized.text}`;
+  }
   if (normalized.type === 'move') return `Move: ${directionLabel(normalized.direction)}`;
   if (normalized.type === 'wait') return `Wait: ${normalized.ms}ms`;
   if (normalized.type === 'waitForTarget') return 'Wait for target cursor';
   if (normalized.type === 'targetLast') return 'Target last';
+  if (normalized.type === 'targetSelf') return 'Target self';
+  if (normalized.type === 'targetNext') return 'Target next mobile';
+  if (normalized.type === 'attackLast') return 'Attack last target';
+  if (normalized.type === 'lastObject') return 'Use last object';
+  if (normalized.type === 'useItemInHand') return 'Use item in hand';
+  if (normalized.type === 'useObject') {
+    return `Use object: 0x${normalized.graphic.toString(16)}${normalized.hue == null ? '' : ` hue ${normalized.hue}`}`;
+  }
+  if (normalized.type === 'usePotion') {
+    const potion = MACRO_POTIONS.find((entry) => entry.value === normalized.potion);
+    return `Use potion: ${potion?.label || normalized.potion}`;
+  }
+  if (normalized.type === 'useSkill') return `Use skill: ${normalized.skill}`;
+  if (normalized.type === 'lastSkill') return 'Use last skill';
+  if (normalized.type === 'castSpell') return `Cast spell: ${normalized.spell}`;
+  if (normalized.type === 'lastSpell') return 'Cast last spell';
+  if (normalized.type === 'bandageSelf') return 'Bandage self';
+  if (normalized.type === 'combatAbility') {
+    const ability = MACRO_ABILITIES.find((entry) => entry.value === normalized.ability);
+    return `Weapon ability: ${ability?.label || normalized.ability}`;
+  }
+  if (normalized.type === 'equipLastWeapon') return 'Equip last weapon';
+  if (normalized.type === 'clearHands') return 'Clear hands';
+  if (normalized.type === 'equipHands') return 'Equip hands';
+  if (normalized.type === 'warPeace') return 'Toggle war/peace';
+  if (normalized.type === 'invokeVirtue') return `Invoke virtue: ${normalized.virtue}`;
+  if (normalized.type === 'openDoor') return 'Open door';
+  if (normalized.type === 'toggleMount') return 'Toggle mount';
+  if (normalized.type === 'resync') return 'Resync';
+  if (normalized.type === 'alwaysRun') return 'Toggle always run';
+  if (normalized.type === 'names') return 'Toggle names';
+  if (normalized.type === 'useHotbar') return `Use hotbar slot ${normalized.slot}`;
+  if (normalized.type === 'loop') {
+    const label = normalized.count === 0 ? '∞' : `x${normalized.count}`;
+    return `Loop ${label}: ${normalized.actions.length} action${normalized.actions.length === 1 ? '' : 's'}`;
+  }
   return `Command: ${normalized.command}`;
 }
 
@@ -465,7 +694,7 @@ export class MacroWindow {
       label.textContent = name;
       const count = document.createElement('span');
       count.className = 'macroCount';
-      count.textContent = String(macro.actions.length);
+      count.textContent = String(countMacroActions(macro.actions));
       button.append(label, count);
       button.addEventListener('pointerdown', (event) => this.beginMacroDrag(event, name));
       this.listEl.append(button);
@@ -575,10 +804,17 @@ export class MacroWindow {
       this.actionsEl.append(empty);
       return;
     }
-    macro.actions.forEach((action, index) => this.actionsEl.append(this.actionRow(action, index, macro)));
+    this.renderActionList(this.actionsEl, macro.actions);
   }
 
-  actionRow(action, index, macro) {
+  renderActionList(container, actions) {
+    actions.forEach((action, index) => container.append(this.actionRow(action, index, actions)));
+  }
+
+  actionRow(action, index, actions) {
+    const group = document.createElement('div');
+    group.className = 'macroActionGroup';
+
     const row = document.createElement('div');
     row.className = 'macroAction';
 
@@ -591,132 +827,273 @@ export class MacroWindow {
       typeSelect.append(option);
     }
     typeSelect.value = action.type;
-    typeSelect.addEventListener('change', () => this.changeActionType(index, typeSelect.value));
-    row.append(typeSelect);
-
-    if (action.type === 'say') {
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.className = 'macroActionInput';
-      input.placeholder = 'Text to say';
-      input.value = action.text;
-      input.addEventListener('change', () => {
-        action.text = input.value.trim();
-        this.save();
-      });
-      row.append(input);
-    } else if (action.type === 'move') {
-      const select = document.createElement('select');
-      select.className = 'macroActionInput';
-      for (const direction of MACRO_DIRECTIONS) {
-        const option = document.createElement('option');
-        option.value = String(direction.value);
-        option.textContent = direction.label;
-        select.append(option);
-      }
-      select.value = String(action.direction);
-      select.addEventListener('change', () => {
-        action.direction = Number(select.value) & 7;
-        this.save();
-      });
-      row.append(select);
-    } else if (action.type === 'wait') {
-      const input = document.createElement('input');
-      input.type = 'number';
-      input.className = 'macroActionInput';
-      input.min = '0';
-      input.max = String(MAX_WAIT_MS);
-      input.step = '100';
-      input.value = String(action.ms);
-      input.addEventListener('change', () => {
-        const ms = Number(input.value);
-        action.ms = Number.isFinite(ms) && ms >= 0 ? Math.min(MAX_WAIT_MS, Math.round(ms)) : 0;
-        input.value = String(action.ms);
-        this.save();
-      });
-      const unit = document.createElement('span');
-      unit.className = 'macroActionNote';
-      unit.textContent = 'ms';
-      row.append(input, unit);
-    } else if (action.type === 'waitForTarget') {
-      const note = document.createElement('span');
-      note.className = 'macroActionNote';
-      note.textContent = `Waits up to ${WAIT_FOR_TARGET_MS / 1000} seconds for a target cursor`;
-      row.append(note);
-    } else if (action.type === 'targetLast') {
-      const note = document.createElement('span');
-      note.className = 'macroActionNote';
-      note.textContent = 'Targets your last target';
-      row.append(note);
-    } else {
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.className = 'macroActionInput';
-      input.placeholder = '-command';
-      input.value = action.command;
-      input.addEventListener('change', () => {
-        const value = input.value.trim();
-        if (value && !value.startsWith('-')) input.value = `-${value}`;
-        action.command = input.value.trim();
-        this.save();
-      });
-      row.append(input);
-    }
+    typeSelect.addEventListener('change', () => this.changeActionType(actions, index, typeSelect.value));
+    row.append(typeSelect, ...this.actionFields(action));
 
     const up = document.createElement('button');
     up.textContent = '↑';
     up.title = 'Move action up';
     up.disabled = index === 0;
-    up.addEventListener('click', () => this.moveAction(index, -1));
+    up.addEventListener('click', () => this.moveAction(actions, index, -1));
     row.append(up);
 
     const down = document.createElement('button');
     down.textContent = '↓';
     down.title = 'Move action down';
-    down.disabled = index === macro.actions.length - 1;
-    down.addEventListener('click', () => this.moveAction(index, 1));
+    down.disabled = index === actions.length - 1;
+    down.addEventListener('click', () => this.moveAction(actions, index, 1));
     row.append(down);
 
     const remove = document.createElement('button');
     remove.textContent = 'X';
     remove.title = 'Delete action';
-    remove.addEventListener('click', () => {
-      macro.actions.splice(index, 1);
-      this.save();
-      this.renderList();
-      this.renderEditor();
-    });
+    remove.addEventListener('click', () => this.removeAction(actions, index));
     row.append(remove);
 
-    return row;
+    group.append(row);
+
+    if (action.type === 'loop') group.append(this.loopBody(action));
+    return group;
   }
 
-  changeActionType(index, type) {
-    const macro = this.selected ? this.macros[this.selected] : null;
-    if (!macro) return;
-    const previous = macro.actions[index];
+  actionFields(action) {
+    const fields = [];
+    const textInput = (value, placeholder, onChange) => {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'macroActionInput';
+      input.placeholder = placeholder;
+      input.value = value;
+      input.spellcheck = false;
+      input.addEventListener('change', () => onChange(input.value));
+      return input;
+    };
+    const numberInput = (value, min, max, step, onChange) => {
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.className = 'macroActionInput';
+      input.min = String(min);
+      input.max = String(max);
+      input.step = String(step);
+      input.value = String(value);
+      input.addEventListener('change', () => onChange(input.value));
+      return input;
+    };
+    const note = (text) => {
+      const span = document.createElement('span');
+      span.className = 'macroActionNote';
+      span.textContent = text;
+      return span;
+    };
+    const select = (options, value, onChange) => {
+      const element = document.createElement('select');
+      element.className = 'macroActionInput';
+      for (const option of options) {
+        const item = document.createElement('option');
+        item.value = option.value;
+        item.textContent = option.label;
+        element.append(item);
+      }
+      element.value = value;
+      element.addEventListener('change', () => onChange(element.value));
+      return element;
+    };
+
+    if (SPEECH_ACTION_TYPES.includes(action.type)) {
+      fields.push(
+        textInput(action.text, 'Text to say', (value) => {
+          action.text = value.trim();
+          this.save();
+        })
+      );
+    } else if (action.type === 'move') {
+      fields.push(
+        select(
+          MACRO_DIRECTIONS.map((direction) => ({ value: String(direction.value), label: direction.label })),
+          String(action.direction),
+          (value) => {
+            action.direction = Number(value) & 7;
+            this.save();
+          }
+        )
+      );
+    } else if (action.type === 'wait') {
+      fields.push(
+        numberInput(action.ms, 0, MAX_WAIT_MS, 100, (value) => {
+          const ms = Number(value);
+          action.ms = Number.isFinite(ms) && ms >= 0 ? Math.min(MAX_WAIT_MS, Math.round(ms)) : 0;
+          this.save();
+          this.renderEditor();
+        }),
+        note('ms')
+      );
+    } else if (action.type === 'loop') {
+      fields.push(
+        numberInput(action.count, 0, MAX_LOOP_COUNT, 1, (value) => {
+          const count = Number(value);
+          action.count = Number.isFinite(count) ? Math.max(0, Math.min(MAX_LOOP_COUNT, Math.round(count))) : 1;
+          this.save();
+        }),
+        note('times (0 = until stopped)'),
+        numberInput(action.delay, 0, MAX_WAIT_MS, 100, (value) => {
+          const delay = Number(value);
+          action.delay = Number.isFinite(delay) && delay >= 0 ? Math.min(MAX_WAIT_MS, Math.round(delay)) : 0;
+          this.save();
+        }),
+        note('ms between loops')
+      );
+    } else if (action.type === 'useObject') {
+      fields.push(
+        textInput(`0x${action.graphic.toString(16)}`, '0x0F0C', (value) => {
+          action.graphic = Math.max(1, Math.min(0xffff, parseMacroNumber(value, action.graphic)));
+          this.save();
+          this.renderEditor();
+        }),
+        textInput(action.hue == null ? '' : String(action.hue), 'hue (any)', (value) => {
+          const text = value.trim();
+          action.hue = text ? Math.max(0, Math.min(0xffff, parseMacroNumber(text, 0))) : null;
+          this.save();
+          this.renderEditor();
+        })
+      );
+    } else if (action.type === 'usePotion') {
+      fields.push(
+        select(
+          MACRO_POTIONS.map((potion) => ({ value: potion.value, label: potion.label })),
+          action.potion,
+          (value) => {
+            action.potion = value;
+            this.save();
+          }
+        )
+      );
+    } else if (action.type === 'useSkill') {
+      fields.push(
+        textInput(action.skill, 'Skill name or index', (value) => {
+          action.skill = value.trim();
+          this.save();
+        })
+      );
+    } else if (action.type === 'castSpell') {
+      fields.push(
+        textInput(action.spell, 'Spell name or id', (value) => {
+          action.spell = value.trim();
+          this.save();
+        })
+      );
+    } else if (action.type === 'invokeVirtue') {
+      fields.push(
+        select(
+          MACRO_VIRTUES.map((virtue) => ({ value: virtue.value, label: virtue.value })),
+          action.virtue,
+          (value) => {
+            action.virtue = value;
+            this.save();
+          }
+        )
+      );
+    } else if (action.type === 'combatAbility') {
+      fields.push(
+        select(
+          MACRO_ABILITIES.map((ability) => ({ value: String(ability.value), label: ability.label })),
+          String(action.ability),
+          (value) => {
+            action.ability = Number(value) || 1;
+            this.save();
+          }
+        )
+      );
+    } else if (action.type === 'useHotbar') {
+      fields.push(
+        numberInput(action.slot, 1, 12, 1, (value) => {
+          const slot = Number(value);
+          action.slot = Number.isFinite(slot) ? Math.max(1, Math.min(12, Math.round(slot))) : 1;
+          this.save();
+          this.renderEditor();
+        }),
+        note('hotbar slot on the current page')
+      );
+    } else if (action.type === 'command') {
+      fields.push(
+        textInput(action.command, '-command', (value) => {
+          const text = value.trim();
+          action.command = text && !text.startsWith('-') ? `-${text}` : text || '-';
+          this.save();
+          this.renderEditor();
+        })
+      );
+    } else if (action.type === 'waitForTarget') {
+      fields.push(note(`Waits up to ${WAIT_FOR_TARGET_MS / 1000} seconds for a target cursor`));
+    } else if (action.type === 'targetLast') {
+      fields.push(note('Targets your last target'));
+    } else if (action.type === 'targetSelf') {
+      fields.push(note('Targets yourself with the active cursor'));
+    } else if (action.type === 'targetNext') {
+      fields.push(note('Targets the next nearby mobile'));
+    } else if (action.type === 'clearHands' || action.type === 'equipHands') {
+      fields.push(note('Remembers and restores your one- and two-handed items'));
+    } else {
+      fields.push(note(ACTION_LABELS[action.type] || ''));
+    }
+
+    return fields;
+  }
+
+  loopBody(action) {
+    const body = document.createElement('div');
+    body.className = 'macroLoopBody';
+    if (!action.actions.length) {
+      const empty = document.createElement('div');
+      empty.className = 'macroEmpty';
+      empty.textContent = 'No actions inside this loop yet.';
+      body.append(empty);
+    } else {
+      this.renderActionList(body, action.actions);
+    }
+
+    const addRow = document.createElement('div');
+    addRow.className = 'macroLoopAdd';
+    const typeSelect = document.createElement('select');
+    typeSelect.className = 'macroAddSelect';
+    for (const [type, label] of Object.entries(ACTION_LABELS)) {
+      const option = document.createElement('option');
+      option.value = type;
+      option.textContent = label;
+      typeSelect.append(option);
+    }
+    const addButton = document.createElement('button');
+    addButton.textContent = '+ Add inside';
+    addButton.addEventListener('click', () => this.addActionTo(action.actions, typeSelect.value));
+    addRow.append(typeSelect, addButton);
+    body.append(addRow);
+    return body;
+  }
+
+  changeActionType(actions, index, type) {
+    const previous = actions[index];
     if (!previous || previous.type === type) return;
     const text = previous.text || previous.command || '';
-    let action;
-    if (type === 'move') action = { type: 'move', direction: 0 };
-    else if (type === 'wait') action = { type: 'wait', ms: Number(previous.ms) || 1000 };
-    else if (type === 'waitForTarget') action = { type: 'waitForTarget' };
-    else if (type === 'targetLast') action = { type: 'targetLast' };
-    else if (type === 'command') action = { type: 'command', command: text.startsWith('-') ? text : `-${text}` };
-    else action = { type: 'say', text };
-    macro.actions[index] = action;
+    const action = defaultMacroAction(type);
+    if (SPEECH_ACTION_TYPES.includes(type) && text) action.text = text;
+    if (type === 'command') action.command = text.startsWith('-') ? text : `-${text}`;
+    actions[index] = action;
     this.save();
     this.renderEditor();
   }
 
-  moveAction(index, offset) {
-    const macro = this.selected ? this.macros[this.selected] : null;
-    if (!macro) return;
+  moveAction(actions, index, offset) {
     const target = index + offset;
-    if (target < 0 || target >= macro.actions.length) return;
-    const [action] = macro.actions.splice(index, 1);
-    macro.actions.splice(target, 0, action);
+    if (target < 0 || target >= actions.length) return;
+    const [action] = actions.splice(index, 1);
+    actions.splice(target, 0, action);
     this.save();
+    this.renderEditor();
+  }
+
+  removeAction(actions, index) {
+    actions.splice(index, 1);
+    this.save();
+    this.renderList();
     this.renderEditor();
   }
 
@@ -736,12 +1113,11 @@ export class MacroWindow {
   addAction(type) {
     const macro = this.selected ? this.macros[this.selected] : null;
     if (!macro) return;
-    if (type === 'move') macro.actions.push({ type: 'move', direction: 0 });
-    else if (type === 'wait') macro.actions.push({ type: 'wait', ms: 1000 });
-    else if (type === 'waitForTarget') macro.actions.push({ type: 'waitForTarget' });
-    else if (type === 'targetLast') macro.actions.push({ type: 'targetLast' });
-    else if (type === 'command') macro.actions.push({ type: 'command', command: '-' });
-    else macro.actions.push({ type: 'say', text: '' });
+    this.addActionTo(macro.actions, type);
+  }
+
+  addActionTo(actions, type) {
+    actions.push(defaultMacroAction(type));
     this.save();
     this.renderList();
     this.renderEditor();
