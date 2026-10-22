@@ -38,6 +38,9 @@ Then open <http://127.0.0.1:8080>.
 {
   "uoDir": "",
   "httpPort": 8080,
+  "httpsPort": 0,
+  "httpsCert": "",
+  "httpsKey": "",
   "host": "127.0.0.1",
   "clientVersion": "7.0.104.0",
   "mapCount": 6,
@@ -51,6 +54,16 @@ Then open <http://127.0.0.1:8080>.
 ```
 
 - `uoDir` - UO data directory. Can also be set with `UO_DIR` or `--uo-dir`.
+- `httpsPort` - optional HTTPS port. When set together with `httpsCert` and
+  `httpsKey`, the server also listens for TLS traffic on this port. HTTP stays
+  available, so existing links keep working; open
+  `https://<host>:<httpsPort>` to use TLS. Set to `0` or omit to disable.
+  `--https-port`, `--https-cert`, `--https-key` and the `HTTPS_PORT`,
+  `HTTPS_CERT`, `HTTPS_KEY` environment variables override these values.
+- `httpsCert` / `httpsKey` - paths to the PEM certificate and private key.
+  Relative paths are resolved from the project root. For a local self-signed
+  certificate:
+  `openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 365 -subj "/CN=localhost"`
 - `clientVersion` - version sent to the shard and used for packet lengths and
   encryption keys.
 - `allowProxyHosts` - optional host allow-list for the relay. Empty means any

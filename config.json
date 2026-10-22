@@ -1,6 +1,9 @@
 {
   "uoDir": "/Applications/TUO/UOMemento",
   "httpPort": 8080,
+  "httpsPort": 0,
+  "httpsCert": "",
+  "httpsKey": "",
   "host": "127.0.0.1",
   "clientVersion": "7.0.15.1",
   "mapCount": 6,

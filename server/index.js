@@ -1,4 +1,5 @@
 import http from 'node:http';
+import https from 'node:https';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
@@ -79,6 +80,9 @@ function loadConfig() {
   const config = {
     uoDir: '',
     httpPort: 8080,
+    httpsPort: 0,
+    httpsCert: '',
+    httpsKey: '',
     host: '127.0.0.1',
     clientVersion: '7.0.104.0',
     mapCount: 6,
@@ -105,10 +109,18 @@ function loadConfig() {
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--uo-dir' && args[i + 1]) config.uoDir = args[++i];
     else if (args[i] === '--port' && args[i + 1]) config.httpPort = Number(args[++i]);
+    else if (args[i] === '--https-port' && args[i + 1]) config.httpsPort = Number(args[++i]);
+    else if (args[i] === '--https-cert' && args[i + 1]) config.httpsCert = args[++i];
+    else if (args[i] === '--https-key' && args[i + 1]) config.httpsKey = args[++i];
     else if (args[i] === '--host' && args[i + 1]) config.host = args[++i];
   }
   if (process.env.UO_DIR) config.uoDir = process.env.UO_DIR;
   if (process.env.PORT) config.httpPort = Number(process.env.PORT);
+  if (process.env.HTTPS_PORT) config.httpsPort = Number(process.env.HTTPS_PORT);
+  if (process.env.HTTPS_CERT) config.httpsCert = process.env.HTTPS_CERT;
+  if (process.env.HTTPS_KEY) config.httpsKey = process.env.HTTPS_KEY;
+  if (config.httpsCert) config.httpsCert = path.resolve(root, config.httpsCert);
+  if (config.httpsKey) config.httpsKey = path.resolve(root, config.httpsKey);
   if (!config.uoDir) {
     config.uoDir = detectUODir();
   }
@@ -339,7 +351,7 @@ function handleShutdown(req, res) {
   setTimeout(() => process.exit(0), 100);
 }
 
-const server = http.createServer(async (req, res) => {
+async function handleRequest(req, res) {
   reloadConfigIfChanged();
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const pathname = url.pathname;
@@ -582,8 +594,9 @@ const server = http.createServer(async (req, res) => {
     console.error('[legionuo] request error', req.url, err);
     sendJSON(res, 500, { error: String(err?.message || err) });
   }
-});
+}
 
+const server = http.createServer(handleRequest);
 attachWebSocketServer(server, config);
 
 // Reuse sockets for the burst of small asset requests that happens whenever a
@@ -592,8 +605,7 @@ attachWebSocketServer(server, config);
 server.keepAliveTimeout = 65 * 1000;
 server.headersTimeout = 66 * 1000;
 
-server.listen(config.httpPort, config.host, () => {
-  console.log(`[legionuo] asset server listening on http://${config.host}:${config.httpPort}`);
+function logStartup() {
   console.log(`[legionuo] UO data: ${config.uoDir || '(not configured)'}`);
   const info = assets.info();
   console.log(`[legionuo] art: ${info.paths.art || 'NOT FOUND'}`);
@@ -609,4 +621,41 @@ server.listen(config.httpPort, config.host, () => {
       proxyHosts.length ? proxyHosts.join(', ') : '(any)'
     }`
   );
+}
+
+function startHttpsServer() {
+  const port = Number(config.httpsPort) || 0;
+  if (port <= 0) return;
+  if (!config.httpsCert || !config.httpsKey) {
+    console.warn('[legionuo] httpsPort is set but httpsCert/httpsKey are missing; HTTPS is disabled');
+    return;
+  }
+
+  let credentials;
+  try {
+    credentials = {
+      cert: fs.readFileSync(config.httpsCert),
+      key: fs.readFileSync(config.httpsKey),
+    };
+  } catch (err) {
+    console.error(
+      `[legionuo] cannot read HTTPS certificate/key (${config.httpsCert}, ${config.httpsKey}): ${err.message}`
+    );
+    return;
+  }
+
+  const httpsServer = https.createServer(credentials, handleRequest);
+  attachWebSocketServer(httpsServer, config);
+  httpsServer.keepAliveTimeout = server.keepAliveTimeout;
+  httpsServer.headersTimeout = server.headersTimeout;
+  httpsServer.on('error', (err) => console.error('[legionuo] HTTPS server error', err));
+  httpsServer.listen(port, config.host, () => {
+    console.log(`[legionuo] asset server listening on https://${config.host}:${port}`);
+  });
+}
+
+server.listen(config.httpPort, config.host, () => {
+  console.log(`[legionuo] asset server listening on http://${config.host}:${config.httpPort}`);
+  logStartup();
+  startHttpsServer();
 });
