@@ -82,6 +82,10 @@ const TOUCH_DRAG_THRESHOLD = 10;
 const TOUCH_TWO_FINGER_MS = 500;
 const DOUBLE_TAP_MS = 320;
 const DOUBLE_TAP_DISTANCE = 26;
+const JOYSTICK_DEADZONE = 0.22;
+const JOYSTICK_RUN_FRACTION = 0.72;
+// Screen angle bucket (0 = east, clockwise) to UO movement direction.
+const JOYSTICK_DIRECTIONS = [2, 3, 4, 5, 6, 7, 0, 1];
 // These windows are DOM elements rather than canvas panels, so the canvas
 // fit-scale must not be applied to them.
 const DOM_WINDOW_KINDS = new Set(['journal', 'macros']);
@@ -159,6 +163,19 @@ export class UI {
     this.touchGesture = null;
     this.lastTap = null;
     this.viewportRaf = null;
+    this.touchStick = $('touchStick');
+    this.touchStickKnob = $('touchStickKnob');
+    this.touchControlsVisible = false;
+    this.joystick = {
+      active: false,
+      pointerId: null,
+      centerX: 0,
+      centerY: 0,
+      radius: 66,
+      dx: 0,
+      dy: 0,
+      run: false,
+    };
     this.tooltipEl = $('tooltip');
     this.hoverId = null;
     this.hoverSerial = 0;
@@ -285,6 +302,7 @@ export class UI {
     window.addEventListener('touchmove', (e) => this.onTouchMove(e), { capture: true, passive: false });
     window.addEventListener('touchend', (e) => this.onTouchEnd(e), { capture: true, passive: false });
     window.addEventListener('touchcancel', (e) => this.onTouchEnd(e), { capture: true, passive: false });
+    this.bindTouchStick();
     window.addEventListener('resize', () => this.onViewportResize());
     window.visualViewport?.addEventListener('resize', () => this.onViewportResize());
     window.addEventListener('orientationchange', () => setTimeout(() => this.onViewportResize(), 120));
@@ -2115,6 +2133,7 @@ export class UI {
   }
 
   clearWindows() {
+    this.resetJoystick();
     this.windows = this.journalEntry ? [this.journalEntry] : [];
     this.windowPersistence = false;
     this.pendingWindowRestores.clear();
@@ -3792,6 +3811,91 @@ export class UI {
     this.onMouseUp(event);
   }
 
+  /* --------------------------- touch movement --------------------------- */
+
+  bindTouchStick() {
+    const stick = this.touchStick;
+    if (!stick) return;
+    stick.addEventListener('pointerdown', (event) => this.startJoystick(event));
+    stick.addEventListener('pointermove', (event) => this.moveJoystick(event));
+    stick.addEventListener('pointerup', (event) => this.endJoystick(event));
+    stick.addEventListener('pointercancel', (event) => this.endJoystick(event));
+    stick.addEventListener('lostpointercapture', (event) => this.endJoystick(event));
+  }
+
+  startJoystick(event) {
+    if (!this.mobileLayout || !this.world.inGame) return;
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = this.touchStick.getBoundingClientRect();
+    this.joystick.active = true;
+    this.joystick.pointerId = event.pointerId;
+    this.joystick.centerX = rect.left + rect.width / 2;
+    this.joystick.centerY = rect.top + rect.height / 2;
+    this.joystick.radius = rect.width / 2;
+    this.touchStick.classList.add('active');
+    this.touchStick.setPointerCapture?.(event.pointerId);
+    this.moveJoystick(event);
+  }
+
+  moveJoystick(event) {
+    if (!this.joystick.active || event.pointerId !== this.joystick.pointerId) return;
+    if (event.cancelable) event.preventDefault();
+    const max = Math.max(12, this.joystick.radius - 27);
+    let dx = event.clientX - this.joystick.centerX;
+    let dy = event.clientY - this.joystick.centerY;
+    const distance = Math.hypot(dx, dy);
+    if (distance > max && distance > 0) {
+      dx = (dx / distance) * max;
+      dy = (dy / distance) * max;
+    }
+    this.joystick.dx = dx;
+    this.joystick.dy = dy;
+    this.joystick.run = distance >= max * JOYSTICK_RUN_FRACTION || !!this.world.alwaysRun;
+    if (this.touchStickKnob) {
+      this.touchStickKnob.style.transform = `translate(-50%, -50%) translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px)`;
+    }
+    if (Math.hypot(dx, dy) >= this.joystick.radius * JOYSTICK_DEADZONE) {
+      this.cancelMacroPlayback('Macro stopped.');
+      this.game.cancelWalkPath();
+    }
+  }
+
+  endJoystick(event) {
+    if (!this.joystick.active) return;
+    if (event && event.pointerId !== undefined && event.pointerId !== this.joystick.pointerId) return;
+    this.resetJoystick();
+  }
+
+  resetJoystick() {
+    this.joystick.active = false;
+    this.joystick.pointerId = null;
+    this.joystick.dx = 0;
+    this.joystick.dy = 0;
+    this.joystick.run = false;
+    this.touchStick?.classList.remove('active');
+    if (this.touchStickKnob) this.touchStickKnob.style.transform = 'translate(-50%, -50%)';
+  }
+
+  joystickDirection() {
+    if (!this.joystick.active) return null;
+    const dx = this.joystick.dx;
+    const dy = this.joystick.dy;
+    const distance = Math.hypot(dx, dy);
+    if (distance < Math.max(10, this.joystick.radius * JOYSTICK_DEADZONE)) return null;
+    const index = Math.round(Math.atan2(dy, dx) / (Math.PI / 4));
+    return JOYSTICK_DIRECTIONS[((index % 8) + 8) % 8];
+  }
+
+  updateTouchControls() {
+    const show = !!this.touchStick && this.mobileLayout && this.world.inGame;
+    if (show === this.touchControlsVisible) return;
+    this.touchControlsVisible = show;
+    this.touchStick.classList.toggle('hidden', !show);
+    if (!show) this.resetJoystick();
+  }
+
   onMouseMove(e) {
     const ui = this.uiPos(e);
     const game = this.canvasPos(e);
@@ -4077,7 +4181,13 @@ export class UI {
     if (e.target !== this.game.renderer.canvas) return;
     const tile = this.game.renderer.screenToTile(game.x, game.y);
     const entity = this.game.renderer.entityAt?.(game.x, game.y) || this.findEntityAt(tile.x, tile.y);
-    if (!entity) return;
+    if (!entity) {
+      if (this.mobileLayout && e.pointerType === 'touch' && !this.world.target.active && !this.world.held) {
+        this.cancelContextMenuRequest();
+        this.game.walkTo(tile.x, tile.y);
+      }
+      return;
+    }
     const attack =
       this.world.player?.inWarMode &&
       entity.isMobile &&
@@ -4305,8 +4415,12 @@ export class UI {
   getMovementInput() {
     if (!this.world.inGame) return null;
     if (this.isMovementBlocked()) return null;
-    const direction = this.computeDirection();
-    if (direction != null) return { direction, run: !!this.shiftDown || !!this.world.alwaysRun };
+    const stickDirection = this.joystickDirection();
+    const direction = stickDirection ?? this.computeDirection();
+    if (direction != null) {
+      const run = stickDirection != null ? this.joystick.run : !!this.shiftDown || !!this.world.alwaysRun;
+      return { direction, run };
+    }
     const mouseDirection = this.mouseWalkDirection();
     if (mouseDirection != null) return { direction: mouseDirection, run: !!this.shiftDown || !!this.world.alwaysRun };
     return null;
@@ -4492,6 +4606,7 @@ export class UI {
   }
 
   update(now) {
+    this.updateTouchControls();
     if (!this.world.inGame) return;
     this.updateJournalPointerEvents();
     if (now - this.lastStatusRefresh > 150) {

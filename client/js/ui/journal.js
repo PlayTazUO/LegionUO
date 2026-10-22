@@ -1,5 +1,5 @@
 import { hasUoHtmlMarkup, uoHtmlFragment } from '../game/html.js';
-import { clamp, viewportSize } from '../util/ui.js';
+import { clamp, isMobileLayout, viewportSize } from '../util/ui.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -90,7 +90,12 @@ export class Journal {
       settings.background = LEGACY_BACKGROUNDS[settings.background];
     }
     if (!HEX_COLOR.test(settings.background || '')) settings.background = DEFAULTS.background;
-    if (settings.y == null) settings.y = Math.max(10, window.innerHeight - settings.height - 14);
+    if (settings.y == null) {
+      // Leave room for the touch joystick at the lower-right on mobile, so the
+      // default journal position does not sit underneath it.
+      const bottomGap = isMobileLayout() ? 160 : 14;
+      settings.y = Math.max(10, window.innerHeight - settings.height - bottomGap);
+    }
     const num = (value, fallback) => (Number.isFinite(Number(value)) ? Number(value) : fallback);
     settings.width = clamp(num(settings.width, DEFAULTS.width), 280, window.innerWidth - 8);
     settings.height = clamp(num(settings.height, DEFAULTS.height), 120, window.innerHeight - 8);

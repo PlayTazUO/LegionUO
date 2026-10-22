@@ -154,8 +154,9 @@ Then open <http://127.0.0.1:8080>.
 - Mobile/touch support: the game window fills a phone or tablet viewport, client panels are
   scaled down to fit when they would overflow, server gumps keep their native size, and
   windows/gumps can be dragged with a finger. A two-finger tap sends a right click (closing
-  gumps and most panels, or cancelling a target). The HUD wraps on narrow screens and the
-  journal and game window use touch dragging/resizing.
+  gumps and most panels, or cancelling a target), double-tapping the ground pathfinds, and a
+  translucent touch joystick in the lower-right corner drives movement (push farther to run).
+  The HUD wraps on narrow screens and the journal and game window use touch dragging/resizing.
 
 ## Asset endpoints
 
