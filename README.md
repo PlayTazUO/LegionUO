@@ -151,6 +151,11 @@ Then open <http://127.0.0.1:8080>.
 - Audio decodes real `sound.mul` effects and digital MP3 music, falling back to
   synthesis when the local data files are absent.
 - One-second client ping drives the HUD FPS/ping readout and keeps the connection alive during idle periods.
+- Mobile/touch support: the game window fills a phone or tablet viewport, client panels are
+  scaled down to fit when they would overflow, server gumps keep their native size, and
+  windows/gumps can be dragged with a finger. A two-finger tap sends a right click (closing
+  gumps and most panels, or cancelling a target). The HUD wraps on narrow screens and the
+  journal and game window use touch dragging/resizing.
 
 ## Asset endpoints
 

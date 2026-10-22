@@ -1,5 +1,5 @@
 import { hasUoHtmlMarkup, uoHtmlFragment } from '../game/html.js';
-import { clamp } from '../util/ui.js';
+import { clamp, viewportSize } from '../util/ui.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -425,14 +425,14 @@ export class Journal {
 
     this.root.addEventListener('mousedown', () => this.ui.raiseWindow?.(this), true);
 
-    this.title?.addEventListener('mousedown', (event) => {
-      if (event.button !== 0 || event.target.closest('button')) return;
+    this.title?.addEventListener('pointerdown', (event) => {
+      if ((event.pointerType === 'mouse' && event.button !== 0) || event.target.closest('button')) return;
       event.preventDefault();
       this.startDrag(event);
     });
 
-    $('journalResize')?.addEventListener('mousedown', (event) => {
-      if (event.button !== 0) return;
+    $('journalResize')?.addEventListener('pointerdown', (event) => {
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
       event.preventDefault();
       event.stopPropagation();
       this.startResize(event);
@@ -487,25 +487,32 @@ export class Journal {
     const startY = event.clientY;
     const originX = this.root.offsetLeft;
     const originY = this.root.offsetTop;
+    const pointerId = event.pointerId;
     this.drag = { startX, startY, originX, originY };
     this.root.classList.add('dragging');
     const move = (ev) => {
-      const x = clamp(originX + ev.clientX - startX, 0, Math.max(0, window.innerWidth - 80));
-      const y = clamp(originY + ev.clientY - startY, 0, Math.max(0, window.innerHeight - 32));
+      if (ev.pointerId !== pointerId) return;
+      if (ev.cancelable) ev.preventDefault();
+      const vp = viewportSize();
+      const x = clamp(originX + ev.clientX - startX, 0, Math.max(0, vp.width - 80));
+      const y = clamp(originY + ev.clientY - startY, 0, Math.max(0, vp.height - 32));
       this.root.style.left = `${x}px`;
       this.root.style.top = `${y}px`;
     };
-    const up = () => {
-      window.removeEventListener('mousemove', move);
-      window.removeEventListener('mouseup', up);
+    const up = (ev) => {
+      if (ev.pointerId !== pointerId) return;
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
       this.drag = null;
       this.root.classList.remove('dragging');
       this.settings.x = Math.round(this.root.offsetLeft);
       this.settings.y = Math.round(this.root.offsetTop);
       this.save();
     };
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseup', up);
+    window.addEventListener('pointermove', move, { passive: false });
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
   }
 
   startResize(event) {
@@ -516,17 +523,23 @@ export class Journal {
     const originH = rect.height;
     const originX = this.root.offsetLeft;
     const originY = this.root.offsetTop;
+    const pointerId = event.pointerId;
     this.resize = { startX, startY, originW, originH };
     this.root.classList.add('resizing');
     const move = (ev) => {
-      const w = clamp(originW + ev.clientX - startX, 280, Math.max(280, window.innerWidth - originX - 4));
-      const h = clamp(originH + ev.clientY - startY, 120, Math.max(120, window.innerHeight - originY - 4));
+      if (ev.pointerId !== pointerId) return;
+      if (ev.cancelable) ev.preventDefault();
+      const vp = viewportSize();
+      const w = clamp(originW + ev.clientX - startX, 240, Math.max(240, vp.width - originX - 4));
+      const h = clamp(originH + ev.clientY - startY, 120, Math.max(120, vp.height - originY - 4));
       this.root.style.width = `${w}px`;
       this.root.style.height = `${h}px`;
     };
-    const up = () => {
-      window.removeEventListener('mousemove', move);
-      window.removeEventListener('mouseup', up);
+    const up = (ev) => {
+      if (ev.pointerId !== pointerId) return;
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
       this.resize = null;
       this.root.classList.remove('resizing');
       const r = this.root.getBoundingClientRect();
@@ -534,7 +547,20 @@ export class Journal {
       this.settings.height = Math.round(r.height);
       this.save();
     };
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseup', up);
+    window.addEventListener('pointermove', move, { passive: false });
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  }
+
+  clampToViewport() {
+    if (!this.root) return;
+    const vp = viewportSize();
+    const width = clamp(this.settings.width, 240, Math.max(240, vp.width - 8));
+    const height = clamp(this.settings.height, 120, Math.max(120, vp.height - 8));
+    this.settings.width = width;
+    this.settings.height = height;
+    this.settings.x = clamp(this.settings.x, 0, Math.max(0, vp.width - Math.min(width, 80)));
+    this.settings.y = clamp(this.settings.y, 0, Math.max(0, vp.height - 40));
+    this.applySettings();
   }
 }

@@ -2,10 +2,39 @@ export function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+/**
+ * The visible layout viewport. Kept in one place so every panel uses the same
+ * dimensions when the client is running on a phone or tablet.
+ */
+export function viewportSize() {
+  const width = Math.round(window.innerWidth || document.documentElement?.clientWidth || 1);
+  const height = Math.round(window.innerHeight || document.documentElement?.clientHeight || 1);
+  return { width: Math.max(1, width), height: Math.max(1, height) };
+}
+
+export function isCoarsePointer() {
+  try {
+    if (window.matchMedia) return !!window.matchMedia('(pointer: coarse)').matches;
+  } catch {
+    /* fall through */
+  }
+  return 'ontouchstart' in window;
+}
+
+/**
+ * Mobile layout is used for touch devices and narrow desktop windows. It only
+ * changes how client-drawn panels are fitted; server gumps keep their native
+ * size.
+ */
+export function isMobileLayout() {
+  return isCoarsePointer() || viewportSize().width < 700;
+}
+
 export function clampPosition(x, y, width, height) {
+  const { width: vw, height: vh } = viewportSize();
   return {
-    x: Math.max(0, Math.min(x, Math.max(0, window.innerWidth - width))),
-    y: Math.max(0, Math.min(y, Math.max(0, window.innerHeight - height))),
+    x: Math.max(0, Math.min(x, Math.max(0, vw - width))),
+    y: Math.max(0, Math.min(y, Math.max(0, vh - height))),
   };
 }
 

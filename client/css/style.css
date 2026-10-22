@@ -7,10 +7,13 @@ body {
   margin: 0;
   height: 100%;
   overflow: hidden;
+  overscroll-behavior: none;
   background: #050505;
   color: #e8e0c8;
   font-family: 'Segoe UI', Tahoma, sans-serif;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-text-size-adjust: 100%;
 }
 
 #gameWindow {
@@ -22,6 +25,7 @@ body {
   flex-direction: column;
   background: #050505;
   box-shadow: 0 0 0 1px #6c5c38, 0 24px 80px rgba(0, 0, 0, 0.7);
+  touch-action: none;
 }
 
 #gameWindow.dragging,
@@ -70,6 +74,8 @@ body {
   inset: 0;
   display: block;
   image-rendering: auto;
+  touch-action: none;
+  -webkit-touch-callout: none;
 }
 
 #game.war-mode {
@@ -199,6 +205,7 @@ button {
   cursor: pointer;
   font-size: 13px;
   border-radius: 2px;
+  touch-action: manipulation;
 }
 
 button:hover {
@@ -364,6 +371,7 @@ button:hover {
   gap: 6px;
   padding: 3px 6px 3px 9px;
   cursor: move;
+  touch-action: none;
   background: rgba(0, 0, 0, 0.28);
   border-bottom: 1px solid rgba(133, 112, 65, 0.45);
   font-size: 11px;
@@ -469,6 +477,7 @@ button:hover {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  touch-action: pan-y;
   padding: 6px 10px;
   font-size: var(--journal-font-size, 12px);
   line-height: 1.45;
@@ -534,6 +543,7 @@ button:hover {
   width: 14px;
   height: 14px;
   cursor: nwse-resize;
+  touch-action: none;
   background: linear-gradient(135deg, transparent 0 45%, rgba(157, 143, 107, 0.7) 46% 55%, transparent 56%),
     linear-gradient(135deg, transparent 0 65%, rgba(157, 143, 107, 0.5) 66% 75%, transparent 76%);
 }
@@ -645,6 +655,7 @@ button:hover {
   background: #181d13;
   border-bottom: 1px solid #3c4730;
   cursor: move;
+  touch-action: none;
   user-select: none;
 }
 
@@ -1126,4 +1137,79 @@ button:hover {
 ::-webkit-scrollbar-thumb {
   background: #4d4126;
   border-radius: 4px;
+}
+
+/* ----------------------------- mobile ----------------------------- */
+
+@media (max-width: 720px), (pointer: coarse) {
+  #topButtons {
+    left: 8px;
+    right: 8px;
+    top: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 3px;
+    padding: 4px;
+  }
+
+  #topButtons button {
+    min-width: 36px;
+    padding: 6px 5px;
+    font-size: 10px;
+  }
+
+  #perfStats {
+    flex: 1 0 100%;
+    justify-content: flex-end;
+    border-right: 0;
+    padding: 0 2px 2px;
+  }
+
+  #gameResize {
+    width: 28px;
+    height: 28px;
+  }
+
+  #journalResize {
+    width: 24px;
+    height: 24px;
+  }
+
+  #journalPanel {
+    min-width: 240px;
+  }
+
+  #journalTabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  #journalTabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .loginPanel {
+    width: min(420px, calc(100vw - 20px));
+    padding: 18px;
+    max-height: calc(100vh - 20px);
+    overflow-y: auto;
+  }
+
+  .modal {
+    width: calc(100vw - 20px);
+    max-height: calc(100vh - 20px);
+    overflow-y: auto;
+  }
+
+  input,
+  select,
+  button {
+    font-size: 16px;
+  }
+
+  #topButtons button,
+  .journalTools button,
+  #journalTabs button {
+    font-size: 11px;
+  }
 }

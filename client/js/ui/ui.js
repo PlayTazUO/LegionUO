@@ -56,7 +56,7 @@ import { findSpellByName } from '../game/spells.js';
 import { MapGumpWindow, MinimapWindow, WorldMapWindow } from '../game/maps.js';
 import { WaypointWindow, addLocalWaypoint, clearLocalWaypoints, loadLocalWaypoints } from '../game/waypoints.js';
 import { Reader } from '../util/binary.js';
-import { accountStorageKey } from '../util/ui.js';
+import { accountStorageKey, isMobileLayout, viewportSize } from '../util/ui.js';
 import { Journal } from './journal.js';
 
 const $ = (id) => document.getElementById(id);
@@ -78,6 +78,13 @@ const PERSISTED_WINDOW_KINDS = new Set([
 const SERVER_WINDOW_KINDS = new Set(['paperdoll', 'container']);
 const SERVER_WINDOW_RETRIES = 10;
 const SERVER_WINDOW_RETRY_MS = 500;
+const TOUCH_DRAG_THRESHOLD = 10;
+const TOUCH_TWO_FINGER_MS = 500;
+const DOUBLE_TAP_MS = 320;
+const DOUBLE_TAP_DISTANCE = 26;
+// These windows are DOM elements rather than canvas panels, so the canvas
+// fit-scale must not be applied to them.
+const DOM_WINDOW_KINDS = new Set(['journal', 'macros']);
 
 function openWindowsStorageKey(world) {
   return accountStorageKey(world, OPEN_WINDOWS_STORAGE_BASE);
@@ -148,6 +155,10 @@ export class UI {
     this.lastNameSweep = 0;
     this.mouse = { x: 0, y: 0 };
     this.gameMouse = { x: 0, y: 0 };
+    this.mobileLayout = isMobileLayout();
+    this.touchGesture = null;
+    this.lastTap = null;
+    this.viewportRaf = null;
     this.tooltipEl = $('tooltip');
     this.hoverId = null;
     this.hoverSerial = 0;
@@ -270,6 +281,13 @@ export class UI {
     window.addEventListener('dblclick', (e) => this.onDoubleClick(e), true);
     window.addEventListener('contextmenu', (e) => this.onContextMenu(e), true);
     window.addEventListener('wheel', (e) => this.onWheel(e), { capture: true, passive: false });
+    window.addEventListener('touchstart', (e) => this.onTouchStart(e), { capture: true, passive: false });
+    window.addEventListener('touchmove', (e) => this.onTouchMove(e), { capture: true, passive: false });
+    window.addEventListener('touchend', (e) => this.onTouchEnd(e), { capture: true, passive: false });
+    window.addEventListener('touchcancel', (e) => this.onTouchEnd(e), { capture: true, passive: false });
+    window.addEventListener('resize', () => this.onViewportResize());
+    window.visualViewport?.addEventListener('resize', () => this.onViewportResize());
+    window.addEventListener('orientationchange', () => setTimeout(() => this.onViewportResize(), 120));
 
     window.addEventListener('keydown', (e) => this.onKeyDown(e));
     window.addEventListener('keyup', (e) => this.onKeyUp(e));
@@ -2080,10 +2098,13 @@ export class UI {
     const existing = this.windows.findIndex((w) => w.kind === kind && w.key === key);
     if (existing >= 0) {
       this.windows[existing].obj = obj;
+      this.fitWindow(this.windows[existing]);
       this.raiseWindow(obj);
       return;
     }
-    this.windows.push({ kind, key, obj });
+    const entry = { kind, key, obj };
+    this.windows.push(entry);
+    this.fitWindow(entry);
     this.keepTopWindow();
     if (SERVER_WINDOW_KINDS.has(kind)) {
       const id = windowRestoreId(kind, key);
@@ -2281,12 +2302,167 @@ export class UI {
     return this.windows.find((w) => w.kind === kind && String(w.key) === String(key))?.obj || null;
   }
 
+  /* --------------------- mobile window fitting --------------------- */
+
+  windowEntry(obj) {
+    return this.windows.find((entry) => entry.obj === obj) || null;
+  }
+
+  isScalableWindow(entry) {
+    if (!entry || DOM_WINDOW_KINDS.has(entry.kind) || entry.kind === 'gump') return false;
+    const obj = entry.obj;
+    if (!obj || typeof obj.draw !== 'function') return false;
+    // StatusWindow already scales itself around its own width/height.
+    if (obj.scale !== undefined) return false;
+    const { width, height } = this.windowSize(obj);
+    return width > 0 && height > 0;
+  }
+
+  windowSize(obj) {
+    const width = Number(obj?.scaledWidth ?? obj?.width);
+    const height = Number(obj?.scaledHeight ?? obj?.height);
+    return { width: Number.isFinite(width) ? width : 0, height: Number.isFinite(height) ? height : 0 };
+  }
+
+  windowRenderScale(entry) {
+    if (!this.mobileLayout || !this.isScalableWindow(entry)) return 1;
+    const { width, height } = this.windowSize(entry.obj);
+    const vp = viewportSize();
+    const fit = Math.min(1, Math.max(120, vp.width - 12) / width, Math.max(120, vp.height - 12) / height);
+    return fit >= 0.999 ? 1 : fit;
+  }
+
+  windowPoint(entry, mx, my, scale = null) {
+    const s = scale ?? this.windowRenderScale(entry);
+    if (s === 1) return { x: mx, y: my };
+    const obj = entry.obj;
+    return { x: obj.x + (mx - obj.x) / s, y: obj.y + (my - obj.y) / s };
+  }
+
+  windowContains(entry, mx, my) {
+    if (!entry?.obj?.contains) return false;
+    const point = this.windowPoint(entry, mx, my);
+    return entry.obj.contains(point.x, point.y);
+  }
+
+  windowMouseDown(entry, mx, my, button, event) {
+    const scale = this.windowRenderScale(entry);
+    const point = this.windowPoint(entry, mx, my, scale);
+    const result = entry.obj.onMouseDown?.(point.x, point.y, button, event);
+    // Drag handlers move the window using the coordinates they are given. A
+    // fitted window is drawn smaller than its logical bounds, so switch the
+    // drag offset to screen space and feed raw screen coordinates afterwards;
+    // this keeps the window under the finger instead of moving at a different
+    // speed.
+    if (scale !== 1 && entry.obj.dragging) {
+      entry.obj.dragOffset = { x: mx - entry.obj.x, y: my - entry.obj.y };
+    }
+    return result;
+  }
+
+  windowMouseMove(entry, mx, my, event) {
+    const scale = this.windowRenderScale(entry);
+    const point = scale !== 1 && !entry.obj.dragging ? this.windowPoint(entry, mx, my, scale) : { x: mx, y: my };
+    return entry.obj.onMouseMove?.(point.x, point.y, event);
+  }
+
+  windowMouseUp(entry, mx, my, event) {
+    const scale = this.windowRenderScale(entry);
+    const point = scale !== 1 && !entry.obj.dragging ? this.windowPoint(entry, mx, my, scale) : { x: mx, y: my };
+    return entry.obj.onMouseUp?.(point.x, point.y, event);
+  }
+
+  windowTargetAt(entry, mx, my) {
+    if (!entry?.obj?.targetAt) return null;
+    const point = this.windowPoint(entry, mx, my);
+    return entry.obj.targetAt(point.x, point.y);
+  }
+
+  windowTooltipAt(entry, mx, my) {
+    if (!entry?.obj?.tooltipAt) return null;
+    const point = this.windowPoint(entry, mx, my);
+    return entry.obj.tooltipAt(point.x, point.y);
+  }
+
+  windowDoubleClick(entry, mx, my, event) {
+    if (!entry?.obj?.onDoubleClick) return;
+    const point = this.windowPoint(entry, mx, my);
+    entry.obj.onDoubleClick(point.x, point.y, event);
+  }
+
+  windowWheel(entry, mx, my, delta, event) {
+    if (!entry?.obj?.onWheel) return false;
+    const point = this.windowPoint(entry, mx, my);
+    return entry.obj.onWheel(point.x, point.y, delta, event);
+  }
+
+  windowItemDrop(entry, mx, my, event) {
+    if (!entry?.obj?.onItemDrop) return;
+    const point = this.windowPoint(entry, mx, my);
+    entry.obj.onItemDrop(point.x, point.y, event);
+  }
+
+  windowDraw(entry, ctx, now) {
+    const scale = this.windowRenderScale(entry);
+    if (scale === 1) {
+      entry.obj.draw?.(ctx, now);
+      return;
+    }
+    const obj = entry.obj;
+    ctx.save();
+    ctx.translate(obj.x, obj.y);
+    ctx.scale(scale, scale);
+    ctx.translate(-obj.x, -obj.y);
+    obj.draw?.(ctx, now);
+    ctx.restore();
+  }
+
+  fitWindow(entry) {
+    if (!this.mobileLayout || !entry?.obj) return;
+    const obj = entry.obj;
+    if (!Number.isFinite(obj.x) || !Number.isFinite(obj.y)) return;
+    const vp = viewportSize();
+    if (entry.kind === 'status' && Number.isFinite(obj.scale)) {
+      const baseWidth = Number(obj.width) || 0;
+      const baseHeight = Number(obj.height) || 0;
+      if (baseWidth > 0 && baseHeight > 0) {
+        const maxScale = Math.min(1, Math.max(0.5, (vp.width - 8) / baseWidth), Math.max(0.5, (vp.height - 8) / baseHeight));
+        if (obj.scale > maxScale) obj.scale = maxScale;
+      }
+    }
+    const { width, height } = this.windowSize(obj);
+    if (!width || !height) return;
+    const scale = this.windowRenderScale(entry);
+    obj.x = Math.max(0, Math.min(obj.x, Math.max(0, vp.width - width * scale)));
+    obj.y = Math.max(0, Math.min(obj.y, Math.max(0, vp.height - height * scale)));
+  }
+
+  fitAllWindows() {
+    for (const entry of this.windows) {
+      this.fitWindow(entry);
+      entry.obj?.clampToViewport?.();
+    }
+    this.updateJournalPointerEvents();
+  }
+
+  onViewportResize() {
+    if (this.viewportRaf) return;
+    this.viewportRaf = requestAnimationFrame(() => {
+      this.viewportRaf = null;
+      this.mobileLayout = isMobileLayout();
+      this.fitAllWindows();
+    });
+  }
+
   hitTest(mx, my) {
     const top = this.topWindow;
-    if (top && top.contains(mx, my)) return this.windows.find((w) => w.obj === top) || null;
+    if (top) {
+      const topEntry = this.windowEntry(top);
+      if (topEntry && this.windowContains(topEntry, mx, my)) return topEntry;
+    }
     for (let i = this.windows.length - 1; i >= 0; i--) {
       if (this.windows[i].obj === top) continue;
-      if (this.windows[i].obj.contains(mx, my)) return this.windows[i];
+      if (this.windowContains(this.windows[i], mx, my)) return this.windows[i];
     }
     return null;
   }
@@ -2303,9 +2479,9 @@ export class UI {
     if (index >= 0) {
       const { x, y } = this.mouse;
       for (let i = this.windows.length - 1; i > index; i--) {
-        const obj = this.windows[i].obj;
-        if (obj === this.journal) continue;
-        if (obj.contains?.(x, y)) {
+        const entry = this.windows[i];
+        if (entry.obj === this.journal) continue;
+        if (this.windowContains(entry, x, y)) {
           covered = true;
           break;
         }
@@ -2315,6 +2491,9 @@ export class UI {
   }
 
   openGump(gump) {
+    // Server gumps are laid out in real pixels by the shard; do not inherit a
+    // remembered zoom when running on a phone/tablet.
+    if (this.mobileLayout) gump.scale = 1;
     this.addWindow('gump', gump.id, gump);
     this.raiseWindow(gump);
     if (!this.game.debug) return;
@@ -2914,8 +3093,9 @@ export class UI {
     const t = this.world.target;
     const hint = $('cursorHint');
     hint.classList.toggle('hidden', !t.active);
-    if (t.multi) hint.textContent = 'Place the structure — right click to cancel';
-    else hint.textContent = 'Select a target — right click to cancel';
+    const cancelHint = this.mobileLayout ? 'two-finger tap to cancel' : 'right click to cancel';
+    if (t.multi) hint.textContent = `Place the structure — ${cancelHint}`;
+    else hint.textContent = `Select a target — ${cancelHint}`;
   }
 
   cancelTarget() {
@@ -3388,7 +3568,228 @@ export class UI {
   }
 
   isDomUiTarget(target) {
-    return !!target?.closest?.('#hud, #journalPanel, #gameTitleBar, #gameResize, #loginScreen, #modalBackdrop, #macroWindow');
+    return !!target?.closest?.('#hud, #journalPanel, #gameTitleBar, #gameResize, #loginScreen, #modalBackdrop, #macroWindow, #worldLoading');
+  }
+
+  /* ----------------------------- touch ----------------------------- */
+
+  makeTouchEvent(touch, base, overrides = {}) {
+    const x = touch?.clientX ?? 0;
+    const y = touch?.clientY ?? 0;
+    return {
+      clientX: x,
+      clientY: y,
+      pageX: touch?.pageX ?? x,
+      pageY: touch?.pageY ?? y,
+      screenX: touch?.screenX ?? x,
+      screenY: touch?.screenY ?? y,
+      target: touch?.target || base?.target || this.game.renderer.canvas,
+      button: 0,
+      buttons: 1,
+      detail: 1,
+      ctrlKey: !!base?.ctrlKey,
+      shiftKey: !!base?.shiftKey,
+      altKey: !!base?.altKey,
+      metaKey: !!base?.metaKey,
+      pointerType: 'touch',
+      isPrimary: true,
+      preventDefault() {},
+      stopPropagation() {},
+      stopImmediatePropagation() {},
+      ...overrides,
+    };
+  }
+
+  touchAllowed(event) {
+    if (!this.world.inGame) return false;
+    if (!$('loginScreen').classList.contains('hidden')) return false;
+    if (!$('modalBackdrop').classList.contains('hidden')) return false;
+    if (!$('worldLoading')?.classList.contains('hidden')) return false;
+    return !this.isDomUiTarget(event.target);
+  }
+
+  onTouchStart(event) {
+    const touches = event.touches;
+    if (!touches?.length) return;
+    if (!this.touchGesture && !this.touchAllowed(event)) return;
+    if (event.cancelable) event.preventDefault();
+    const touch = event.changedTouches?.[0] || touches[0];
+    if (!touch) return;
+
+    if (!this.touchGesture) {
+      this.touchGesture = {
+        id: touch.identifier,
+        startX: touch.clientX,
+        startY: touch.clientY,
+        lastX: touch.clientX,
+        lastY: touch.clientY,
+        startTime: performance.now(),
+        started: false,
+        moved: false,
+        twoFinger: touches.length >= 2,
+        twoMoved: false,
+        secondStart:
+          touches.length >= 2
+            ? {
+                x: touches[1].clientX,
+                y: touches[1].clientY,
+              }
+            : null,
+        target: event.target,
+        baseEvent: event,
+      };
+      this.cancelContextMenuRequest();
+      this.hideTooltip();
+      return;
+    }
+
+    const gesture = this.touchGesture;
+    if (touches.length === 2 && !gesture.started && !gesture.moved) {
+      gesture.twoFinger = true;
+      gesture.twoMoved = false;
+      const other = [...touches].find((entry) => entry.identifier !== gesture.id) || touches[1];
+      gesture.secondStart = { x: other.clientX, y: other.clientY };
+    }
+  }
+
+  onTouchMove(event) {
+    const gesture = this.touchGesture;
+    if (!gesture) return;
+    if (event.cancelable) event.preventDefault();
+    const touch =
+      [...(event.touches || [])].find((entry) => entry.identifier === gesture.id) ||
+      [...(event.changedTouches || [])].find((entry) => entry.identifier === gesture.id);
+
+    if (gesture.twoFinger) {
+      if (touch) {
+        gesture.lastX = touch.clientX;
+        gesture.lastY = touch.clientY;
+        if (Math.hypot(touch.clientX - gesture.startX, touch.clientY - gesture.startY) > 12) {
+          gesture.twoMoved = true;
+        }
+      }
+      const other = [...(event.touches || [])].find((entry) => entry.identifier !== gesture.id);
+      if (other && gesture.secondStart) {
+        if (Math.hypot(other.clientX - gesture.secondStart.x, other.clientY - gesture.secondStart.y) > 12) {
+          gesture.twoMoved = true;
+        }
+      }
+      return;
+    }
+    if (!touch) return;
+
+    gesture.lastX = touch.clientX;
+    gesture.lastY = touch.clientY;
+    const dx = touch.clientX - gesture.startX;
+    const dy = touch.clientY - gesture.startY;
+    if (!gesture.started) {
+      if (dx * dx + dy * dy < TOUCH_DRAG_THRESHOLD * TOUCH_DRAG_THRESHOLD) return;
+      gesture.started = true;
+      gesture.moved = true;
+      this.lastTap = null;
+      const synthetic = this.makeTouchEvent(
+        { clientX: gesture.startX, clientY: gesture.startY, target: gesture.target },
+        gesture.baseEvent,
+        { button: 0, buttons: 1, detail: 1 }
+      );
+      this.onMouseDown(synthetic);
+    }
+    this.onMouseMove(
+      this.makeTouchEvent(touch, gesture.baseEvent, { button: 0, buttons: 1, detail: 1 })
+    );
+  }
+
+  onTouchEnd(event) {
+    const gesture = this.touchGesture;
+    if (!gesture) return;
+    if (event.cancelable) event.preventDefault();
+
+    if (event.type === 'touchcancel') {
+      if (gesture.started) {
+        this.onMouseUp(
+          this.makeTouchEvent(
+            { clientX: gesture.lastX, clientY: gesture.lastY, target: gesture.target },
+            gesture.baseEvent,
+            { button: 0, buttons: 0, detail: 1 }
+          )
+        );
+      }
+      this.touchGesture = null;
+      this.lastTap = null;
+      return;
+    }
+
+    if (event.touches?.length) return;
+    const touch =
+      [...(event.changedTouches || [])].find((entry) => entry.identifier === gesture.id) || {
+        clientX: gesture.lastX,
+        clientY: gesture.lastY,
+        target: gesture.target,
+      };
+
+    if (gesture.twoFinger) {
+      const elapsed = performance.now() - gesture.startTime;
+      this.touchGesture = null;
+      this.lastTap = null;
+      if (!gesture.twoMoved && gesture.secondStart && elapsed <= TOUCH_TWO_FINGER_MS) {
+        const mx = (gesture.startX + gesture.secondStart.x) / 2;
+        const my = (gesture.startY + gesture.secondStart.y) / 2;
+        this.dispatchTwoFingerTap(mx, my, gesture);
+      }
+      return;
+    }
+
+    if (gesture.started) {
+      this.onMouseUp(
+        this.makeTouchEvent(touch, gesture.baseEvent, { button: 0, buttons: 0, detail: 1 })
+      );
+    } else {
+      this.dispatchTouchTap(gesture, touch);
+    }
+    this.touchGesture = null;
+  }
+
+  dispatchTouchTap(gesture, touch) {
+    const x = touch.clientX;
+    const y = touch.clientY;
+    const now = performance.now();
+    const double =
+      this.lastTap &&
+      now - this.lastTap.time <= DOUBLE_TAP_MS &&
+      Math.hypot(x - this.lastTap.x, y - this.lastTap.y) <= DOUBLE_TAP_DISTANCE;
+    const detail = double ? 2 : 1;
+
+    this.onMouseDown(
+      this.makeTouchEvent(touch, gesture.baseEvent, { button: 0, buttons: 1, detail })
+    );
+    this.onMouseUp(
+      this.makeTouchEvent(touch, gesture.baseEvent, { button: 0, buttons: 0, detail })
+    );
+    if (double) {
+      this.onDoubleClick(
+        this.makeTouchEvent(touch, gesture.baseEvent, { button: 0, buttons: 0, detail: 2 })
+      );
+      this.lastTap = null;
+    } else {
+      this.lastTap = { time: now, x, y };
+    }
+  }
+
+  dispatchTwoFingerTap(mx, my, gesture) {
+    if (this.world.held) return;
+    const touch = { clientX: mx, clientY: my, target: gesture.target };
+    const event = this.makeTouchEvent(touch, gesture.baseEvent, {
+      button: 2,
+      buttons: 2,
+      detail: 1,
+    });
+    const hit = this.hitTest(mx, my);
+    if (!hit) {
+      this.onContextMenu(event);
+      return;
+    }
+    this.onMouseDown(event);
+    this.onMouseUp(event);
   }
 
   onMouseMove(e) {
@@ -3424,7 +3825,7 @@ export class UI {
       }
     }
     if (this.dragTarget) {
-      this.dragTarget.obj.onMouseMove?.(ui.x, ui.y, e);
+      this.windowMouseMove(this.dragTarget, ui.x, ui.y, e);
       return;
     }
     if (this.isDomUiTarget(e.target)) {
@@ -3433,7 +3834,7 @@ export class UI {
     }
     const hit = this.hitTest(ui.x, ui.y);
     if (hit) {
-      hit.obj.onMouseMove?.(ui.x, ui.y, e);
+      this.windowMouseMove(hit, ui.x, ui.y, e);
       this.refreshTooltip();
       return;
     }
@@ -3458,14 +3859,14 @@ export class UI {
       e.preventDefault();
       e.stopPropagation();
       if (button === 0 && this.world.target.active && !this.world.held) {
-        const target = hit.obj.targetAt?.(ui.x, ui.y);
+        const target = this.windowTargetAt(hit, ui.x, ui.y);
         if (target) {
           this.sendTargetEntity(target);
           return;
         }
       }
       this.raiseWindow(hit.obj);
-      hit.obj.onMouseDown?.(ui.x, ui.y, button, e);
+      this.windowMouseDown(hit, ui.x, ui.y, button, e);
       if (hit.obj.dragging || hit.obj.onMouseMove) this.dragTarget = hit;
       return;
     }
@@ -3620,7 +4021,9 @@ export class UI {
       return;
     }
     if (this.dragTarget) {
-      this.dragTarget.obj.onMouseUp?.(ui.x, ui.y);
+      const wasDragging = !!this.dragTarget.obj?.dragging;
+      this.windowMouseUp(this.dragTarget, ui.x, ui.y);
+      if (wasDragging) this.fitWindow(this.dragTarget);
       this.dragTarget = null;
     }
     if (this.worldItemPress) {
@@ -3632,7 +4035,7 @@ export class UI {
     if (this.isDomUiTarget(e.target) || !this.world.held) return;
     const hit = this.hitTest(ui.x, ui.y);
     if (hit) {
-      hit.obj.onItemDrop?.(ui.x, ui.y);
+      this.windowItemDrop(hit, ui.x, ui.y, e);
       return;
     }
     if (e.target !== this.game.renderer.canvas) return;
@@ -3668,7 +4071,7 @@ export class UI {
       e.stopPropagation();
       this.raiseWindow(hit.obj);
       if (this.focusedGumpEntry && hit.obj !== this.focusedGumpEntry.gump) this.clearGumpFocus();
-      hit.obj.onDoubleClick?.(ui.x, ui.y);
+      this.windowDoubleClick(hit, ui.x, ui.y, e);
       return;
     }
     if (e.target !== this.game.renderer.canvas) return;
@@ -3688,7 +4091,7 @@ export class UI {
     if (this.isDomUiTarget(e.target)) return;
     const ui = this.uiPos(e);
     const hit = this.hitTest(ui.x, ui.y);
-    if (hit?.obj.onWheel?.(ui.x, ui.y, e.deltaY, e)) {
+    if (hit && this.windowWheel(hit, ui.x, ui.y, e.deltaY, e)) {
       e.preventDefault();
       e.stopPropagation();
     } else if (hit?.obj.scroll !== undefined) {
@@ -3751,7 +4154,7 @@ export class UI {
     let target = null;
     const hit = this.hitTest(x, y);
     if (hit) {
-      target = hit.obj.tooltipAt?.(x, y) || null;
+      target = this.windowTooltipAt(hit, x, y) || null;
     } else {
       if (document.elementFromPoint(x, y) !== this.game.renderer.canvas) {
         this.hideTooltip();
@@ -4063,9 +4466,13 @@ export class UI {
     for (let i = 0; i < this.windows.length; i++) {
       const w = this.windows[i];
       if (w.obj === top) continue;
-      w.obj.draw?.(targetFor(i), now);
+      this.windowDraw(w, targetFor(i), now);
     }
-    top?.draw?.(targetFor(topIndex), now);
+    if (top) {
+      const topEntry = this.windowEntry(top);
+      if (topEntry) this.windowDraw(topEntry, targetFor(topIndex), now);
+      else top.draw?.(targetFor(topIndex), now);
+    }
   }
 
   requestMissingNames(now) {
