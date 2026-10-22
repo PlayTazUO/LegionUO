@@ -136,7 +136,14 @@ export class Renderer {
     const z = player.z | 0;
     const block = this.world.getBlock(x >> 3, y >> 3);
     const cached = this.overheadCache;
-    if (cached && cached.block === block && cached.x === x && cached.y === y && cached.z === z) {
+    if (
+      cached &&
+      cached.block === block &&
+      cached.x === x &&
+      cached.y === y &&
+      cached.z === z &&
+      cached.multiVersion === this.world.multiVersion
+    ) {
       return cached;
     }
 
@@ -173,7 +180,7 @@ export class Renderer {
         const dx = x - e.x;
         const dy = y - e.y;
         if (Math.abs(dx) > 32 || Math.abs(dy) > 32) continue;
-        const parts = this.assets.getMulti(e.graphic);
+        const parts = this.world.multiParts(e);
         if (!parts) {
           pendingMulti = true;
           continue;
@@ -187,7 +194,7 @@ export class Renderer {
       }
     }
 
-    const state = { x, y, z, block, cut, hideRoofs };
+    const state = { x, y, z, block, cut, hideRoofs, multiVersion: this.world.multiVersion };
     // Re-scan until every multi around the player has loaded its parts.
     this.overheadCache = pendingMulti ? null : state;
     return state;
@@ -236,6 +243,21 @@ export class Renderer {
           mobiles.get(key).push(e);
         }
       } else if (e.container === 0 && e.serial !== this.world.playerSerial) {
+        if (e.isMulti) {
+          // Multi parts are spread over their own tiles so floors, walls and
+          // roofs sort with everything else in the isometric depth pass.
+          // Custom houses use the 0xD8 design instead of the base multi.
+          const parts = this.world.multiParts(e);
+          if (!parts) continue;
+          for (let i = 0; i < parts.length; i++) {
+            const part = parts[i];
+            if (!part.visible) continue;
+            const key = `${e.x + part.x},${e.y + part.y}`;
+            if (!groundItems.has(key)) groundItems.set(key, []);
+            groundItems.get(key).push({ entity: e, part, order: i });
+          }
+          continue;
+        }
         const key = `${e.x},${e.y}`;
         if (!groundItems.has(key)) groundItems.set(key, []);
         groundItems.get(key).push(e);
@@ -294,6 +316,22 @@ export class Renderer {
       drawables.push({ type: 'static', z: s.z, priorityZ: this.priorityZ(s.z, s.graphic), graphic: s.graphic, hue: s.hue });
     }
     for (const item of groundItems.get(`${x},${y}`) || []) {
+      if (item.part) {
+        const part = item.part;
+        const z = item.entity.z + (part.z || 0);
+        if (z >= cutZ) continue;
+        if (hideRoofs && ((this.assets.staticFlags(part.graphic) || 0) & ROOF_FLAG)) continue;
+        drawables.push({
+          type: 'multiPart',
+          z,
+          priorityZ: this.priorityZ(z, part.graphic),
+          graphic: part.graphic,
+          hue: 0,
+          entity: item.entity,
+          order: item.order,
+        });
+        continue;
+      }
       if (item.z >= cutZ) continue;
       if (hideRoofs && ((this.assets.staticFlags(item.graphic) || 0) & ROOF_FLAG)) continue;
       const corpse = item.graphic === 0x2006 && this.world.corpses.has(item.serial);
@@ -314,13 +352,16 @@ export class Renderer {
       if (m.z >= cutZ) continue;
       drawables.push({ type: 'mobile', z: m.z, priorityZ: m.z + 1, entity: m });
     }
-    drawables.sort((a, b) => a.priorityZ - b.priorityZ || typeOrder(a) - typeOrder(b));
+    drawables.sort(
+      (a, b) =>
+        a.priorityZ - b.priorityZ ||
+        typeOrder(a) - typeOrder(b) ||
+        (a.order ?? 0) - (b.order ?? 0)
+    );
 
     for (const d of drawables) {
       if (d.type === 'mobile') {
         this.drawMobile(ctx, d.entity, now);
-      } else if (d.type === 'item' && d.entity?.isMulti) {
-        this.drawMulti(ctx, d.entity, cutZ, hideRoofs);
       } else if (d.corpse) {
         this.drawCorpse(ctx, d.entity, this.world.corpses.get(d.entity.serial), now, d.z);
       } else {
@@ -470,7 +511,7 @@ export class Renderer {
   }
 
   drawMulti(ctx, item, cutZ = Infinity, hideRoofs = false) {
-    const parts = this.assets.getMulti(item.graphic);
+    const parts = this.world.multiParts(item);
     if (!parts) return;
     for (const part of parts) {
       if (!part.visible) continue;
@@ -612,6 +653,7 @@ export class Renderer {
     const pos = this.screenFor(mobile.renderX, mobile.renderY, mobile.renderZ);
     pos.sx += 22;
     pos.sy += 22;
+    let spriteTop = Infinity;
 
     if (mount) {
       const mg = this.mountAnimGroups(mount.animId);
@@ -621,7 +663,8 @@ export class Renderer {
         const frames = mountAnim.meta.frames;
         let index = this.animFrameIndex(mobile, anim, frames.length, sinceStart, serverPlaying, now, walking);
         index = Math.min(index, frames.length - 1);
-        this.drawAnimFrame(ctx, mountAnim, frames[index], pos.sx, pos.sy, mirror, 1);
+        const top = this.drawAnimFrame(ctx, mountAnim, frames[index], pos.sx, pos.sy, mirror, 1);
+        if (top != null) spriteTop = Math.min(spriteTop, top);
       }
       pos.sy += mount.offsetY;
     }
@@ -634,14 +677,17 @@ export class Renderer {
       const baseFrame = this.animFrameIndex(mobile, anim, frames.length, sinceStart, serverPlaying, now, walking);
       const frameIndex = this.applyAnimContinuity(mobile, group, dir, baseFrame, frames.length, walking, source);
       bodyFrame = frames[Math.min(frameIndex, frames.length - 1)];
-      this.drawAnimFrame(ctx, animData, bodyFrame, pos.sx, pos.sy, mirror, 1);
+      const top = this.drawAnimFrame(ctx, animData, bodyFrame, pos.sx, pos.sy, mirror, 1);
+      if (top != null) spriteTop = Math.min(spriteTop, top);
       drewBody = true;
     } else if (mobile.lastFrameSet?.body) {
       // Keep the last loaded frame visible while the new group/direction loads.
       const last = mobile.lastFrameSet;
-      this.drawAnimFrame(ctx, last.body.data, last.body.frame, pos.sx, pos.sy, last.body.mirror, 1);
+      const top = this.drawAnimFrame(ctx, last.body.data, last.body.frame, pos.sx, pos.sy, last.body.mirror, 1);
+      if (top != null) spriteTop = Math.min(spriteTop, top);
       for (const entry of last.equipment) {
-        this.drawAnimFrame(ctx, entry.data, entry.frame, pos.sx, pos.sy, entry.mirror, 1);
+        const entryTop = this.drawAnimFrame(ctx, entry.data, entry.frame, pos.sx, pos.sy, entry.mirror, 1);
+        if (entryTop != null) spriteTop = Math.min(spriteTop, entryTop);
       }
     }
 
@@ -666,7 +712,8 @@ export class Renderer {
             // Hold the previous pose for this layer while it streams in.
             const previous = previousEquipment.get(animId);
             if (previous) {
-              this.drawAnimFrame(ctx, previous.data, previous.frame, pos.sx, pos.sy, previous.mirror, 1);
+              const top = this.drawAnimFrame(ctx, previous.data, previous.frame, pos.sx, pos.sy, previous.mirror, 1);
+              if (top != null) spriteTop = Math.min(spriteTop, top);
               frameSet.equipment.push(previous);
             }
             continue;
@@ -678,12 +725,14 @@ export class Renderer {
             fi = (fi + state.shift) % frames.length;
           }
           const frame = frames[Math.min(fi, frames.length - 1)];
-          this.drawAnimFrame(ctx, equip, frame, pos.sx, pos.sy, mirror, 1);
+          const top = this.drawAnimFrame(ctx, equip, frame, pos.sx, pos.sy, mirror, 1);
+          if (top != null) spriteTop = Math.min(spriteTop, top);
           frameSet.equipment.push({ data: equip, frame, mirror, animId });
         }
       }
       mobile.lastFrameSet = frameSet;
     }
+    mobile.spriteTop = Number.isFinite(spriteTop) ? spriteTop : null;
   }
 
   equipmentGraphics(mobile, item, gargoyle) {
@@ -750,7 +799,7 @@ export class Renderer {
   }
 
   drawAnimFrame(ctx, animData, frame, sx, sy, mirror, scale) {
-    if (!frame) return;
+    if (!frame) return null;
     const drawX = mirror ? sx - (frame.w - frame.cx) * scale : sx - frame.cx * scale;
     const drawY = sy - (frame.h + frame.cy) * scale;
     if (mirror) {
@@ -762,12 +811,17 @@ export class Renderer {
     } else {
       ctx.drawImage(animData.img, frame.x, frame.y, frame.w, frame.h, drawX, drawY, frame.w * scale, frame.h * scale);
     }
+    return drawY;
   }
 
   drawMobileText(ctx, m) {
     const pos = this.screenFor(m.renderX, m.renderY, m.renderZ);
     pos.sx += 22;
     pos.sy += 22;
+    // Anchor overhead text to the top of the sprite we actually drew so it
+    // clears tall, short, and mounted bodies instead of using a fixed offset.
+    const spriteTop = Number.isFinite(m.spriteTop) ? m.spriteTop : pos.sy - 49;
+    const nameY = spriteTop - 5;
     const dist = Math.max(Math.abs(m.x - this.world.player.x), Math.abs(m.y - this.world.player.y));
     const showNames = settings.get('showNames');
     const showBars = settings.get('showHealthBars');
@@ -783,7 +837,7 @@ export class Renderer {
         });
         drawServerText(ctx, m.name, {
           x: pos.sx - 110,
-          y: pos.sy - 54 - Math.max(0, measured.height - 15),
+          y: nameY - Math.max(0, measured.height - 15),
           width: 220,
           height: measured.height,
           align: 'center',
@@ -799,14 +853,14 @@ export class Renderer {
         ctx.lineWidth = 3;
         ctx.strokeStyle = 'rgba(0,0,0,0.8)';
         ctx.fillStyle = nameColor;
-        ctx.strokeText(m.name, pos.sx, pos.sy - 54);
-        ctx.fillText(m.name, pos.sx, pos.sy - 54);
+        ctx.strokeText(m.name, pos.sx, nameY);
+        ctx.fillText(m.name, pos.sx, nameY);
       }
     }
     if (showBars && m !== this.world.player && !m.isGhost && !m.isDead && m.hitsMax > 0 && (m.hits < m.hitsMax || m.yellowBar)) {
       const w = 44;
       const x = pos.sx - w / 2;
-      const y = pos.sy - 50;
+      const y = nameY + 4;
       ctx.fillStyle = 'rgba(0,0,0,0.7)';
       ctx.fillRect(x, y, w, 5);
       ctx.fillStyle = m.yellowBar ? '#e8c34a' : '#c73a3a';
@@ -822,7 +876,7 @@ export class Renderer {
         });
         drawServerText(ctx, m.lastSpeech.text, {
           x: pos.sx - 110,
-          y: pos.sy - 66 - Math.max(0, measured.height - 15),
+          y: nameY - 12 - Math.max(0, measured.height - 15),
           width: 220,
           height: measured.height,
           align: 'center',
@@ -836,7 +890,7 @@ export class Renderer {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'bottom';
         const lines = wrapText(ctx, m.lastSpeech.text, 220);
-        let y = pos.sy - 66;
+        let y = nameY - 12;
         for (let i = lines.length - 1; i >= 0; i--) {
           ctx.lineWidth = 3;
           ctx.strokeStyle = 'rgba(0,0,0,0.8)';
@@ -1070,7 +1124,7 @@ export class Renderer {
       return { x: pos.sx - 22, y: pos.sy - 66, w: 44, h: 66 };
     }
     if (entity.isMulti) {
-      const parts = this.assets.getMulti(entity.graphic);
+      const parts = this.world.multiParts(entity);
       if (!parts?.length) return null;
       let minX = Infinity;
       let minY = Infinity;
@@ -1149,7 +1203,7 @@ export class Renderer {
 }
 
 function typeOrder(d) {
-  return d.type === 'mobile' ? 2 : d.type === 'item' ? 1 : 0;
+  return d.type === 'mobile' ? 2 : d.type === 'item' || d.type === 'multiPart' ? 1 : 0;
 }
 
 function wrapText(ctx, text, maxWidth) {

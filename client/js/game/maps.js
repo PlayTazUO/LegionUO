@@ -370,7 +370,7 @@ export class MinimapWindow {
 
     for (const entity of this.world.entities.values()) {
       if (!entity.isItem || !entity.isMulti || !entity.hasPosition) continue;
-      const parts = this.world.assets.getMulti(entity.graphic);
+      const parts = this.world.multiParts(entity);
       if (!parts || !parts.length) continue;
       for (const part of parts) {
         const tx = entity.x + (part.x || 0);

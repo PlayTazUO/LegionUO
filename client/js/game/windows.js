@@ -2475,6 +2475,8 @@ export class HouseWindow {
   }
 
   get info() {
+    const design = this.world.customHouses?.get(this.serial);
+    if (design) return design;
     return this.world.customHouse && this.world.customHouse.serial === this.serial ? this.world.customHouse : null;
   }
 

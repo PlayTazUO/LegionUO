@@ -1,6 +1,7 @@
 import { Entity, isGhostGraphic, isMobileSerial, Layer } from './entity.js';
 import { OPLManager } from './opl.js';
 import { UltimaLiveManager } from './uolive.js';
+import { decodeCustomHouseDesign, multiBounds } from './housing.js';
 import { accountStorageKey } from '../util/ui.js';
 
 export class Mobile extends Entity {
@@ -96,6 +97,13 @@ export class World {
     this.waypoints = [];
     this.localWaypoints = [];
     this.corpses = new Map();
+    // Custom house designs (0xD8) are kept separately from the base multi so
+    // the foundation multi can be used as a fallback until the design arrives.
+    this.customHouses = new Map();
+    this.pendingCustomHouseDesigns = new Map();
+    this.customHouseRequests = new Map();
+    this.customHouse = null;
+    this.multiVersion = 0;
     this.held = null;
     this.heldAmount = 0;
     this.login = { step: 'connecting', servers: [], characters: [], cities: [], error: null, characterListFlags: 0 };
@@ -209,14 +217,90 @@ export class World {
   }
 
   remove(serial) {
-    const e = this.get(serial);
+    const id = serial >>> 0;
+    if (this.customHouses.delete(id)) {
+      this.multiVersion++;
+      if (this.customHouse?.serial === id) this.customHouse = null;
+    }
+    this.pendingCustomHouseDesigns.delete(id);
+    this.customHouseRequests.delete(id);
+    const e = this.get(id);
     if (!e) return;
     if (e.container) {
       const parent = this.get(e.container);
       if (parent) parent.removeItem(e);
     }
-    this.entities.delete(serial >>> 0);
-    this.corpses.delete(serial >>> 0);
+    this.entities.delete(id);
+    this.corpses.delete(id);
+  }
+
+  /**
+   * Components to draw/collide with for a multi. A custom house design (0xD8)
+   * fully replaces the base foundation multi once it has been decoded,
+   * because the design already contains the foundation pieces.
+   */
+  multiParts(entity) {
+    if (!entity?.isMulti) return null;
+    const design = this.customHouses.get(entity.serial);
+    if (design && Array.isArray(design.parts)) return design.parts;
+    return this.assets.getMulti(entity.graphic);
+  }
+
+  requestCustomHouseDesign(serial, revision) {
+    const id = serial >>> 0;
+    const design = this.customHouses.get(id);
+    if (design && design.revision === revision) return;
+    const pending = this.pendingCustomHouseDesigns.get(id);
+    if (pending && pending.revision === revision) return;
+    const request = this.customHouseRequests.get(id);
+    const now = Date.now();
+    if (request && request.revision === revision && now - request.time < 5000) return;
+    this.customHouseRequests.set(id, { revision, time: now });
+    this.socket.out.customHouseRequest(id);
+  }
+
+  async setCustomHouseDesign(design) {
+    if (!design?.serial) return;
+    const id = design.serial >>> 0;
+    this.pendingCustomHouseDesigns.set(id, design);
+    this.customHouseRequests.delete(id);
+    await this.applyPendingCustomHouse(this.getItem(id), id);
+  }
+
+  /**
+   * Decode a queued 0xD8 design once its foundation item and base multi are
+   * available. The packet only carries plane data; the base multi supplies the
+   * bounding box used to rebuild absolute tile coordinates.
+   */
+  async applyPendingCustomHouse(item, serial = item?.serial) {
+    const id = serial >>> 0;
+    const design = this.pendingCustomHouseDesigns.get(id);
+    if (!design || !item?.isMulti) return;
+    try {
+      const base = await this.assets.ensureMulti(item.graphic);
+      // A newer revision may have replaced this one while the multi loaded.
+      if (this.pendingCustomHouseDesigns.get(id) !== design) return;
+      const bounds = multiBounds(base);
+      if (!bounds) return;
+      const parts = await decodeCustomHouseDesign(design.blocks, bounds);
+      if (this.pendingCustomHouseDesigns.get(id) !== design) return;
+      this.pendingCustomHouseDesigns.delete(id);
+      this.customHouses.set(id, {
+        serial: id,
+        revision: design.revision,
+        planes: design.planeCount,
+        tileCount: design.tileCount,
+        parts,
+      });
+      this.multiVersion++;
+      if (this.customHouse?.serial === id) {
+        this.customHouse.revision = design.revision;
+        this.customHouse.planes = design.planeCount;
+        this.customHouse.components = parts?.length || 0;
+      }
+    } catch (err) {
+      console.warn('[housing] failed to apply custom house design', err);
+    }
   }
 
   removeFromContainer(entity) {
@@ -269,7 +353,10 @@ export class World {
       // Only the packet's type byte marks a multi. Item graphics above 0x3FFF
       // are legal (custom art), so the high bit must not be treated as one.
       entity.isMulti = type === 2;
-      if (entity.isMulti) entity.graphic = graphic & 0x3fff;
+      if (entity.isMulti) {
+        entity.graphic = graphic & 0x3fff;
+        this.applyPendingCustomHouse(entity);
+      }
       entity.layer = Layer.Invalid;
     } else {
       entity.isCorpse = false;
@@ -650,12 +737,13 @@ export class World {
     let result = null;
     for (const entity of this.entities.values()) {
       if (!entity.isItem || !entity.isMulti || !entity.hasPosition) continue;
-      const parts = this.assets.getMulti(entity.graphic);
+      const parts = this.multiParts(entity);
       if (!parts || !parts.length) continue;
       const dx = x - entity.x;
       const dy = y - entity.y;
       if (Math.abs(dx) > 32 || Math.abs(dy) > 32) continue;
       for (const part of parts) {
+        if (!part.visible) continue;
         if (part.x !== dx || part.y !== dy) continue;
         const flags = (this.assets.staticFlags(part.graphic) || 0) >>> 0;
         if (!flags) continue;
@@ -1157,6 +1245,11 @@ export class World {
     this.waypoints = [];
     this.localWaypoints = [];
     this.corpses.clear();
+    this.customHouses.clear();
+    this.pendingCustomHouseDesigns.clear();
+    this.customHouseRequests.clear();
+    this.customHouse = null;
+    this.multiVersion++;
     this.held = null;
     this.walkTarget = null;
   }

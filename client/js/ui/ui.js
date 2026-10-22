@@ -27,6 +27,7 @@ import {
   saveFriends,
 } from '../game/windows.js';
 import { Layer } from '../game/entity.js';
+import { parseCustomHousePacket } from '../game/housing.js';
 import { settings } from '../game/settings.js';
 import { BuffBarWindow, buffGraphic } from '../game/buffs.js';
 import {
@@ -2843,6 +2844,13 @@ export class UI {
         this.showContextMenu(serial, items);
       } else if (sub === 0x1b) {
         this.onSpellbookContent(r);
+      } else if (sub === 0x1d) {
+        // House revision state. Foundations are sent for every custom house
+        // in range; request the full 0xD8 design when we do not have this
+        // revision yet, otherwise the client only ever sees the base multi.
+        const serial = r.readU32BE();
+        const revision = r.readU32BE();
+        this.world.requestCustomHouseDesign(serial, revision);
       } else if (sub === 0x20) {
         const serial = r.readU32BE();
         const type = r.readU8();
@@ -2919,19 +2927,25 @@ export class UI {
   onGenericCommand() {}
   onCustomHouse(r) {
     try {
-      const compressed = r.readU8() === 0x03;
-      const responds = r.readBool();
-      const serial = r.readU32BE();
-      const revision = r.readU32BE();
-      r.skip(4);
-      const planes = r.readU8();
-      this.world.customHouse = { serial, revision, planes, components: 0 };
-      const window = this.getWindow('house', serial);
-      if (window) window.serial = serial;
-      if (responds) this.world.socket.out.houseResponse();
-      if (compressed) return;
-    } catch {
-      /* ignore malformed custom house data */
+      const packet = parseCustomHousePacket(r);
+      if (!packet.serial) return;
+      const existing = this.world.customHouses.get(packet.serial);
+      this.world.customHouse = {
+        serial: packet.serial,
+        revision: packet.revision,
+        planes: packet.planeCount,
+        components: existing?.parts?.length || 0,
+      };
+      const window = this.getWindow('house', packet.serial);
+      if (window) window.serial = packet.serial;
+      if (packet.responds) this.world.socket.out.houseResponse();
+      if (packet.blocks.length) {
+        this.world.setCustomHouseDesign(packet).catch((err) => {
+          console.warn('[housing] failed to decode custom house design', err);
+        });
+      }
+    } catch (err) {
+      console.warn('[housing] malformed custom house packet', err);
     }
   }
 

@@ -52,6 +52,7 @@ export class AssetManager {
     this.tileArtPromise = new Map();
     this.multis = new Map();
     this.multiPending = new Set();
+    this.multiPromises = new Map();
     this.fontMeta = new Map();
     this.fontPromise = new Map();
   }
@@ -77,6 +78,7 @@ export class AssetManager {
     this.tileArtPromise.clear();
     this.multis.clear();
     this.multiPending.clear();
+    this.multiPromises.clear();
     this.fontMeta.clear();
     this.fontPromise.clear();
     return true;
@@ -231,17 +233,31 @@ export class AssetManager {
 
   getMulti(id) {
     if (this.multis.has(id)) return this.multis.get(id);
-    if (!this.multiPending.has(id)) {
-      this.multiPending.add(id);
-      fetch(this.url(`/api/multi/${id}`))
-        .then((r) => (r.ok ? r.json() : []))
-        .then((data) => {
-          this.multis.set(id, Array.isArray(data) ? data : []);
-        })
-        .catch(() => this.multis.set(id, []))
-        .finally(() => this.multiPending.delete(id));
-    }
-    return this.multis.get(id) || null;
+    this.ensureMulti(id);
+    return null;
+  }
+
+  ensureMulti(id) {
+    if (this.multis.has(id)) return Promise.resolve(this.multis.get(id));
+    if (this.multiPromises.has(id)) return this.multiPromises.get(id);
+    if (!this.multiPending.has(id)) this.multiPending.add(id);
+    const promise = fetch(this.url(`/api/multi/${id}`))
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => {
+        const parts = Array.isArray(data) ? data : [];
+        this.multis.set(id, parts);
+        return parts;
+      })
+      .catch(() => {
+        this.multis.set(id, []);
+        return [];
+      })
+      .finally(() => {
+        this.multiPending.delete(id);
+        this.multiPromises.delete(id);
+      });
+    this.multiPromises.set(id, promise);
+    return promise;
   }
 
   async loadTileData() {

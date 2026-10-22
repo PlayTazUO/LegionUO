@@ -1360,8 +1360,12 @@ export class Handlers {
     if (hasAffix) affix = r.readASCII();
     let args = '';
     if (r.remaining() > 0) {
+      // readUnicode* take a byte length and divide it by two internally, so the
+      // remaining byte count must be passed as-is (not pre-divided). The 0xC1
+      // single-click label carries the name in these args, and halving it twice
+      // truncated names/messages.
       if (hasAffix) args = r.readUnicodeBE(r.remaining());
-      else args = r.readUnicodeLE(Math.floor(r.remaining() / 2));
+      else args = r.readUnicodeLE(r.remaining());
     }
     let text = this.game.cliloc(cliloc, args);
     if (text == null) return;
