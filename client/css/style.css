@@ -756,6 +756,34 @@ body.uo-cursor * {
   background: radial-gradient(circle, rgba(62, 52, 30, 0.3), rgba(12, 10, 6, 0.34));
 }
 
+#touchStick.configuring {
+  border: 2px dashed rgba(229, 205, 141, 0.85);
+  background: radial-gradient(circle, rgba(62, 52, 30, 0.42), rgba(12, 10, 6, 0.4));
+  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.2), 0 0 0 4px rgba(229, 205, 141, 0.12), 0 4px 18px rgba(0, 0, 0, 0.3);
+  cursor: grab;
+}
+
+#touchStick.configuring::after {
+  content: 'Drag to move';
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  transform: translateX(-50%);
+  margin-bottom: 6px;
+  padding: 3px 8px;
+  border: 1px solid #8a7341;
+  background: rgba(18, 15, 10, 0.9);
+  color: #ffe0a0;
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+#touchStick.configuring.dragging {
+  cursor: grabbing;
+  border-style: solid;
+}
+
 #touchStickKnob {
   position: absolute;
   left: 50%;

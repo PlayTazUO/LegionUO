@@ -4046,6 +4046,7 @@ export class OptionsWindow {
         { type: 'toggle', key: 'autoOpenDoors', label: 'Auto open doors', hint: 'Open a door when walking or turning into it' },
         { type: 'toggle', action: 'journalTimestamps', label: 'Journal timestamps' },
         { type: 'button', action: 'journalSettings', label: 'Journal settings...' },
+        { type: 'button', action: 'joystickPosition', label: 'Joystick position', buttonLabel: 'Move' },
       ];
     }
     if (this.tab === 'display') {
@@ -4206,6 +4207,11 @@ export class OptionsWindow {
     }
     if (row.action === 'journalSettings') {
       ui?.journal?.showSettings?.();
+      return;
+    }
+    if (row.action === 'joystickPosition') {
+      this.close();
+      ui?.beginJoystickConfig?.();
       return;
     }
     if (!row.key) return;
@@ -4386,7 +4392,7 @@ export class OptionsWindow {
     ctx.strokeRect(button.x + 0.5, button.y + 0.5, button.w - 1, button.h - 1);
     ctx.fillStyle = hovered ? '#f0dfa8' : '#d9c58d';
     ctx.textAlign = 'center';
-    ctx.fillText('Open', button.x + button.w / 2, button.y + button.h / 2 + 1);
+    ctx.fillText(row.buttonLabel || 'Open', button.x + button.w / 2, button.y + button.h / 2 + 1);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
   }

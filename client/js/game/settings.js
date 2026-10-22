@@ -27,6 +27,8 @@ const DEFAULTS = {
   optionsTab: 'general',
   optionsX: null,
   optionsY: null,
+  joystickX: null,
+  joystickY: null,
 };
 
 const BOOLEAN_KEYS = [
@@ -103,6 +105,15 @@ class SettingsStore {
     for (const key of ['optionsX', 'optionsY']) {
       const value = this.values[key];
       this.values[key] = value == null || value === '' ? null : Number.isFinite(Number(value)) ? Number(value) : null;
+    }
+    for (const key of ['joystickX', 'joystickY']) {
+      const value = Number(this.values[key]);
+      this.values[key] =
+        this.values[key] == null || this.values[key] === ''
+          ? null
+          : Number.isFinite(value)
+            ? Math.max(0, Math.min(1, value))
+            : null;
     }
   }
 

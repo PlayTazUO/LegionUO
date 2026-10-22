@@ -161,7 +161,7 @@ Then open <http://127.0.0.1:8080>.
   commands.
 - Options window (`OPT` / `-options`) with General, Display, Audio, and Keys tabs for
   always-run, auto-open doors, journal timestamps, names, health bars, speech, lighting, weather,
-  quest arrow, waypoints, audio, volume, footsteps, and rebindable shortcuts;
+  quest arrow, waypoints, audio, volume, footsteps, joystick position, and rebindable shortcuts;
   settings apply live and persist per account in `localStorage`.
 - Custom-house design window with floor/category controls, add/delete prompts,
   backup/restore/commit/revert/clear/exit commands, and `0xD8` design updates.
@@ -173,6 +173,7 @@ Then open <http://127.0.0.1:8080>.
   windows/gumps can be dragged with a finger. A two-finger tap sends a right click (closing
   gumps and most panels, or cancelling a target), double-tapping the ground pathfinds, and a
   translucent touch joystick in the lower-right corner drives movement (push farther to run).
+  The joystick can be repositioned with the `Joystick position` option on the General tab.
   The HUD menu collapses behind a hamburger button and the journal and game window use touch dragging/resizing.
   Containers open as a large, touch-friendly item grid on mobile; this can be disabled with
   the `Touch container view` option on the Display tab.

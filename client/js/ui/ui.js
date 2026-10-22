@@ -190,6 +190,8 @@ export class UI {
       dy: 0,
       run: false,
     };
+    this.joystickConfiguring = false;
+    this.joystickDrag = null;
     this.tooltipEl = $('tooltip');
     this.hoverId = null;
     this.hoverSerial = 0;
@@ -2623,6 +2625,7 @@ export class UI {
       this.viewportRaf = null;
       this.mobileLayout = isMobileLayout();
       this.fitAllWindows();
+      if (this.touchControlsVisible) this.applyJoystickPosition();
     });
   }
 
@@ -4039,7 +4042,104 @@ export class UI {
     stick.addEventListener('lostpointercapture', (event) => this.endJoystick(event));
   }
 
+  beginJoystickConfig() {
+    if (!this.touchStick) return;
+    this.resetJoystick();
+    this.joystickConfiguring = true;
+    this.joystickDrag = null;
+    this.updateTouchControls();
+    this.touchStick.classList.add('configuring');
+    this.applyJoystickPosition();
+  }
+
+  applyJoystickPosition() {
+    const stick = this.touchStick;
+    if (!stick) return;
+    const x = settings.get('joystickX');
+    const y = settings.get('joystickY');
+    if (x == null || y == null) {
+      stick.style.left = '';
+      stick.style.top = '';
+      stick.style.right = '';
+      stick.style.bottom = '';
+      return;
+    }
+    const vp = viewportSize();
+    const size = stick.offsetWidth || 132;
+    const maxX = Math.max(0, vp.width - size);
+    const maxY = Math.max(0, vp.height - size);
+    stick.style.left = `${Math.round(Math.max(0, Math.min(maxX, x * maxX)))}px`;
+    stick.style.top = `${Math.round(Math.max(0, Math.min(maxY, y * maxY)))}px`;
+    stick.style.right = 'auto';
+    stick.style.bottom = 'auto';
+  }
+
+  moveJoystickTo(clientX, clientY) {
+    const stick = this.touchStick;
+    if (!stick) return;
+    const vp = viewportSize();
+    const size = stick.offsetWidth || 132;
+    const left = Math.max(0, Math.min(vp.width - size, clientX));
+    const top = Math.max(0, Math.min(vp.height - size, clientY));
+    stick.style.left = `${Math.round(left)}px`;
+    stick.style.top = `${Math.round(top)}px`;
+    stick.style.right = 'auto';
+    stick.style.bottom = 'auto';
+  }
+
+  startJoystickDrag(event) {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = this.touchStick.getBoundingClientRect();
+    this.joystickDrag = {
+      pointerId: event.pointerId,
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+      moved: false,
+    };
+    this.touchStick.classList.add('dragging');
+    this.touchStick.setPointerCapture?.(event.pointerId);
+  }
+
+  moveJoystickDrag(event) {
+    if (!this.joystickDrag || event.pointerId !== this.joystickDrag.pointerId) return;
+    if (event.cancelable) event.preventDefault();
+    this.joystickDrag.moved = true;
+    this.moveJoystickTo(event.clientX - this.joystickDrag.offsetX, event.clientY - this.joystickDrag.offsetY);
+  }
+
+  endJoystickDrag(event) {
+    if (!this.joystickDrag) return;
+    if (event && event.pointerId !== undefined && event.pointerId !== this.joystickDrag.pointerId) return;
+    if (this.joystickDrag.moved) {
+      const rect = this.touchStick.getBoundingClientRect();
+      const vp = viewportSize();
+      const size = rect.width || 132;
+      const maxX = Math.max(1, vp.width - size);
+      const maxY = Math.max(1, vp.height - size);
+      settings.set('joystickX', Math.max(0, Math.min(1, rect.left / maxX)));
+      settings.set('joystickY', Math.max(0, Math.min(1, rect.top / maxY)));
+    }
+    this.joystickDrag = null;
+    this.touchStick.classList.remove('dragging');
+    this.finishJoystickConfig();
+  }
+
+  finishJoystickConfig() {
+    if (!this.joystickConfiguring) return;
+    this.joystickConfiguring = false;
+    this.touchStick?.classList.remove('configuring', 'dragging');
+    this.updateTouchControls();
+    this.applyJoystickPosition();
+    this.addJournal('Joystick position saved.', '#b8a06a', true);
+  }
+
   startJoystick(event) {
+    if (this.joystickConfiguring) {
+      this.startJoystickDrag(event);
+      return;
+    }
     if (!this.mobileLayout || !this.world.inGame) return;
     if (event.pointerType === 'mouse' && event.button !== 0) return;
     event.preventDefault();
@@ -4056,6 +4156,10 @@ export class UI {
   }
 
   moveJoystick(event) {
+    if (this.joystickConfiguring) {
+      this.moveJoystickDrag(event);
+      return;
+    }
     if (!this.joystick.active || event.pointerId !== this.joystick.pointerId) return;
     if (event.cancelable) event.preventDefault();
     const max = Math.max(12, this.joystick.radius - 27);
@@ -4079,6 +4183,10 @@ export class UI {
   }
 
   endJoystick(event) {
+    if (this.joystickConfiguring) {
+      this.endJoystickDrag(event);
+      return;
+    }
     if (!this.joystick.active) return;
     if (event && event.pointerId !== undefined && event.pointerId !== this.joystick.pointerId) return;
     this.resetJoystick();
@@ -4245,11 +4353,17 @@ export class UI {
   }
 
   updateTouchControls() {
-    const show = !!this.touchStick && this.mobileLayout && this.world.inGame;
+    if (!this.world.inGame && this.joystickConfiguring) {
+      this.joystickConfiguring = false;
+      this.joystickDrag = null;
+      this.touchStick?.classList.remove('configuring', 'dragging');
+    }
+    const show = !!this.touchStick && this.world.inGame && (this.mobileLayout || this.joystickConfiguring);
     if (show === this.touchControlsVisible) return;
     this.touchControlsVisible = show;
     this.touchStick.classList.toggle('hidden', !show);
-    if (!show) this.resetJoystick();
+    if (show) this.applyJoystickPosition();
+    else this.resetJoystick();
   }
 
   syncPointer(e) {
