@@ -2905,7 +2905,6 @@ export class UI {
     const at = request && request.serial === (serial >>> 0) ? request : this.mouse;
     this.closeContextMenu();
     if (!items.length) return;
-    this.hideTooltip();
     const menu = new ContextMenuWindow(this.world, serial, items, at.x, at.y, (s, index) => {
       if (onSelect) onSelect(s, index);
       else this.world.socket.out.popupMenuSelection(s, index);
