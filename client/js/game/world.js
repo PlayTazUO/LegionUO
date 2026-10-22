@@ -748,7 +748,7 @@ export class World {
       const flags = (this.assets.staticFlags(s.graphic) || 0) >>> 0;
       if (!(flags & TILE_FLAG_IMPASSABLE)) continue;
       const top = s.z + Math.max(1, this.staticCalcHeight(s.graphic, flags));
-      if (top > z + 1 && s.z < z + 16) {
+      if (top >= z && s.z < z + 16) {
         staticBlocked = true;
         break;
       }
