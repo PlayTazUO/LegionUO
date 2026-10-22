@@ -5,6 +5,15 @@ const $ = (id) => document.getElementById(id);
 
 const FILTERS = ['all', 'system', 'speech', 'party', 'guild', 'spells', 'chat', 'damage'];
 
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+const LEGACY_BACKGROUNDS = {
+  dark: '#120f0a',
+  dim: '#201c13',
+  medium: '#342e22',
+  light: '#4c4434',
+};
+
 const DEFAULTS = {
   x: 10,
   y: null,
@@ -12,6 +21,7 @@ const DEFAULTS = {
   height: 176,
   timestamps: false,
   opacity: 0.9,
+  background: LEGACY_BACKGROUNDS.medium,
   fontSize: 12,
   maxLines: 500,
   filter: 'all',
@@ -29,6 +39,11 @@ function pad(value) {
 function timeLabel(timestamp) {
   const d = new Date(timestamp);
   return `[${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}]`;
+}
+
+function hexToRgb(hex) {
+  const value = parseInt(hex.slice(1), 16);
+  return `${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}`;
 }
 
 export class Journal {
@@ -71,6 +86,10 @@ export class Journal {
     }
     if (!Array.isArray(settings.ignore)) settings.ignore = [];
     if (!FILTERS.includes(settings.filter)) settings.filter = 'all';
+    if (LEGACY_BACKGROUNDS[settings.background]) {
+      settings.background = LEGACY_BACKGROUNDS[settings.background];
+    }
+    if (!HEX_COLOR.test(settings.background || '')) settings.background = DEFAULTS.background;
     if (settings.y == null) settings.y = Math.max(10, window.innerHeight - settings.height - 14);
     const num = (value, fallback) => (Number.isFinite(Number(value)) ? Number(value) : fallback);
     settings.width = clamp(num(settings.width, DEFAULTS.width), 280, window.innerWidth - 8);
@@ -384,6 +403,7 @@ export class Journal {
     this.root.style.height = `${this.settings.height}px`;
     this.root.style.setProperty('--journal-opacity', String(this.settings.opacity));
     this.root.style.setProperty('--journal-font-size', `${this.settings.fontSize}px`);
+    this.root.style.setProperty('--journal-bg', hexToRgb(this.settings.background));
     this.root.classList.toggle('show-times', !!this.settings.timestamps);
     this.setFilter(this.settings.filter);
 
@@ -393,6 +413,8 @@ export class Journal {
     if (fontSize) fontSize.value = String(this.settings.fontSize);
     const opacity = $('journalOpacity');
     if (opacity) opacity.value = String(this.settings.opacity);
+    const background = $('journalBackground');
+    if (background) background.value = this.settings.background;
     const maxLines = $('journalMaxLines');
     if (maxLines) maxLines.value = String(this.settings.maxLines);
     if (this.modeSelect) this.modeSelect.value = this.settings.mode;
@@ -440,6 +462,12 @@ export class Journal {
     $('journalOpacity')?.addEventListener('input', (event) => {
       this.settings.opacity = clamp(parseFloat(event.target.value) || DEFAULTS.opacity, 0.2, 1);
       this.root.style.setProperty('--journal-opacity', String(this.settings.opacity));
+      this.save();
+    });
+    $('journalBackground')?.addEventListener('input', (event) => {
+      const value = event.target.value;
+      this.settings.background = HEX_COLOR.test(value) ? value : DEFAULTS.background;
+      this.root.style.setProperty('--journal-bg', hexToRgb(this.settings.background));
       this.save();
     });
     $('journalMaxLines')?.addEventListener('change', (event) => {
