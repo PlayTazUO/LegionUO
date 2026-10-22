@@ -1208,6 +1208,7 @@ export class UI {
           if (!this.game.debug) {
             this.gumpDebugWindow?.close();
             this.gumpDebugWindow = null;
+            $('targetInfo').classList.add('hidden');
           }
           for (const gump of this.world.gumps.values()) {
             for (const control of gump.controls) {
@@ -4416,6 +4417,10 @@ export class UI {
   updateTargetInfo(mx, my) {
     const el = $('targetInfo');
     if (!this.world.inGame) return;
+    if (!this.game.debug) {
+      el.classList.add('hidden');
+      return;
+    }
     const tile = this.game.renderer.screenToTile(mx, my);
     const entity = this.findEntityAt(tile.x, tile.y);
     if (entity) {
