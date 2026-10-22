@@ -4001,7 +4001,7 @@ export class OptionsWindow {
   constructor(world) {
     this.world = world;
     this.width = 400;
-    this.height = 384;
+    this.height = 430;
     const savedX = settings.get('optionsX');
     const savedY = settings.get('optionsY');
     const pos = clampPosition(
@@ -4016,6 +4016,7 @@ export class OptionsWindow {
     this.dragging = false;
     this.dragOffset = { x: 0, y: 0 };
     this.sliderDrag = false;
+    this.sliderRow = null;
     this.hover = null;
   }
 
@@ -4048,6 +4049,15 @@ export class OptionsWindow {
     if (this.tab === 'display') {
       return [
         {
+          type: 'slider',
+          key: 'frameLimit',
+          label: 'Frame limit',
+          min: 0,
+          max: 240,
+          step: 1,
+          format: (value) => (value > 0 ? `${value} fps` : 'Unlimited'),
+        },
+        {
           type: 'toggle',
           key: 'mobileContainerView',
           label: 'Touch container view',
@@ -4075,7 +4085,15 @@ export class OptionsWindow {
     }
     return [
       { type: 'toggle', key: 'audioEnabled', label: 'Enable audio', hint: 'Uses decoded sound.mul samples with synthesized fallback' },
-      { type: 'slider', key: 'audioVolume', label: 'Volume' },
+      {
+        type: 'slider',
+        key: 'audioVolume',
+        label: 'Volume',
+        min: 0,
+        max: 100,
+        step: 1,
+        format: (value) => `${value}%`,
+      },
       { type: 'toggle', key: 'footsteps', label: 'Footstep sounds' },
       { type: 'note', label: 'Options are saved per account.' },
     ];
@@ -4092,8 +4110,18 @@ export class OptionsWindow {
     return rows;
   }
 
-  volumeTrack(row) {
-    return { x: row.x + 110, y: row.y + row.h / 2 - 4, w: row.w - 110 - 52, h: 8 };
+  sliderTrack(row) {
+    return { x: row.x + 110, y: row.y + row.h / 2 - 4, w: row.w - 110 - 74, h: 8 };
+  }
+
+  sliderValue(row) {
+    const min = row.min ?? 0;
+    const max = row.max ?? 100;
+    const step = row.step ?? 1;
+    const value = Number(settings.get(row.key));
+    if (!Number.isFinite(value)) return min;
+    const stepped = step > 0 ? Math.round(value / step) * step : value;
+    return Math.max(min, Math.min(max, stepped));
   }
 
   hitRect(rect, mx, my) {
@@ -4130,7 +4158,8 @@ export class OptionsWindow {
       else if (row.type === 'key') this.captureKey(row);
       else if (row.type === 'slider') {
         this.sliderDrag = true;
-        this.setVolumeFromMouse(mx, row);
+        this.sliderRow = row;
+        this.setSliderFromMouse(mx, row);
       }
       return true;
     }
@@ -4142,8 +4171,7 @@ export class OptionsWindow {
 
   onMouseMove(mx, my) {
     if (this.sliderDrag) {
-      const row = this.rowRects().find((r) => r.type === 'slider');
-      if (row) this.setVolumeFromMouse(mx, row);
+      if (this.sliderRow) this.setSliderFromMouse(mx, this.sliderRow);
       return;
     }
     if (this.dragging) {
@@ -4157,6 +4185,7 @@ export class OptionsWindow {
   onMouseUp() {
     if (this.sliderDrag) {
       this.sliderDrag = false;
+      this.sliderRow = null;
       settings.save();
     }
     if (this.dragging) this.savePosition();
@@ -4205,10 +4234,16 @@ export class OptionsWindow {
     window.addEventListener('keydown', this.keyCapture, true);
   }
 
-  setVolumeFromMouse(mx, row) {
-    const track = this.volumeTrack(row);
+  setSliderFromMouse(mx, row) {
+    const track = this.sliderTrack(row);
+    const min = row.min ?? 0;
+    const max = row.max ?? 100;
+    const step = row.step ?? 1;
     const ratio = Math.max(0, Math.min(1, (mx - track.x) / Math.max(1, track.w)));
-    settings.set('audioVolume', Math.round(ratio * 100), false);
+    let value = min + (max - min) * ratio;
+    if (step > 0) value = Math.round(value / step) * step;
+    value = Math.max(min, Math.min(max, value));
+    settings.set(row.key, value, false);
   }
 
   savePosition() {
@@ -4275,8 +4310,11 @@ export class OptionsWindow {
       ctx.fillStyle = 'rgba(201,176,108,0.10)';
       ctx.fillRect(row.x - 4, row.y, row.w + 8, row.h);
     }
-    const track = this.volumeTrack(row);
-    const pct = Math.max(0, Math.min(100, Number(settings.get('audioVolume')) || 0)) / 100;
+    const track = this.sliderTrack(row);
+    const min = row.min ?? 0;
+    const max = row.max ?? 100;
+    const value = this.sliderValue(row);
+    const pct = max > min ? (value - min) / (max - min) : 0;
     ctx.fillStyle = '#d9c58d';
     ctx.font = '12px monospace';
     ctx.textAlign = 'left';
@@ -4292,7 +4330,7 @@ export class OptionsWindow {
     ctx.fillRect(track.x + Math.max(0, Math.min(track.w - 4, track.w * pct - 2)), track.y - 2, 4, track.h + 4);
     ctx.fillStyle = '#bfa96f';
     ctx.textAlign = 'right';
-    ctx.fillText(`${Math.round(pct * 100)}%`, row.x + row.w, row.y + row.h / 2);
+    ctx.fillText(row.format ? row.format(value) : String(value), row.x + row.w, row.y + row.h / 2);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
   }

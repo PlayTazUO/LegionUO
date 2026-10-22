@@ -17,6 +17,7 @@ const DEFAULTS = {
   audioVolume: 60,
   footsteps: true,
   gumpFont: 3,
+  frameLimit: 0,
   keyJournal: 'KeyJ',
   keyHelp: 'F1',
   keyWar: 'Alt+KeyW',
@@ -92,6 +93,10 @@ class SettingsStore {
     this.values.gumpFont = Math.max(0, Math.min(9, Number.isFinite(font) ? Math.round(font) : 3));
     const volume = Number(this.values.audioVolume);
     this.values.audioVolume = Math.max(0, Math.min(100, Number.isFinite(volume) ? volume : DEFAULTS.audioVolume));
+    const frameLimit = Number(this.values.frameLimit);
+    this.values.frameLimit = Number.isFinite(frameLimit)
+      ? Math.max(0, Math.min(240, Math.round(frameLimit)))
+      : DEFAULTS.frameLimit;
     if (!TABS.includes(this.values.optionsTab)) this.values.optionsTab = DEFAULTS.optionsTab;
     for (const key of ['optionsX', 'optionsY']) {
       const value = this.values[key];

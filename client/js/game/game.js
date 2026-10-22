@@ -14,6 +14,7 @@ import { UI } from '../ui/ui.js';
 import { GameWindow } from '../ui/gameWindow.js';
 import { Reader } from '../util/binary.js';
 import { setRawText } from './html.js';
+import { settings } from './settings.js';
 
 const PING_INTERVAL = 1000;
 const PING_SAMPLE_COUNT = 5;
@@ -76,6 +77,8 @@ export class Game {
     this.fps = 0;
     this.fpsFrames = 0;
     this.fpsWindowStart = 0;
+    this.frameLimit = 0;
+    this.nextFrameAt = 0;
     this.perfFpsEl = document.getElementById('perfFps');
     this.perfPingEl = document.getElementById('perfPing');
     this.warCursor = false;
@@ -637,7 +640,27 @@ export class Game {
     this.perfPingEl.classList.toggle('bad', this.ping != null && this.ping >= 250);
   }
 
+  shouldSkipFrame(now) {
+    const limit = Math.max(0, Number(settings.get('frameLimit')) || 0);
+    if (!limit) {
+      this.frameLimit = 0;
+      this.nextFrameAt = 0;
+      return false;
+    }
+    if (this.frameLimit !== limit) {
+      this.frameLimit = limit;
+      this.nextFrameAt = now + 1000 / limit;
+      return false;
+    }
+    if (now + 0.5 < this.nextFrameAt) return true;
+    this.nextFrameAt += 1000 / limit;
+    if (this.nextFrameAt <= now) this.nextFrameAt = now + 1000 / limit;
+    return false;
+  }
+
   loop(now) {
+    requestAnimationFrame((t) => this.loop(t));
+    if (this.shouldSkipFrame(now)) return;
     const dt = Math.min(50, now - this.lastFrame) / 1000;
     this.lastFrame = now;
     this.measureFps(now);
@@ -654,7 +677,6 @@ export class Game {
     if (this.world.target.active) this.drawTargetCursor();
     this.drawHeldOverlay();
     this.cursor.draw();
-    requestAnimationFrame((t) => this.loop(t));
   }
 
   resizeLayer(canvas, layer) {
