@@ -181,6 +181,7 @@ Then open <http://127.0.0.1:8080>.
 | `GET /api/anim/:body/:action/:dir` | Animation sheet metadata |
 | `GET /api/anim/:body/:action/:dir.png?hue=&partial=` | Animation sheet PNG |
 | `GET /api/map/:map/:blockX/:blockY` | Map block cells and statics |
+| `POST /api/map/batch` | Multiple map blocks in one response (`{ map, x, blocks: [[blockX, blockY], ...] }`) |
 | `GET /api/radarcol` | Raw `radarcol.mul` palette (16-bit colours) |
 | `GET /api/mapimage?facet=&x0=&y0=&x1=&y1=&w=&h=` | Cropped facet map PNG |
 | `WS /proxy` | UO TCP relay (JSON `connect` control frame, binary thereafter) |

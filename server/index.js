@@ -195,6 +195,53 @@ function sendBuffer(res, status, body, type, cache = 'public, max-age=86400') {
   res.end(body);
 }
 
+function readJsonBody(req, limit = 256 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    let tooLarge = false;
+    req.on('data', (chunk) => {
+      if (tooLarge) return;
+      size += chunk.length;
+      if (size > limit) {
+        tooLarge = true;
+        chunks.length = 0;
+        reject(new Error('request body too large'));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (tooLarge) return;
+      if (!chunks.length) {
+        resolve(null);
+        return;
+      }
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      } catch (err) {
+        reject(err);
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+const MAP_BATCH_LIMIT = 1024;
+
+function parseBlockList(value) {
+  if (!Array.isArray(value) || !value.length || value.length > MAP_BATCH_LIMIT) return null;
+  const blocks = [];
+  for (const entry of value) {
+    if (!Array.isArray(entry) || entry.length < 2) return null;
+    const bx = Number(entry[0]);
+    const by = Number(entry[1]);
+    if (!Number.isInteger(bx) || !Number.isInteger(by) || bx < 0 || by < 0) return null;
+    blocks.push([bx, by]);
+  }
+  return blocks;
+}
+
 const gzipCache = new WeakMap();
 
 function sendJSONMaybeGzip(req, res, body, cache) {
@@ -292,7 +339,7 @@ function handleShutdown(req, res) {
   setTimeout(() => process.exit(0), 100);
 }
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   reloadConfigIfChanged();
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const pathname = url.pathname;
@@ -470,7 +517,32 @@ const server = http.createServer((req, res) => {
       const useXFiles = ['1', 'true'].includes(String(url.searchParams.get('x') || '').toLowerCase());
       const block = assets.mapBlock(Number(m[1]), Number(m[2]), Number(m[3]), useXFiles);
       if (!block) sendJSON(res, 404, { error: 'no map block' });
-      else sendJSON(res, 200, block);
+      else sendJSONMaybeGzip(req, res, Buffer.from(JSON.stringify(block)), 'public, max-age=86400');
+      return;
+    }
+
+    if (pathname === '/api/map/batch') {
+      if (req.method !== 'POST') {
+        sendJSON(res, 405, { error: 'method not allowed' });
+        return;
+      }
+      let body;
+      try {
+        body = await readJsonBody(req);
+      } catch (err) {
+        sendJSON(res, 400, { error: String(err?.message || err) });
+        return;
+      }
+      const map = Number(body?.map);
+      const blocks = parseBlockList(body?.blocks);
+      if (!Number.isInteger(map) || map < 0 || !blocks) {
+        sendJSON(res, 400, { error: 'invalid map batch' });
+        return;
+      }
+      const useXFiles = body?.x === true || body?.x === 1 || body?.x === '1';
+      const out = blocks.map(([bx, by]) => assets.mapBlock(map, bx, by, useXFiles));
+      const payload = Buffer.from(JSON.stringify({ map, x: useXFiles, blocks: out }));
+      sendJSONMaybeGzip(req, res, payload, 'no-store');
       return;
     }
 
@@ -513,6 +585,12 @@ const server = http.createServer((req, res) => {
 });
 
 attachWebSocketServer(server, config);
+
+// Reuse sockets for the burst of small asset requests that happens whenever a
+// map region or container streams in. Browsers normally cap us at six
+// connections, so keeping them alive avoids reconnecting during those bursts.
+server.keepAliveTimeout = 65 * 1000;
+server.headersTimeout = 66 * 1000;
 
 server.listen(config.httpPort, config.host, () => {
   console.log(`[legionuo] asset server listening on http://${config.host}:${config.httpPort}`);

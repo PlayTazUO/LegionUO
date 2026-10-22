@@ -10,6 +10,7 @@ const TILE_FLAG_BRIDGE = 0x00000400;
 const TILE_FLAG_NO_DIAGONAL = 0x02000000;
 const STEP_UP_Z = 8;
 const STEP_DOWN_Z = 16;
+const MAP_BATCH_SIZE = 256;
 
 export class Mobile extends Entity {
   constructor(serial) {
@@ -89,7 +90,10 @@ export class World {
     this.mapCache = new Map();
     this.mapFailures = new Map();
     this.mapPending = new Set();
+    this.mapGeneration = 0;
     this.blockPromises = new Map();
+    this.blockBatchQueue = [];
+    this.blockBatchTimer = null;
     this.mapListeners = [];
     this.uolive = new UltimaLiveManager(this);
     this.hues = null;
@@ -933,10 +937,10 @@ export class World {
     if (!this.blockPromises) this.blockPromises = new Map();
     if (this.blockPromises.has(key)) return this.blockPromises.get(key);
     this.mapPending.add(key);
-    const xQuery = useX ? '?x=1' : '';
-    const promise = fetch(this.assets.url(`/api/map/${mapIndex}/${bx}/${by}${xQuery}`))
-      .then((r) => (r.ok ? r.json() : null))
+    const generation = this.mapGeneration;
+    const promise = this.requestBlockBatch(mapIndex, useX, bx, by)
       .then((data) => {
+        if (generation !== this.mapGeneration) return null;
         data = this.uolive.applyToBlock(data, mapIndex, bx, by);
         if (data) {
           this.mapCache.set(key, data);
@@ -948,19 +952,89 @@ export class World {
         return data;
       })
       .catch(() => {
+        if (generation !== this.mapGeneration) return null;
         this.mapCache.delete(key);
         this.mapFailures.set(key, performance.now() + 2000);
         return null;
       })
       .finally(() => {
-        this.mapPending.delete(key);
-        this.blockPromises.delete(key);
+        if (this.blockPromises.get(key) === promise) {
+          this.mapPending.delete(key);
+          this.blockPromises.delete(key);
+        }
       });
     this.blockPromises.set(key, promise);
     promise.then((data) => {
+      if (generation !== this.mapGeneration) return;
       for (const cb of this.mapListeners) cb(key, data);
     });
     return promise;
+  }
+
+  requestBlockBatch(mapIndex, useX, bx, by) {
+    return new Promise((resolve, reject) => {
+      this.blockBatchQueue.push({ mapIndex, useX, bx, by, resolve, reject });
+      this.scheduleBlockBatch();
+    });
+  }
+
+  scheduleBlockBatch() {
+    if (this.blockBatchTimer) return;
+    this.blockBatchTimer = setTimeout(() => {
+      this.blockBatchTimer = null;
+      this.flushBlockBatch();
+    }, 0);
+  }
+
+  flushBlockBatch() {
+    if (!this.blockBatchQueue.length) return;
+    const batch = this.blockBatchQueue.splice(0, MAP_BATCH_SIZE);
+    if (this.blockBatchQueue.length) this.scheduleBlockBatch();
+    const groups = new Map();
+    for (const item of batch) {
+      const groupKey = `${item.mapIndex}|${item.useX ? 'x' : 'm'}`;
+      let group = groups.get(groupKey);
+      if (!group) {
+        group = { mapIndex: item.mapIndex, useX: item.useX, items: [] };
+        groups.set(groupKey, group);
+      }
+      group.items.push(item);
+    }
+    for (const group of groups.values()) this.fetchBlockGroup(group);
+  }
+
+  fetchBlockGroup(group) {
+    const waiters = new Map();
+    const coords = [];
+    for (const item of group.items) {
+      const coordKey = `${item.bx},${item.by}`;
+      let list = waiters.get(coordKey);
+      if (!list) {
+        list = [];
+        waiters.set(coordKey, list);
+        coords.push([item.bx, item.by]);
+      }
+      list.push(item);
+    }
+    fetch(this.assets.url('/api/map/batch'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ map: group.mapIndex, x: group.useX, blocks: coords }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`map batch HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((payload) => {
+        const blocks = Array.isArray(payload?.blocks) ? payload.blocks : [];
+        coords.forEach(([bx, by], index) => {
+          const data = blocks[index] ?? null;
+          for (const item of waiters.get(`${bx},${by}`)) item.resolve(data);
+        });
+      })
+      .catch((err) => {
+        for (const item of group.items) item.reject(err);
+      });
   }
 
   async preloadRegion(minX, minY, maxX, maxY) {
@@ -1241,7 +1315,14 @@ export class World {
     this.mapCache.clear();
     this.mapFailures.clear();
     this.mapPending.clear();
+    this.mapGeneration++;
     if (this.blockPromises) this.blockPromises.clear();
+    if (this.blockBatchTimer) {
+      clearTimeout(this.blockBatchTimer);
+      this.blockBatchTimer = null;
+    }
+    for (const item of this.blockBatchQueue) item.resolve(null);
+    this.blockBatchQueue.length = 0;
     this.steps = [];
     this.pendingSteps = [];
     this.stunnedUntil = 0;
