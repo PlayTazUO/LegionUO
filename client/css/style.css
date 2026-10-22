@@ -770,6 +770,78 @@ body.uo-cursor * {
   pointer-events: none;
 }
 
+#nearbyItems {
+  position: absolute;
+  left: 50%;
+  bottom: calc(162px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  width: min(320px, calc(100vw - 24px));
+  max-height: min(38vh, 300px);
+  padding: 5px;
+  pointer-events: auto;
+  z-index: 3;
+}
+
+#nearbyItemsList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.nearbyItem {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(133, 112, 65, 0.35);
+  border-radius: 2px;
+  color: #e5cd8d;
+  font: 13px/1.2 'Segoe UI', Tahoma, sans-serif;
+  text-align: left;
+  touch-action: manipulation;
+}
+
+.nearbyItem:hover,
+.nearbyItem:active,
+.nearbyItem.activated {
+  background: rgba(229, 205, 141, 0.18);
+  border-color: rgba(229, 205, 141, 0.7);
+  color: #fff0c0;
+}
+
+.nearbyItemIcon {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.nearbyItemName {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.nearbyItemAmount {
+  flex: 0 0 auto;
+  color: #bfa96f;
+  font-size: 11px;
+  pointer-events: none;
+}
+
 #tooltip {
   position: fixed;
   z-index: 35;

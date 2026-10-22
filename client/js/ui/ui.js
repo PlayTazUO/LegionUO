@@ -85,6 +85,8 @@ const TOUCH_HEADER_HEIGHT = 28;
 const TOUCH_TWO_FINGER_MS = 500;
 const DOUBLE_TAP_MS = 320;
 const DOUBLE_TAP_DISTANCE = 26;
+const NEARBY_ITEM_RANGE = 2;
+const NEARBY_ITEM_UPDATE_MS = 250;
 const JOYSTICK_DEADZONE = 0.22;
 const JOYSTICK_RUN_FRACTION = 0.72;
 // Screen angle bucket (0 = east, clockwise) to UO movement direction. The
@@ -168,6 +170,10 @@ export class UI {
     this.mobileLayout = isMobileLayout();
     this.touchGesture = null;
     this.lastTap = null;
+    this.lastNearbyItemsUpdate = 0;
+    this.nearbyItemsKey = '';
+    this.nearbyItemTap = null;
+    this.nearbyItemNameAt = new Map();
     this.viewportRaf = null;
     this.touchStick = $('touchStick');
     this.touchStickKnob = $('touchStickKnob');
@@ -334,6 +340,7 @@ export class UI {
     window.addEventListener('touchend', (e) => this.onTouchEnd(e), { capture: true, passive: false });
     window.addEventListener('touchcancel', (e) => this.onTouchEnd(e), { capture: true, passive: false });
     this.bindTouchStick();
+    this.bindNearbyItems();
     window.addEventListener('resize', () => this.onViewportResize());
     window.visualViewport?.addEventListener('resize', () => this.onViewportResize());
     window.addEventListener('orientationchange', () => setTimeout(() => this.onViewportResize(), 120));
@@ -4032,6 +4039,142 @@ export class UI {
     return JOYSTICK_DIRECTIONS[((index % 8) + 8) % 8];
   }
 
+  /* --------------------------- nearby items --------------------------- */
+
+  bindNearbyItems() {
+    const list = $('nearbyItemsList');
+    if (!list) return;
+    list.addEventListener('click', (event) => {
+      const row = event.target.closest?.('.nearbyItem');
+      if (!row || !list.contains(row)) return;
+      const serial = Number(row.dataset.serial) >>> 0;
+      if (!serial) return;
+      const now = performance.now();
+      const double =
+        this.nearbyItemTap &&
+        this.nearbyItemTap.serial === serial &&
+        now - this.nearbyItemTap.time <= DOUBLE_TAP_MS;
+      if (!double) {
+        this.nearbyItemTap = { serial, time: now };
+        return;
+      }
+      this.nearbyItemTap = null;
+      row.classList.add('activated');
+      setTimeout(() => row.classList.remove('activated'), 150);
+      this.world.socket.out.doubleClick(serial);
+    });
+  }
+
+  nearbyItemLabel(item) {
+    if (item.name) return item.name;
+    const opl = this.world.opl.resolve(item.serial);
+    if (opl?.name) return opl.name;
+    return this.world.assets.staticName?.(item.graphic) || `0x${item.graphic.toString(16)}`;
+  }
+
+  hideNearbyItems() {
+    const root = $('nearbyItems');
+    if (!root || root.classList.contains('hidden')) return;
+    root.classList.add('hidden');
+    this.nearbyItemsKey = '';
+    this.nearbyItemTap = null;
+  }
+
+  updateNearbyItems() {
+    const root = $('nearbyItems');
+    const list = $('nearbyItemsList');
+    const player = this.world.player;
+    if (!root || !list) return;
+    const loading = $('worldLoading');
+    if (
+      !this.mobileLayout ||
+      !this.world.inGame ||
+      !player ||
+      this.world.held ||
+      this.world.target.active ||
+      (loading && !loading.classList.contains('hidden'))
+    ) {
+      this.hideNearbyItems();
+      return;
+    }
+
+    const nearby = [];
+    for (const entity of this.world.entities.values()) {
+      if (!entity.isItem || entity.container !== 0 || !entity.hasPosition || entity.isMulti) continue;
+      const dx = Math.abs(entity.x - player.x);
+      const dy = Math.abs(entity.y - player.y);
+      if (dx > NEARBY_ITEM_RANGE || dy > NEARBY_ITEM_RANGE) continue;
+      nearby.push({ entity, distance: Math.max(dx, dy) });
+    }
+    if (!nearby.length) {
+      this.hideNearbyItems();
+      return;
+    }
+    nearby.sort(
+      (a, b) =>
+        a.distance - b.distance ||
+        a.entity.y - b.entity.y ||
+        a.entity.x - b.entity.x ||
+        a.entity.serial - b.entity.serial
+    );
+
+    const missingNames = [];
+    const now = performance.now();
+    for (const { entity } of nearby) {
+      if (entity.name || this.world.opl.resolve(entity.serial)?.name) continue;
+      const last = this.nearbyItemNameAt.get(entity.serial) || 0;
+      if (now - last < 10000) continue;
+      this.nearbyItemNameAt.set(entity.serial, now);
+      missingNames.push(entity.serial);
+    }
+    if (missingNames.length) this.world.opl.requestMany(missingNames);
+
+    const key = nearby
+      .map(
+        ({ entity }) =>
+          `${entity.serial}:${entity.graphic}:${entity.hue || 0}:${this.nearbyItemLabel(entity)}:${entity.amount || 1}`
+      )
+      .join('|');
+    if (key !== this.nearbyItemsKey) {
+      this.nearbyItemsKey = key;
+      list.replaceChildren();
+      for (const { entity } of nearby) {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'nearbyItem';
+        row.dataset.serial = String(entity.serial);
+        row.title = 'Double-tap to use';
+
+        if (entity.graphic) {
+          const icon = document.createElement('img');
+          icon.className = 'nearbyItemIcon';
+          icon.alt = '';
+          icon.draggable = false;
+          icon.src = this.world.assets.url(
+            `/api/art/static/${entity.graphic}.png?hue=${entity.hue || 0}`
+          );
+          icon.addEventListener('error', () => icon.remove());
+          row.append(icon);
+        }
+
+        const name = document.createElement('span');
+        name.className = 'nearbyItemName';
+        name.textContent = this.nearbyItemLabel(entity);
+        row.append(name);
+
+        const amount = entity.amount || 1;
+        if (amount > 1) {
+          const count = document.createElement('span');
+          count.className = 'nearbyItemAmount';
+          count.textContent = `x${amount}`;
+          row.append(count);
+        }
+        list.append(row);
+      }
+    }
+    root.classList.remove('hidden');
+  }
+
   updateTouchControls() {
     const show = !!this.touchStick && this.mobileLayout && this.world.inGame;
     if (show === this.touchControlsVisible) return;
@@ -4760,7 +4903,14 @@ export class UI {
 
   update(now) {
     this.updateTouchControls();
-    if (!this.world.inGame) return;
+    if (!this.world.inGame) {
+      this.hideNearbyItems();
+      return;
+    }
+    if (now - this.lastNearbyItemsUpdate > NEARBY_ITEM_UPDATE_MS) {
+      this.lastNearbyItemsUpdate = now;
+      this.updateNearbyItems();
+    }
     this.updateJournalPointerEvents();
     if (now - this.lastStatusRefresh > 150) {
       this.lastStatusRefresh = now;
