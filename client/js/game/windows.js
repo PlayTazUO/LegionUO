@@ -23,9 +23,9 @@ const LIST_MAX_ROWS = 8;
 const LIST_ICON_SIZE = 20;
 const MOBILE_PANEL_MARGIN = 8;
 const MOBILE_HEADER_HEIGHT = 46;
-const MOBILE_ROW_HEIGHT = 48;
-const MOBILE_ROW_PAD = 6;
-const MOBILE_ICON_SIZE = 34;
+const MOBILE_GRID_CELL = 58;
+const MOBILE_GRID_GAP = 6;
+const MOBILE_GRID_PAD = 8;
 const MOBILE_SCROLLBAR_WIDTH = 8;
 const SKILL_BUTTON_WIDTH = 128;
 const SKILL_BUTTON_HEIGHT = 30;
@@ -86,7 +86,7 @@ export class ContainerWindow {
     this.listPress = null;
     this.listHover = -1;
     this.listScrollDrag = false;
-    this.mobileListScroll = 0;
+    this.mobileGridScroll = 0;
     this.mobileScrollDrag = false;
     this.mobileSwipe = null;
     this.lastMobileView = this.mobileView;
@@ -331,30 +331,64 @@ export class ContainerWindow {
     return { x: this.x + this.width - 42, y: this.y + 6, w: 34, h: 34 };
   }
 
-  get mobileListHeight() {
-    return Math.max(0, this.mobileBodyRect.h - MOBILE_ROW_PAD * 2);
+  get mobileGridColumns() {
+    const body = this.mobileBodyRect;
+    const available = body.w - MOBILE_GRID_PAD * 2 - MOBILE_SCROLLBAR_WIDTH - 6;
+    return Math.max(
+      1,
+      Math.floor((available + MOBILE_GRID_GAP) / (MOBILE_GRID_CELL + MOBILE_GRID_GAP))
+    );
+  }
+
+  get mobileGridStride() {
+    return MOBILE_GRID_CELL + MOBILE_GRID_GAP;
+  }
+
+  get mobileGridContentWidth() {
+    const cols = this.mobileGridColumns;
+    return cols * MOBILE_GRID_CELL + (cols - 1) * MOBILE_GRID_GAP;
+  }
+
+  get mobileGridLeft() {
+    const body = this.mobileBodyRect;
+    const usable = body.w - (MOBILE_SCROLLBAR_WIDTH + 4);
+    return body.x + Math.max(MOBILE_GRID_PAD, Math.floor((usable - this.mobileGridContentWidth) / 2));
+  }
+
+  get mobileGridRows() {
+    return Math.ceil(this.items.length / this.mobileGridColumns);
+  }
+
+  get mobileGridContentHeight() {
+    const rows = this.mobileGridRows;
+    if (!rows) return 0;
+    return rows * MOBILE_GRID_CELL + (rows - 1) * MOBILE_GRID_GAP;
+  }
+
+  get mobileGridHeight() {
+    return Math.max(0, this.mobileBodyRect.h - MOBILE_GRID_PAD * 2);
   }
 
   get mobileScrollMax() {
-    return Math.max(0, this.items.length * MOBILE_ROW_HEIGHT - this.mobileListHeight);
+    return Math.max(0, this.mobileGridContentHeight - this.mobileGridHeight);
   }
 
   get mobileScrollbarRect() {
     const body = this.mobileBodyRect;
     return {
-      x: this.x + this.width - MOBILE_SCROLLBAR_WIDTH - 4,
-      y: body.y + MOBILE_ROW_PAD,
+      x: body.x + body.w - MOBILE_SCROLLBAR_WIDTH - 4,
+      y: body.y + MOBILE_GRID_PAD,
       w: MOBILE_SCROLLBAR_WIDTH,
-      h: Math.max(0, body.h - MOBILE_ROW_PAD * 2),
+      h: Math.max(0, body.h - MOBILE_GRID_PAD * 2),
     };
   }
 
   mobileScrollbarThumb() {
     const track = this.mobileScrollbarRect;
     if (this.mobileScrollMax <= 0 || track.h <= 0) return null;
-    const ratio = this.mobileListHeight / (this.items.length * MOBILE_ROW_HEIGHT);
-    const h = Math.max(32, track.h * ratio);
-    const top = track.y + (this.mobileListScroll / this.mobileScrollMax) * (track.h - h);
+    const ratio = this.mobileGridHeight / this.mobileGridContentHeight;
+    const h = Math.min(track.h, Math.max(32, track.h * ratio));
+    const top = track.y + (this.mobileGridScroll / this.mobileScrollMax) * (track.h - h);
     return { x: track.x, y: top, w: track.w, h };
   }
 
@@ -365,32 +399,34 @@ export class ContainerWindow {
     const travel = track.h - thumb.h;
     if (travel <= 0) return;
     const ratio = Math.max(0, Math.min(1, (my - track.y - thumb.h / 2) / travel));
-    this.mobileListScroll = ratio * this.mobileScrollMax;
+    this.mobileGridScroll = ratio * this.mobileScrollMax;
   }
 
-  mobileRowRect(index) {
+  mobileCellRect(index) {
     const body = this.mobileBodyRect;
+    const cols = this.mobileGridColumns;
+    const col = index % cols;
+    const row = Math.floor(index / cols);
     return {
-      x: body.x + MOBILE_ROW_PAD,
-      y: body.y + MOBILE_ROW_PAD + index * MOBILE_ROW_HEIGHT - this.mobileListScroll,
-      w: Math.max(0, body.w - MOBILE_ROW_PAD * 2 - MOBILE_SCROLLBAR_WIDTH - 4),
-      h: MOBILE_ROW_HEIGHT - 2,
+      x: this.mobileGridLeft + col * this.mobileGridStride,
+      y: body.y + MOBILE_GRID_PAD + row * this.mobileGridStride - this.mobileGridScroll,
+      w: MOBILE_GRID_CELL,
+      h: MOBILE_GRID_CELL,
     };
   }
 
-  mobileRowIndexAt(mx, my) {
-    const body = this.mobileBodyRect;
-    const top = body.y + MOBILE_ROW_PAD;
-    const bottom = top + this.mobileListHeight;
-    if (mx < body.x || mx >= body.x + body.w || my < top || my >= bottom) return -1;
-    const index = Math.floor((my - top + this.mobileListScroll) / MOBILE_ROW_HEIGHT);
-    return index >= 0 && index < this.items.length ? index : -1;
-  }
-
   mobileItemAt(mx, my) {
-    const index = this.mobileRowIndexAt(mx, my);
-    if (index < 0) return null;
-    return this.listSortedItems[index] || null;
+    const body = this.mobileBodyRect;
+    if (mx < body.x || mx >= body.x + body.w || my < body.y || my >= body.y + body.h) return null;
+    const localX = mx - this.mobileGridLeft;
+    const localY = my - (body.y + MOBILE_GRID_PAD) + this.mobileGridScroll;
+    if (localX < 0 || localY < 0) return null;
+    const stride = this.mobileGridStride;
+    const col = Math.floor(localX / stride);
+    const row = Math.floor(localY / stride);
+    if (col >= this.mobileGridColumns || row >= this.mobileGridRows) return null;
+    if (localX - col * stride >= MOBILE_GRID_CELL || localY - row * stride >= MOBILE_GRID_CELL) return null;
+    return this.listSortedItems[row * this.mobileGridColumns + col] || null;
   }
 
   listRowRect(index) {
@@ -589,7 +625,7 @@ export class ContainerWindow {
     }
     const body = this.mobileBodyRect;
     if (this.hitRect(body, mx, my)) {
-      this.mobileSwipe = { y: my, start: this.mobileListScroll };
+      this.mobileSwipe = { y: my, start: this.mobileGridScroll };
     }
     return true;
   }
@@ -601,7 +637,7 @@ export class ContainerWindow {
     }
     if (this.mobileSwipe) {
       const dy = my - this.mobileSwipe.y;
-      this.mobileListScroll = Math.max(
+      this.mobileGridScroll = Math.max(
         0,
         Math.min(this.mobileSwipe.start - dy, this.mobileScrollMax)
       );
@@ -612,6 +648,15 @@ export class ContainerWindow {
       const dy = my - this.listPress.y;
       if (dx * dx + dy * dy >= 16) {
         this.listPress.moved = true;
+        if (this.mobileScrollMax > 0 && Math.abs(dy) > Math.abs(dx)) {
+          this.mobileSwipe = { y: this.listPress.y, start: this.mobileGridScroll };
+          this.listPress = null;
+          this.mobileGridScroll = Math.max(
+            0,
+            Math.min(this.mobileSwipe.start - dy, this.mobileScrollMax)
+          );
+          return;
+        }
         this.mobileSwipe = null;
         if (!this.world.held) {
           const item = this.listPress.item;
@@ -721,8 +766,8 @@ export class ContainerWindow {
   onWheel(mx, my, deltaY) {
     if (this.mobileView) {
       if (!this.contains(mx, my)) return false;
-      const step = deltaY > 0 ? MOBILE_ROW_HEIGHT : -MOBILE_ROW_HEIGHT;
-      this.mobileListScroll = Math.max(0, Math.min(this.mobileListScroll + step, this.mobileScrollMax));
+      const step = deltaY > 0 ? this.mobileGridStride : -this.mobileGridStride;
+      this.mobileGridScroll = Math.max(0, Math.min(this.mobileGridScroll + step, this.mobileScrollMax));
       return true;
     }
     if (this.pointInList(mx, my)) {
@@ -825,10 +870,13 @@ export class ContainerWindow {
     if (this.mobileView) {
       const index = this.listSortedItems.findIndex((item) => item.serial === (serial >>> 0));
       if (index >= 0) {
-        const row = this.mobileRowRect(index);
+        const cell = this.mobileCellRect(index);
         const body = this.mobileBodyRect;
-        if (row.y + row.h > body.y + MOBILE_ROW_PAD && row.y < body.y + body.h - MOBILE_ROW_PAD) {
-          rect = row;
+        if (
+          cell.y + cell.h > body.y + MOBILE_GRID_PAD &&
+          cell.y < body.y + body.h - MOBILE_GRID_PAD
+        ) {
+          rect = cell;
         }
       }
     } else if (this.pointInList(mx, my)) {
@@ -928,7 +976,7 @@ export class ContainerWindow {
   }
 
   drawMobile(ctx) {
-    this.mobileListScroll = Math.max(0, Math.min(this.mobileListScroll, this.mobileScrollMax));
+    this.mobileGridScroll = Math.max(0, Math.min(this.mobileGridScroll, this.mobileScrollMax));
     const header = this.mobileHeaderRect;
     const body = this.mobileBodyRect;
 
@@ -972,68 +1020,63 @@ export class ContainerWindow {
     ctx.textBaseline = 'middle';
     ctx.fillText('X', close.x + close.w / 2, close.y + close.h / 2 + 1);
 
+    const items = this.listSortedItems;
+    const cols = this.mobileGridColumns;
+    const stride = this.mobileGridStride;
+
     ctx.save();
     ctx.beginPath();
     ctx.rect(body.x + 1, body.y, body.w - 2, body.h);
     ctx.clip();
-    const items = this.listSortedItems;
-    const rowHeight = MOBILE_ROW_HEIGHT;
-    const first = Math.max(0, Math.floor(this.mobileListScroll / rowHeight));
-    const last = Math.min(
-      items.length,
-      Math.ceil((this.mobileListScroll + this.mobileListHeight) / rowHeight) + 1
+    const firstRow = Math.max(0, Math.floor(this.mobileGridScroll / stride));
+    const lastRow = Math.min(
+      Math.ceil(this.mobileGridRows),
+      Math.ceil((this.mobileGridScroll + this.mobileGridHeight) / stride) + 1
     );
+    const first = firstRow * cols;
+    const last = Math.min(items.length, lastRow * cols);
+
     for (let i = first; i < last; i++) {
       const item = items[i];
-      const row = this.mobileRowRect(i);
-      ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.10)';
-      ctx.fillRect(row.x, row.y, row.w, row.h);
+      const cell = this.mobileCellRect(i);
+      ctx.fillStyle = 'rgba(255,255,255,0.045)';
+      ctx.fillRect(cell.x, cell.y, cell.w, cell.h);
+      ctx.strokeStyle = 'rgba(198,176,126,0.22)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(cell.x + 0.5, cell.y + 0.5, cell.w - 1, cell.h - 1);
 
       const img = this.world.assets.getStatic(item.graphic, item.hue);
       if (img) {
-        const scale = Math.min(1, MOBILE_ICON_SIZE / Math.max(img.width, img.height));
+        const artPad = 8;
+        const scale = Math.min(1, (cell.w - artPad * 2) / Math.max(img.width, img.height));
         const iw = img.width * scale;
         const ih = img.height * scale;
-        ctx.drawImage(
-          img,
-          row.x + 6 + (MOBILE_ICON_SIZE - iw) / 2,
-          row.y + (row.h - ih) / 2,
-          iw,
-          ih
-        );
+        const ix = cell.x + (cell.w - iw) / 2;
+        const iy = cell.y + (cell.h - ih) / 2;
+        if (item.amount > 1) {
+          ctx.save();
+          ctx.globalAlpha = 0.55;
+          ctx.drawImage(img, ix + 3, iy + 3, iw, ih);
+          ctx.restore();
+        }
+        ctx.drawImage(img, ix, iy, iw, ih);
       }
 
-      const name = resolveItemName(this.world, item);
-      const countText = `x${item.amount || 1}`;
-      ctx.font = 'bold 13px monospace';
-      const countWidth = ctx.measureText(countText).width;
-      const nameX = row.x + MOBILE_ICON_SIZE + 12;
-      const nameWidth = Math.max(0, row.x + row.w - 10 - countWidth - 8 - nameX);
-      if (
-        !drawServerText(ctx, name, {
-          x: nameX,
-          y: row.y + 8,
-          width: nameWidth,
-          height: row.h - 16,
-          defaultColor: '#f0dfa8',
-          fontSize: 13,
-          bold: true,
-          fontFamily: 'monospace',
-          clip: true,
-        })
-      ) {
-        ctx.fillStyle = '#f0dfa8';
-        ctx.font = 'bold 13px monospace';
-        ctx.textAlign = 'left';
+      if (item.amount > 1) {
+        const count = String(item.amount);
+        ctx.font = 'bold 10px monospace';
+        const countWidth = ctx.measureText(count).width;
+        const badgeW = Math.max(16, countWidth + 8);
+        const badgeH = 14;
+        const badgeX = cell.x + cell.w - badgeW - 3;
+        const badgeY = cell.y + cell.h - badgeH - 3;
+        ctx.fillStyle = 'rgba(0,0,0,0.72)';
+        ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
+        ctx.fillStyle = '#ffe08a';
+        ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(fitText(ctx, name, nameWidth), nameX, row.y + row.h / 2 + 1);
+        ctx.fillText(count, badgeX + badgeW / 2, badgeY + badgeH / 2 + 1);
       }
-
-      ctx.fillStyle = item.amount > 1 ? '#ffe08a' : '#9e8e65';
-      ctx.font = 'bold 13px monospace';
-      ctx.textAlign = 'right';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(countText, row.x + row.w - 10, row.y + row.h / 2 + 1);
     }
     ctx.restore();
 
@@ -4003,7 +4046,7 @@ export class OptionsWindow {
           type: 'toggle',
           key: 'mobileContainerView',
           label: 'Touch container view',
-          hint: 'Large tap-friendly item list on touch devices',
+          hint: 'Large tap-friendly item grid on touch devices',
         },
         { type: 'toggle', key: 'showNames', label: 'Show mobile names' },
         { type: 'toggle', key: 'showHealthBars', label: 'Show health bars' },
