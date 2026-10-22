@@ -1,4 +1,4 @@
-import { accountStorageKey, clampPosition, fitText } from '../util/ui.js';
+import { accountStorageKey, clampPosition, fitText, isMobileLayout, viewportSize } from '../util/ui.js';
 
 const MACRO_STORAGE_BASE = 'legionuo.macros.v1';
 const MACRO_BUTTON_STORAGE_BASE = 'legionuo.macrobuttons.v1';
@@ -28,7 +28,9 @@ export const MACRO_ACTION_LABELS = {
   targetLast: 'Target Last',
   targetSelf: 'Target Self',
   targetNext: 'Target Next',
+  targetNearest: 'Target Nearest',
   attackLast: 'Attack Last',
+  attackNearest: 'Attack Nearest',
   lastObject: 'Last Object',
   useItemInHand: 'Use Item In Hand',
   useObject: 'Use Object (graphic)',
@@ -71,6 +73,16 @@ export const MACRO_VIRTUES = [
   { value: 'Humility', id: 5 },
   { value: 'Justice', id: 6 },
   { value: 'Compassion', id: 7 },
+];
+
+export const MACRO_NOTORIETIES = [
+  { value: 1, label: 'Innocent (blue)' },
+  { value: 2, label: 'Friend (green)' },
+  { value: 3, label: 'Neutral (gray)' },
+  { value: 4, label: 'Criminal (yellow)' },
+  { value: 5, label: 'Enemy (orange)' },
+  { value: 6, label: 'Murderer (red)' },
+  { value: 7, label: 'Invulnerable (pink)' },
 ];
 
 export const MACRO_POTIONS = [
@@ -151,6 +163,8 @@ export function parseMacroNumber(value, fallback = 0) {
 export function defaultMacroAction(type) {
   if (type === 'move') return { type: 'move', direction: 0 };
   if (type === 'wait') return { type: 'wait', ms: 1000 };
+  if (type === 'targetNearest') return { type: 'targetNearest', notorieties: [4, 5, 6] };
+  if (type === 'attackNearest') return { type: 'attackNearest', notorieties: [4, 5, 6] };
   if (type === 'useObject') return { type: 'useObject', graphic: 0x0f0c, hue: null };
   if (type === 'usePotion') return { type: 'usePotion', potion: 'heal' };
   if (type === 'useSkill') return { type: 'useSkill', skill: 'Healing' };
@@ -238,6 +252,15 @@ export function normalizeMacroAction(action, depth = 0) {
   }
   if (action.type === 'useHotbar') {
     return { type: 'useHotbar', slot: clampInt(action.slot, 1, 12, 1) };
+  }
+  if (action.type === 'targetNearest' || action.type === 'attackNearest') {
+    const source = Array.isArray(action.notorieties)
+      ? action.notorieties
+      : action.notoriety == null
+        ? []
+        : [action.notoriety];
+    const notorieties = [...new Set(source.map((value) => clampInt(value, 1, 7, 0)))].filter(Boolean);
+    return { type: action.type, notorieties };
   }
   if (NO_PARAM_ACTIONS.has(action.type)) {
     return { type: action.type };
@@ -354,6 +377,14 @@ export function macroActionSummary(action) {
   if (normalized.type === 'targetLast') return 'Target last';
   if (normalized.type === 'targetSelf') return 'Target self';
   if (normalized.type === 'targetNext') return 'Target next mobile';
+  if (normalized.type === 'targetNearest' || normalized.type === 'attackNearest') {
+    const verb = normalized.type === 'attackNearest' ? 'Attack nearest' : 'Target nearest';
+    if (!normalized.notorieties.length) return `${verb} mobile`;
+    const labels = normalized.notorieties.map(
+      (value) => MACRO_NOTORIETIES.find((entry) => entry.value === value)?.label || value
+    );
+    return `${verb}: ${labels.join(', ')}`;
+  }
   if (normalized.type === 'attackLast') return 'Attack last target';
   if (normalized.type === 'lastObject') return 'Use last object';
   if (normalized.type === 'useItemInHand') return 'Use item in hand';
@@ -519,13 +550,40 @@ export class MacroWindow {
     this.dragGhost = null;
     this.onMacroDragMove = null;
     this.onMacroDragEnd = null;
-    this.width = Math.min(680, Math.max(320, window.innerWidth - 40));
-    this.height = Math.min(460, Math.max(260, window.innerHeight - 80));
-    this.x = Math.max(20, Math.round((window.innerWidth - this.width) / 2));
-    this.y = Math.max(20, Math.round((window.innerHeight - this.height) / 2));
+    this.onViewportResize = null;
+    this.mobile = isMobileLayout();
+    if (this.mobile) {
+      const vp = viewportSize();
+      this.width = Math.max(240, vp.width - 12);
+      this.height = Math.max(240, vp.height - 12);
+      this.x = Math.max(6, Math.round((vp.width - this.width) / 2));
+      this.y = Math.max(6, Math.round((vp.height - this.height) / 2));
+    } else {
+      this.width = Math.min(680, Math.max(320, window.innerWidth - 40));
+      this.height = Math.min(460, Math.max(260, window.innerHeight - 80));
+      this.x = Math.max(20, Math.round((window.innerWidth - this.width) / 2));
+      this.y = Math.max(20, Math.round((window.innerHeight - this.height) / 2));
+    }
     this.build();
+    if (this.mobile) {
+      this.onViewportResize = () => this.fitToViewport();
+      window.addEventListener('resize', this.onViewportResize);
+    }
     const first = Object.keys(this.macros).sort((a, b) => a.localeCompare(b))[0] || null;
     this.select(first);
+  }
+
+  fitToViewport() {
+    if (!this.mobile || this.closed) return;
+    const vp = viewportSize();
+    this.width = Math.max(240, vp.width - 12);
+    this.height = Math.max(240, vp.height - 12);
+    this.x = Math.max(6, Math.round((vp.width - this.width) / 2));
+    this.y = Math.max(6, Math.round((vp.height - this.height) / 2));
+    this.el.style.left = `${this.x}px`;
+    this.el.style.top = `${this.y}px`;
+    this.el.style.width = `${this.width}px`;
+    this.el.style.height = `${this.height}px`;
   }
 
   build() {
@@ -898,6 +956,34 @@ export class MacroWindow {
       element.addEventListener('change', () => onChange(element.value));
       return element;
     };
+    const multiSelect = (options, values, onChange) => {
+      const element = document.createElement('select');
+      element.className = 'macroActionInput macroActionMulti';
+      element.multiple = true;
+      element.size = Math.min(options.length, 4);
+      for (const option of options) {
+        const item = document.createElement('option');
+        item.value = option.value;
+        item.textContent = option.label;
+        item.selected = values.includes(option.value);
+        element.append(item);
+      }
+      element.addEventListener('change', () =>
+        onChange([...element.selectedOptions].map((option) => option.value))
+      );
+      return element;
+    };
+    const notorietySelect = (target) =>
+      multiSelect(
+        MACRO_NOTORIETIES.map((entry) => ({ value: String(entry.value), label: entry.label })),
+        (target.notorieties || []).map(String),
+        (values) => {
+          target.notorieties = [...new Set(values.map((value) => Number(value)))].filter(
+            (value) => Number.isInteger(value) && value >= 1 && value <= 7
+          );
+          this.save();
+        }
+      );
 
     if (SPEECH_ACTION_TYPES.includes(action.type)) {
       fields.push(
@@ -1030,6 +1116,11 @@ export class MacroWindow {
       fields.push(note('Targets yourself with the active cursor'));
     } else if (action.type === 'targetNext') {
       fields.push(note('Targets the next nearby mobile'));
+    } else if (action.type === 'targetNearest' || action.type === 'attackNearest') {
+      fields.push(
+        notorietySelect(action),
+        note('Ctrl/Cmd-click to select several. None selected matches any mobile.')
+      );
     } else if (action.type === 'clearHands' || action.type === 'equipHands') {
       fields.push(note('Remembers and restores your one- and two-handed items'));
     } else {
@@ -1182,6 +1273,8 @@ export class MacroWindow {
     if (this.closed) return;
     this.closed = true;
     this.stopMacroDrag();
+    if (this.onViewportResize) window.removeEventListener('resize', this.onViewportResize);
+    this.onViewportResize = null;
     this.el.remove();
     this.onClose?.();
   }

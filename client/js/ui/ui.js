@@ -1443,19 +1443,7 @@ export class UI {
           } else if (sub === 'last' || sub === 'lasttarget') {
             this.useLastTarget();
           } else if (sub === 'nearest') {
-            let best = null;
-            let bestDist = Infinity;
-            for (const entity of this.world.entities.values()) {
-              if (!entity.isMobile || entity === this.world.player) continue;
-              const dist = Math.max(
-                Math.abs(entity.x - this.world.player.x),
-                Math.abs(entity.y - this.world.player.y)
-              );
-              if (dist < bestDist) {
-                bestDist = dist;
-                best = entity;
-              }
-            }
+            const best = this.findNearestMobile();
             if (best) {
               this.world.setTarget(1, 0, 0);
               this.onTargetChanged();
@@ -1773,10 +1761,46 @@ export class UI {
         return { delay: 140 };
       }
 
+      case 'targetNearest': {
+        const nearest = this.findNearestMobile(action.notorieties);
+        if (!nearest) {
+          return this.stopMacroPlayback(playback, 'no nearby mobile matching the notoriety filter.');
+        }
+        if (this.world.target.active) {
+          this.sendTargetEntity(nearest);
+          playback.waitDeadline = 0;
+        } else {
+          this.lastTarget = {
+            serial: nearest.serial,
+            graphic: nearest.graphic,
+            x: nearest.x,
+            y: nearest.y,
+            z: nearest.z,
+          };
+        }
+        return { delay: 140 };
+      }
+
       case 'attackLast': {
         const last = this.lastTarget?.serial ? this.world.getMobile(this.lastTarget.serial) : null;
         if (!last) return this.stopMacroPlayback(playback, 'no last target.');
         this.world.socket.out.attack(last.serial);
+        return { delay: 140 };
+      }
+
+      case 'attackNearest': {
+        const nearest = this.findNearestMobile(action.notorieties);
+        if (!nearest) {
+          return this.stopMacroPlayback(playback, 'no nearby mobile matching the notoriety filter.');
+        }
+        this.world.socket.out.attack(nearest.serial);
+        this.lastTarget = {
+          serial: nearest.serial,
+          graphic: nearest.graphic,
+          x: nearest.x,
+          y: nearest.y,
+          z: nearest.z,
+        };
         return { delay: 140 };
       }
 
@@ -2016,6 +2040,26 @@ export class UI {
       ? mobiles.findIndex((mobile) => mobile.serial === this.lastTarget.serial)
       : -1;
     return mobiles[(index + 1) % mobiles.length];
+  }
+
+  findNearestMobile(notorieties = []) {
+    const player = this.world.player;
+    if (!player) return null;
+    const filter = Array.isArray(notorieties) && notorieties.length
+      ? new Set(notorieties.map(Number))
+      : null;
+    let best = null;
+    let bestDist = Infinity;
+    for (const entity of this.world.entities.values()) {
+      if (!entity.isMobile || entity === player || entity.isDead) continue;
+      if (filter && !filter.has(Number(entity.notoriety))) continue;
+      const dist = Math.max(Math.abs(entity.x - player.x), Math.abs(entity.y - player.y));
+      if (!best || dist < bestDist || (dist === bestDist && entity.serial < best.serial)) {
+        bestDist = dist;
+        best = entity;
+      }
+    }
+    return best;
   }
 
   macroCommand(args) {

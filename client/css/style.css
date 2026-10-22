@@ -956,6 +956,16 @@ body.uo-cursor * {
   cursor: pointer;
 }
 
+.macroActionMulti {
+  flex: 0 0 150px !important;
+  min-height: 72px;
+  padding: 2px !important;
+}
+
+.macroActionMulti option {
+  padding: 2px 4px;
+}
+
 .macroActions {
   display: flex;
   flex: 1;
@@ -1407,5 +1417,167 @@ body.uo-cursor * {
   .journalTools button,
   #journalTabs button {
     font-size: 11px;
+  }
+
+  #macroWindow {
+    min-width: 0;
+    min-height: 0;
+    font-size: 14px;
+  }
+
+  .macroHeader {
+    flex: 0 0 46px;
+    padding: 0 10px 0 14px;
+  }
+
+  .macroTitle {
+    font-size: 16px;
+  }
+
+  .macroClose {
+    min-width: 44px;
+    min-height: 36px;
+    font-size: 18px;
+  }
+
+  .macroBody {
+    flex-direction: column;
+  }
+
+  .macroSidebar {
+    flex: 0 0 auto;
+    max-height: 32%;
+    border-right: 0;
+    border-bottom: 1px solid #3c4730;
+  }
+
+  .macroList {
+    padding: 6px;
+  }
+
+  .macroListItem {
+    min-height: 42px;
+    padding: 8px 10px;
+    font-size: 16px;
+  }
+
+  .macroCount {
+    font-size: 12px;
+  }
+
+  .macroNew {
+    min-height: 42px;
+    margin: 6px;
+    font-size: 16px;
+  }
+
+  .macroEditor {
+    flex: 1 1 auto;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .macroNameRow {
+    gap: 6px;
+  }
+
+  .macroNameRow span {
+    flex: 0 0 auto;
+    font-size: 14px;
+  }
+
+  .macroNameRow input {
+    flex: 1 1 auto;
+    min-height: 42px;
+    padding: 8px 10px;
+    font-size: 16px;
+  }
+
+  .macroActions {
+    gap: 8px;
+    padding: 6px;
+  }
+
+  .macroAction {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .macroActionType {
+    flex: 1 1 100% !important;
+    min-height: 42px;
+    font-size: 16px;
+  }
+
+  .macroAction input,
+  .macroAction select {
+    flex: 1 1 120px;
+    min-height: 42px;
+    padding: 8px 10px;
+    font-size: 16px;
+  }
+
+  .macroActionMulti {
+    flex: 1 1 100% !important;
+    width: 100%;
+    min-height: 150px !important;
+    font-size: 16px;
+  }
+
+  .macroAction button {
+    flex: 1 1 44px;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 8px;
+    font-size: 16px;
+  }
+
+  .macroActionNote {
+    flex: 1 1 100%;
+    font-size: 12px;
+  }
+
+  .macroAddSelect {
+    flex: 1 1 100%;
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .macroFooter {
+    gap: 6px;
+  }
+
+  .macroFooter button {
+    flex: 1 1 30%;
+    min-height: 44px;
+    padding: 8px;
+    font-size: 16px;
+  }
+
+  .macroSpacer {
+    display: none;
+  }
+
+  .macroLoopBody {
+    margin-left: 0;
+    padding-left: 8px;
+  }
+
+  .macroLoopAdd {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .macroLoopAdd select {
+    flex: 1 1 100%;
+    min-height: 42px;
+    font-size: 16px;
+  }
+
+  .macroLoopAdd button {
+    flex: 1 1 100%;
+    min-height: 44px;
+    font-size: 16px;
   }
 }

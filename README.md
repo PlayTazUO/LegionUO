@@ -125,8 +125,9 @@ Then open <http://127.0.0.1:8080>.
 - Hotbar/desktop with 12 key-bound slots (`1`-`0`, `-`, `=`), three pages,
   drag-to-bind items, spell/skill/command/macro bindings, drag-from-spellbook,
   tooltips, and per-account persistence. The macro editor creates and plays
-  speech, movement, wait, target, item, skill, spell, potion, ability, virtue,
-  mount, hotbar and command actions, with nested repeatable loop sections
+  speech, movement, wait, target and attack (including nearest-mobile notoriety
+  filters), item, skill, spell, potion, ability, virtue, mount, hotbar and
+  command actions, with nested repeatable loop sections
   (`0` repeats until stopped); macro names can be dragged out as reusable
   buttons and dropped onto hotbar slots.
 - Chat channel support (`0xB2`/`0xB3`), language selection and journal export.
