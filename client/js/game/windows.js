@@ -2508,26 +2508,27 @@ export class PaperdollWindow {
     const player = this.world.player;
     const defs = this.isOwn
       ? [
-          { id: 'help', gump: 0x07ef, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 0 },
-          { id: 'logout', gump: 2009, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 2 },
-          { id: 'journal', gump: 2012, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 3 },
-          { id: 'skills', gump: 2015, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 4 },
+          { id: 'help', label: 'Help', gump: 0x07ef, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 0 },
+          { id: 'logout', label: 'Logout', gump: 2009, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 2 },
+          { id: 'journal', label: 'Journal', gump: 2012, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 3 },
+          { id: 'skills', label: 'Skills', gump: 2015, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 4 },
           {
             id: 'war',
+            label: player?.inWarMode ? 'War Mode' : 'Peace Mode',
             gump: player?.inWarMode ? 0x07e8 : 0x07e5,
             x: PAPERDOLL_BUTTON_X,
             y: PAPERDOLL_BUTTON_Y + 27 * 6,
           },
-          { id: 'status', gump: 2027, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 7 },
-          { id: 'profile', gump: 0x07d2, x: 25, y: 196, w: 19, h: 51 },
-          { id: 'party', gump: 0x07d2, x: 40, y: 196, w: 19, h: 51 },
-          { id: 'virtue', gump: 0x07d2, x: 55, y: 196, w: 19, h: 51 },
-          { id: 'book', gump: 0x07d2, x: 70, y: 196, w: 19, h: 51 },
+          { id: 'status', label: 'Status', gump: 2027, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 7 },
+          { id: 'profile', label: 'Profile', gump: 0x07d2, x: 25, y: 196, w: 19, h: 51 },
+          { id: 'party', label: 'Party', gump: 0x07d2, x: 40, y: 196, w: 19, h: 51 },
+          { id: 'virtue', label: 'Virtues', gump: 0x07d2, x: 55, y: 196, w: 19, h: 51 },
+          { id: 'book', label: 'Equipment', gump: 0x07d2, x: 70, y: 196, w: 19, h: 51 },
         ]
       : [
-          { id: 'status', gump: 2027, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 7 },
-          { id: 'profile', gump: 0x07d2, x: 25, y: 196, w: 19, h: 51 },
-          { id: 'book', gump: 0x07d2, x: 40, y: 196, w: 19, h: 51 },
+          { id: 'status', label: 'Status', gump: 2027, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 7 },
+          { id: 'profile', label: 'Profile', gump: 0x07d2, x: 25, y: 196, w: 19, h: 51 },
+          { id: 'book', label: 'Equipment', gump: 0x07d2, x: 40, y: 196, w: 19, h: 51 },
         ];
     return defs.map((button) => {
       const img = this.world.assets.getGump(button.gump);
@@ -2578,6 +2579,10 @@ export class PaperdollWindow {
   }
 
   tooltipAt(mx, my) {
+    const button = this.buttonAt(mx, my);
+    if (button) {
+      return { id: `paperdoll:${this.mobile.serial}:button:${button.id}`, title: button.label };
+    }
     const slot = this.slotAt(mx, my);
     if (!slot) return null;
     if (!slot.item) {
