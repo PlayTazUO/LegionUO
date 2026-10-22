@@ -78,25 +78,38 @@
     <canvas id="uiTopLayer"></canvas>
 
     <div id="hud" class="hidden">
-      <div id="topButtons" class="panel">
-        <div id="perfStats" title="Client performance">
-          <span id="perfFps">FPS --</span>
-          <span id="perfPing">Ping --</span>
+      <div id="topMenu">
+        <button
+          id="btnMenu"
+          title="Menu"
+          aria-label="Toggle menu"
+          aria-expanded="false"
+          aria-controls="topButtons"
+        >
+          <span class="hamburgerBar"></span>
+          <span class="hamburgerBar"></span>
+          <span class="hamburgerBar"></span>
+        </button>
+        <div id="topButtons" class="panel hidden">
+          <div id="perfStats" title="Client performance">
+            <span id="perfFps">FPS --</span>
+            <span id="perfPing">Ping --</span>
+          </div>
+          <button id="btnBackpack" title="Backpack">BP</button>
+          <button id="btnPaperdoll" title="Paperdoll">PD</button>
+          <button id="btnSkills" title="Skills">SK</button>
+          <button id="btnParty" title="Party">PT</button>
+          <button id="btnMap" title="Radar">MAP</button>
+          <button id="btnHotbar" title="Hotbar">HB</button>
+          <button id="btnMacros" title="Macros">MAC</button>
+          <button id="btnWorldMap" title="World Map">WM</button>
+          <button id="btnWaypoints" title="Waypoints">WP</button>
+          <button id="btnWar" title="War/Peace">PEACE</button>
+          <button id="btnStatus" title="Status">ST</button>
+          <button id="btnOptions" title="Options">OPT</button>
+          <button id="btnJournal" title="Journal">JL</button>
+          <button id="btnLogout" title="Logout">X</button>
         </div>
-        <button id="btnBackpack" title="Backpack">BP</button>
-        <button id="btnPaperdoll" title="Paperdoll">PD</button>
-        <button id="btnSkills" title="Skills">SK</button>
-        <button id="btnParty" title="Party">PT</button>
-        <button id="btnMap" title="Radar">MAP</button>
-        <button id="btnHotbar" title="Hotbar">HB</button>
-        <button id="btnMacros" title="Macros">MAC</button>
-        <button id="btnWorldMap" title="World Map">WM</button>
-        <button id="btnWaypoints" title="Waypoints">WP</button>
-        <button id="btnWar" title="War/Peace">PEACE</button>
-        <button id="btnStatus" title="Status">ST</button>
-        <button id="btnOptions" title="Options">OPT</button>
-        <button id="btnJournal" title="Journal">JL</button>
-        <button id="btnLogout" title="Logout">X</button>
       </div>
 
       <div id="targetInfo" class="panel hidden"></div>

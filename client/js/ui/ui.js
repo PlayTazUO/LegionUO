@@ -257,6 +257,31 @@ export class UI {
       }
     });
 
+    const menuToggle = $('btnMenu');
+    const topButtons = $('topButtons');
+    const closeTopMenu = () => {
+      topButtons.classList.add('hidden');
+      menuToggle.setAttribute('aria-expanded', 'false');
+    };
+    this.closeTopMenu = closeTopMenu;
+    menuToggle.addEventListener('click', () => {
+      if (topButtons.classList.contains('hidden')) {
+        topButtons.classList.remove('hidden');
+        menuToggle.setAttribute('aria-expanded', 'true');
+      } else {
+        closeTopMenu();
+      }
+    });
+    topButtons.addEventListener('click', (e) => {
+      if (e.target.closest('button')) closeTopMenu();
+    });
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest?.('#topMenu')) closeTopMenu();
+    });
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeTopMenu();
+    });
+
     $('btnBackpack').addEventListener('click', () => {
       const player = this.world.player;
       const backpack =
@@ -539,6 +564,7 @@ export class UI {
     login.classList.add('hidden');
     login.style.display = 'none';
     $('hud').classList.remove('hidden');
+    this.closeTopMenu?.();
     if (!this._enteredWorld) {
       this._enteredWorld = true;
       settings.setAccount(this.game.loginCredentials?.account || '');

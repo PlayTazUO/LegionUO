@@ -308,13 +308,43 @@ button:hover {
   pointer-events: auto;
 }
 
-#topButtons {
+#topMenu {
   position: absolute;
-  right: 10px;
   top: 10px;
+  right: 10px;
   display: flex;
+  flex-direction: row-reverse;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+#btnMenu {
+  pointer-events: auto;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  width: 42px;
+  height: 34px;
+  padding: 7px 9px;
+}
+
+.hamburgerBar {
+  display: block;
+  width: 100%;
+  height: 2px;
+  background: #e7d39b;
+  border-radius: 1px;
+}
+
+#topButtons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 4px;
   padding: 5px;
+  max-width: calc(100vw - 74px);
 }
 
 #topButtons button {
@@ -1178,14 +1208,24 @@ button:hover {
 /* ----------------------------- mobile ----------------------------- */
 
 @media (max-width: 720px), (pointer: coarse) {
-  #topButtons {
+  #topMenu {
     left: 8px;
     right: 8px;
     top: 8px;
+    gap: 4px;
+  }
+
+  #btnMenu {
+    width: 40px;
+    height: 36px;
+  }
+
+  #topButtons {
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: 3px;
     padding: 4px;
+    max-width: calc(100vw - 60px);
   }
 
   #topButtons button {
