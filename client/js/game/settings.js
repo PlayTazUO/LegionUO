@@ -2,8 +2,8 @@ const STORAGE_KEY = 'legionuo.options.v2';
 const LEGACY_KEY = 'legionuo.options.v1';
 
 const DEFAULTS = {
-  alwaysRun: false,
-  autoOpenDoors: false,
+  alwaysRun: true,
+  autoOpenDoors: true,
   showNames: true,
   showHealthBars: true,
   dragSelectHealthBars: true,
