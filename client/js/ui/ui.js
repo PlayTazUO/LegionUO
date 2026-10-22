@@ -96,6 +96,14 @@ const JOYSTICK_RUN_FRACTION = 0.72;
 // is SE (3), etc. Rotating the buckets by one makes the stick follow the
 // direction the player actually sees on screen.
 const JOYSTICK_DIRECTIONS = [1, 2, 3, 4, 5, 6, 7, 0];
+
+function snapJoystickOffset(dx, dy) {
+  const distance = Math.hypot(dx, dy);
+  if (distance === 0) return { dx: 0, dy: 0, distance: 0 };
+  const angle = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+  return { dx: Math.cos(angle) * distance, dy: Math.sin(angle) * distance, distance };
+}
+
 // These windows are DOM elements rather than canvas panels, so the canvas
 // fit-scale must not be applied to them.
 const DOM_WINDOW_KINDS = new Set(['journal', 'macros']);
@@ -4170,11 +4178,12 @@ export class UI {
       dx = (dx / distance) * max;
       dy = (dy / distance) * max;
     }
-    this.joystick.dx = dx;
-    this.joystick.dy = dy;
+    const snapped = distance >= this.joystick.radius * JOYSTICK_DEADZONE ? snapJoystickOffset(dx, dy) : { dx, dy };
+    this.joystick.dx = snapped.dx;
+    this.joystick.dy = snapped.dy;
     this.joystick.run = distance >= max * JOYSTICK_RUN_FRACTION || !!this.world.alwaysRun;
     if (this.touchStickKnob) {
-      this.touchStickKnob.style.transform = `translate(-50%, -50%) translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px)`;
+      this.touchStickKnob.style.transform = `translate(-50%, -50%) translate(${snapped.dx.toFixed(1)}px, ${snapped.dy.toFixed(1)}px)`;
     }
     if (Math.hypot(dx, dy) >= this.joystick.radius * JOYSTICK_DEADZONE) {
       this.cancelMacroPlayback('Macro stopped.');
