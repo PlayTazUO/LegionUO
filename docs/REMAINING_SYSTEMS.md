@@ -80,9 +80,9 @@ Implemented today:
   swatch/item preview, and an OK response.
 - Options/settings window (`client/js/game/settings.js`, `OptionsWindow`) provides
   General, Display, and Audio tabs for always-run, journal timestamps, mobile names,
-  health bars, speech, lighting, weather, quest arrow, waypoints, audio enable,
-  volume, and footsteps. Toggles apply live, and all values plus window position/tab
-  persist in `localStorage`; it opens from the `OPT` button or `-options`.
+  health bars, speech, lighting, weather, quest arrow, waypoints, game zoom, audio
+  enable, volume, and footsteps. Toggles apply live, and all values plus window
+  position/tab persist in `localStorage`; it opens from the `OPT` button or `-options`.
 - Waypoint/quest window (`client/js/game/waypoints.js`, `WaypointWindow`) opens from
   the `WP` button or `-waypoints`, lists the server quest arrow, `0xE5` server
   waypoints, and local waypoints with facet/distance. Local waypoints are added at

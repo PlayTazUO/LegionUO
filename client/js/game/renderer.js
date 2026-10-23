@@ -16,6 +16,9 @@ const CORPSE_Z_BUMP = 1;
 const CULL_PAD = 80;
 const MAX_OBJECT_Z = 127;
 const MIN_OBJECT_Z = -128;
+const MIN_GAME_ZOOM = 0.5;
+const MAX_GAME_ZOOM = 2;
+const ZOOM_WHEEL_STEP = 1.1;
 const TRANSPARENT_FLAG = 0x00000004;
 const FOLIAGE_FLAG = 0x00020000;
 const ROOF_FLAG = 0x10000000;
@@ -47,16 +50,51 @@ export class Renderer {
     this.game = game;
     this.camera = { x: 0, y: 0 };
     this.mouse = { x: 0, y: 0, world: { x: 0, y: 0 } };
+    this.zoom = this.clampZoom(settings.get('gameZoom'));
     this.landTileCache = new Map();
     this.landTileCacheBytes = 0;
     this.landTileCacheLimit = 16 * 1024 * 1024;
     this.overheadCache = null;
+    settings.onChange((key, value) => {
+      if (key === 'gameZoom') this.zoom = this.clampZoom(value);
+      else if (key === 'account') this.zoom = this.clampZoom(settings.get('gameZoom'));
+    });
     this.resize();
     window.addEventListener('resize', () => this.resize());
     if (typeof ResizeObserver !== 'undefined' && this.canvas.parentElement) {
       this.resizeObserver = new ResizeObserver(() => this.resize());
       this.resizeObserver.observe(this.canvas.parentElement);
     }
+  }
+
+  clampZoom(value) {
+    const zoom = Number(value);
+    if (!Number.isFinite(zoom)) return 1;
+    return Math.max(MIN_GAME_ZOOM, Math.min(MAX_GAME_ZOOM, zoom));
+  }
+
+  get viewWidth() {
+    return this.width / this.zoom;
+  }
+
+  get viewHeight() {
+    return this.height / this.zoom;
+  }
+
+  setZoom(value, persist = true) {
+    const zoom = this.clampZoom(value);
+    if (Math.abs(zoom - this.zoom) < 0.0001) return this.zoom;
+    this.zoom = zoom;
+    if (persist) settings.set('gameZoom', Number(zoom.toFixed(2)));
+    return this.zoom;
+  }
+
+  zoomBy(factor) {
+    return this.setZoom(this.zoom * factor);
+  }
+
+  zoomByWheel(delta) {
+    return this.zoomBy(delta < 0 ? ZOOM_WHEEL_STEP : 1 / ZOOM_WHEEL_STEP);
   }
 
   resize() {
@@ -81,8 +119,8 @@ export class Renderer {
 
   updateCamera() {
     const ps = this.playerScreen();
-    this.camera.x = ps.x - this.width / 2;
-    this.camera.y = ps.y - this.height / 2;
+    this.camera.x = ps.x - this.viewWidth / 2;
+    this.camera.y = ps.y - this.viewHeight / 2;
   }
 
   tileRange() {
@@ -91,8 +129,8 @@ export class Renderer {
     // roofs and other tall statics on nearer tiles get culled before they
     // reach the viewport.
     const pad = CULL_PAD;
-    const lateral = Math.ceil((this.width / 2 + pad) / 22);
-    const depth = Math.ceil((this.height / 2 + pad) / 22) + 1;
+    const lateral = Math.ceil((this.viewWidth / 2 + pad) / 22);
+    const depth = Math.ceil((this.viewHeight / 2 + pad) / 22) + 1;
     const pz = this.world.player?.z || 0;
     const front = Math.ceil((Math.max(0, MAX_OBJECT_Z - pz) * 4) / 22);
     const back = Math.ceil((Math.max(0, pz - MIN_OBJECT_Z) * 4) / 22);
@@ -115,7 +153,7 @@ export class Renderer {
   }
 
   imageVisible(x, y, width, height) {
-    return x + width >= 0 && x <= this.width && y + height >= 0 && y <= this.height;
+    return x + width >= 0 && x <= this.viewWidth && y + height >= 0 && y <= this.viewHeight;
   }
 
   priorityZ(z, graphic) {
@@ -220,8 +258,8 @@ export class Renderer {
   }
 
   screenToTile(mx, my) {
-    const wx = mx + this.camera.x;
-    const wy = my + this.camera.y;
+    const wx = mx / this.zoom + this.camera.x;
+    const wy = my / this.zoom + this.camera.y;
     const x = (wx / 22 + wy / 22) / 2;
     const y = (wy / 22 - wx / 22) / 2;
     return { x: Math.round(x), y: Math.round(y) };
@@ -236,6 +274,8 @@ export class Renderer {
     if (!this.world.player) return;
 
     this.updateCamera();
+    ctx.setTransform(this.dpr * this.zoom, 0, 0, this.dpr * this.zoom, 0, 0);
+    ctx.imageSmoothingEnabled = false;
     const range = this.tileRange();
     const px = this.world.player.x;
     const py = this.world.player.y;
@@ -293,9 +333,13 @@ export class Renderer {
       const p = this.screenFor(x, y, z);
       return { sx: p.sx + 22, sy: p.sy + 22 };
     });
+    this.drawDebugHover(ctx);
+
+    // Weather, lighting and screen-edge markers are viewport-sized rather than
+    // world-sized, so draw them after restoring the unscaled transform.
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     this.drawWeather(ctx, now);
     this.drawLighting(ctx);
-    this.drawDebugHover(ctx);
     this.drawQuestArrow(ctx);
     this.drawWaypoints(ctx);
   }
@@ -309,9 +353,9 @@ export class Renderer {
     const pos = this.screenFor(x, y, cell.z);
     const groundVisible =
       pos.sx >= -CULL_PAD &&
-      pos.sx <= this.width + CULL_PAD &&
+      pos.sx <= this.viewWidth + CULL_PAD &&
       pos.sy >= -CULL_PAD &&
-      pos.sy <= this.height + CULL_PAD;
+      pos.sy <= this.viewHeight + CULL_PAD;
 
     if (groundVisible && cell.z < cutZ) {
       if (!this.drawStretchedLand(ctx, block, x, y, cell, pos)) {
@@ -989,9 +1033,10 @@ export class Renderer {
     const alpha = (darkness / 30) * 0.72;
     ctx.fillStyle = `rgba(2,4,12,${alpha})`;
     ctx.fillRect(0, 0, this.width, this.height);
-    const ps = this.playerScreen();
-    const px = ps.x - this.camera.x;
-    const py = ps.y - this.camera.y;
+    // The camera keeps the player centred, so screen space places the lit
+    // radius at the middle of the viewport regardless of zoom.
+    const px = this.width / 2;
+    const py = this.height / 2;
     const g = ctx.createRadialGradient(px, py, 20, px, py, 230);
     g.addColorStop(0, 'rgba(0,0,0,0)');
     g.addColorStop(1, `rgba(2,4,12,${alpha * 0.8})`);
@@ -1007,9 +1052,11 @@ export class Renderer {
     if (!arrow) return null;
     const p = this.screenFor(arrow.x, arrow.y, 0);
     const margin = 26;
-    const cx = Math.max(margin, Math.min(this.width - margin, p.sx + 22));
-    const cy = Math.max(margin, Math.min(this.height - margin, p.sy + 22));
-    return { x: cx, y: cy, sx: p.sx + 22, sy: p.sy + 22, margin };
+    const sx = (p.sx + 22) * this.zoom;
+    const sy = (p.sy + 22) * this.zoom;
+    const cx = Math.max(margin, Math.min(this.width - margin, sx));
+    const cy = Math.max(margin, Math.min(this.height - margin, sy));
+    return { x: cx, y: cy, sx, sy, margin };
   }
 
   drawQuestArrow(ctx) {
@@ -1045,26 +1092,33 @@ export class Renderer {
     for (const w of waypoints) {
       if (w.map !== undefined && w.map !== this.world.mapIndex) continue;
       const p = this.screenFor(w.x, w.y, 0);
-      p.sx += 22;
-      p.sy += 22;
-      if (p.sx < 0 || p.sx > this.width || p.sy < 0 || p.sy > this.height) continue;
+      const sx = (p.sx + 22) * this.zoom;
+      const sy = (p.sy + 22) * this.zoom;
+      if (sx < 0 || sx > this.width || sy < 0 || sy > this.height) continue;
       ctx.save();
       ctx.strokeStyle = '#7fc7ff';
       ctx.beginPath();
-      ctx.moveTo(p.sx, p.sy - 8);
-      ctx.lineTo(p.sx + 8, p.sy);
-      ctx.lineTo(p.sx, p.sy + 8);
-      ctx.lineTo(p.sx - 8, p.sy);
+      ctx.moveTo(sx, sy - 8);
+      ctx.lineTo(sx + 8, sy);
+      ctx.lineTo(sx, sy + 8);
+      ctx.lineTo(sx - 8, sy);
       ctx.closePath();
       ctx.stroke();
       ctx.restore();
     }
   }
 
+  screenPoint(mx, my) {
+    return { x: mx / this.zoom, y: my / this.zoom };
+  }
+
   targetAt(mx, my) {
-    const entity = this.entityAt(mx, my);
-    if (entity) return { kind: 'entity', entity };
     const tile = this.screenToTile(mx, my);
+    const point = this.screenPoint(mx, my);
+    const entity = this.entityAtWorld(point.x, point.y);
+    if (entity) return { kind: 'entity', entity };
+    mx = point.x;
+    my = point.y;
     const overhead = this.overheadState();
     const cutZ = overhead.cut;
     let best = null;
@@ -1127,6 +1181,11 @@ export class Renderer {
   }
 
   entityAt(mx, my) {
+    const point = this.screenPoint(mx, my);
+    return this.entityAtWorld(point.x, point.y);
+  }
+
+  entityAtWorld(mx, my) {
     let best = null;
     let bestDepth = -Infinity;
     const overhead = this.overheadState();
@@ -1205,6 +1264,9 @@ export class Renderer {
   }
 
   mobilesInRect(rect) {
+    const point = this.screenPoint(rect.x, rect.y);
+    const worldRect = { x: point.x, y: point.y, w: rect.w / this.zoom, h: rect.h / this.zoom };
+    rect = worldRect;
     const out = [];
     for (const entity of this.world.entities.values()) {
       if (!entity.isMobile || entity === this.world.player) continue;

@@ -4002,7 +4002,7 @@ export class OptionsWindow {
   constructor(world) {
     this.world = world;
     this.width = 400;
-    this.height = 430;
+    this.height = 480;
     const savedX = settings.get('optionsX');
     const savedY = settings.get('optionsY');
     const pos = clampPosition(
@@ -4059,6 +4059,15 @@ export class OptionsWindow {
           max: 240,
           step: 1,
           format: (value) => (value > 0 ? `${value} fps` : 'Unlimited'),
+        },
+        {
+          type: 'slider',
+          key: 'gameZoom',
+          label: 'Game zoom',
+          min: 0.5,
+          max: 2,
+          step: 0.1,
+          format: (value) => `${Math.round(value * 100)}%`,
         },
         {
           type: 'toggle',

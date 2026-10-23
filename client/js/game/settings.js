@@ -19,6 +19,7 @@ const DEFAULTS = {
   footsteps: true,
   gumpFont: 3,
   frameLimit: 0,
+  gameZoom: 1,
   keyJournal: 'KeyJ',
   keyHelp: 'F1',
   keyWar: 'Alt+KeyW',
@@ -101,6 +102,10 @@ class SettingsStore {
     this.values.frameLimit = Number.isFinite(frameLimit)
       ? Math.max(0, Math.min(240, Math.round(frameLimit)))
       : DEFAULTS.frameLimit;
+    const gameZoom = Number(this.values.gameZoom);
+    this.values.gameZoom = Number.isFinite(gameZoom)
+      ? Math.round(Math.max(0.5, Math.min(2, gameZoom)) * 100) / 100
+      : DEFAULTS.gameZoom;
     if (!TABS.includes(this.values.optionsTab)) this.values.optionsTab = DEFAULTS.optionsTab;
     for (const key of ['optionsX', 'optionsY']) {
       const value = this.values[key];

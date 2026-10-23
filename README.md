@@ -117,6 +117,8 @@ Then open <http://127.0.0.1:8080>.
 
 - Canvas 2D isometric terrain with z-stretched land textures for slopes, hills and cliffs,
   statics, ground items, mobiles and equipment.
+- Game viewport zooming with the mouse wheel over the world (or a saved default on the
+  Display options tab), from 50% to 200%.
 - Animation frames, mirroring, hueing, health bars, names, speech and damage text.
 - Moving/fixed effects, lighting, weather, target cursor and held item.
 - Server gumps parsed from layout strings (`resizepic`, `gumppic`, `picinpic`,
@@ -161,7 +163,7 @@ Then open <http://127.0.0.1:8080>.
   commands.
 - Options window (`OPT` / `-options`) with General, Display, Audio, and Keys tabs for
   always-run, auto-open doors, journal timestamps, names, health bars, speech, lighting, weather,
-  quest arrow, waypoints, audio, volume, footsteps, joystick position, and rebindable shortcuts;
+  quest arrow, waypoints, game zoom, audio, volume, footsteps, joystick position, and rebindable shortcuts;
   settings apply live and persist per account in `localStorage`.
 - Custom-house design window with floor/category controls, add/delete prompts,
   backup/restore/commit/revert/clear/exit commands, and `0xD8` design updates.

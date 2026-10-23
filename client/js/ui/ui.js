@@ -4593,8 +4593,9 @@ export class UI {
     if (!p) return null;
     const renderer = this.game.renderer;
     const ps = renderer.playerScreen();
-    const sx = this.gameMouse.x - (ps.x - renderer.camera.x);
-    const sy = this.gameMouse.y - (ps.y - renderer.camera.y);
+    const zoom = renderer.zoom || 1;
+    const sx = this.gameMouse.x / zoom - (ps.x - renderer.camera.x);
+    const sy = this.gameMouse.y / zoom - (ps.y - renderer.camera.y);
     if (sx * sx + sy * sy < 64) return null;
     const angle = Math.atan2(sy, sx);
     const index = Math.round((angle + Math.PI / 4) / (Math.PI / 4));
@@ -4690,6 +4691,15 @@ export class UI {
       e.stopPropagation();
     } else if (hit?.obj.scroll !== undefined) {
       hit.obj.scroll = Math.max(0, hit.obj.scroll + (e.deltaY > 0 ? 46 : -46));
+      e.preventDefault();
+      e.stopPropagation();
+    } else if (
+      !hit &&
+      e.deltaY &&
+      e.target === this.game.renderer.canvas &&
+      this.world.inGame
+    ) {
+      this.game.renderer.zoomByWheel(e.deltaY);
       e.preventDefault();
       e.stopPropagation();
     }
