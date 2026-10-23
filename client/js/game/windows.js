@@ -2,6 +2,8 @@ import {
   Layer,
   baseBodyGraphic,
   buildEquipmentOrder,
+  displayedItemGraphic,
+  drawsStackedArt,
   isFemaleMobile,
   isGargoyleBody,
 } from './entity.js';
@@ -188,12 +190,13 @@ export class ContainerWindow {
     };
     if (this.usesServerPositions) {
       for (const item of items) {
-        const img = this.world.assets.getStatic(item.graphic, item.hue);
+        const graphic = displayedItemGraphic(item);
+        const img = this.world.assets.getStatic(graphic, item.hue);
         layout.push(
           clampEntry({
             item,
             img,
-            bounds: this.world.assets.staticBounds(item.graphic, item.hue),
+            bounds: this.world.assets.staticBounds(graphic, item.hue),
             x: item.x || GRID_INSET,
             y: item.y || GRID_INSET,
             w: img?.width || 28,
@@ -210,7 +213,7 @@ export class ContainerWindow {
       const y = GRID_INSET + Math.floor(i / cols) * GRID_CELL;
       layout.push({
         item: items[i],
-        img: this.world.assets.getStatic(items[i].graphic, items[i].hue),
+        img: this.world.assets.getStatic(displayedItemGraphic(items[i]), items[i].hue),
         x,
         y,
         w: GRID_CELL - 2,
@@ -467,7 +470,7 @@ export class ContainerWindow {
   }
 
   hitBounds(entry) {
-    const stacked = entry.item?.amount > 1 ? STACK_ART_OFFSET : 0;
+    const stacked = drawsStackedArt(entry.item) ? STACK_ART_OFFSET : 0;
     return { x: entry.hitX, y: entry.hitY, w: entry.hitW + stacked, h: entry.hitH + stacked };
   }
 
@@ -726,7 +729,11 @@ export class ContainerWindow {
     if (!item) return;
     this.world.held = null;
     const p = this.localPoint(mx, my);
-    const img = this.world.assets.getStatic(item.graphic, item.hue);
+    const graphic = displayedItemGraphic({
+      graphic: item.graphic,
+      amount: this.world.heldAmount || item.amount,
+    });
+    const img = this.world.assets.getStatic(graphic, item.hue);
     const w = img?.width || 0;
     const h = img?.height || 0;
     const maxX = Math.max(0, this.width - w);
@@ -957,7 +964,7 @@ export class ContainerWindow {
           }
         };
         drawArt(ix, iy);
-        if (e.item.amount > 1) drawArt(ix + STACK_ART_OFFSET, iy + STACK_ART_OFFSET);
+        if (drawsStackedArt(e.item)) drawArt(ix + STACK_ART_OFFSET, iy + STACK_ART_OFFSET);
       }
       if (!positioned) ctx.strokeRect(ix + 0.5, iy + 0.5, e.w - 1, e.h - 1);
     }
@@ -1045,7 +1052,7 @@ export class ContainerWindow {
       ctx.lineWidth = 1;
       ctx.strokeRect(cell.x + 0.5, cell.y + 0.5, cell.w - 1, cell.h - 1);
 
-      const img = this.world.assets.getStatic(item.graphic, item.hue);
+      const img = this.world.assets.getStatic(displayedItemGraphic(item), item.hue);
       if (img) {
         const artPad = 8;
         const scale = Math.min(1, (cell.w - artPad * 2) / Math.max(img.width, img.height));
@@ -1053,7 +1060,7 @@ export class ContainerWindow {
         const ih = img.height * scale;
         const ix = cell.x + (cell.w - iw) / 2;
         const iy = cell.y + (cell.h - ih) / 2;
-        if (item.amount > 1) {
+        if (drawsStackedArt(item)) {
           ctx.save();
           ctx.globalAlpha = 0.55;
           ctx.drawImage(img, ix + 3, iy + 3, iw, ih);
@@ -1147,7 +1154,7 @@ export class ContainerWindow {
         else ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.08)';
         ctx.fillRect(row.x, row.y, row.w, row.h);
 
-        const img = this.world.assets.getStatic(item.graphic, item.hue);
+        const img = this.world.assets.getStatic(displayedItemGraphic(item), item.hue);
         if (img) {
           const scale = Math.min(1, LIST_ICON_SIZE / Math.max(img.width, img.height));
           const iw = img.width * scale;
@@ -1532,7 +1539,7 @@ export class TradeWindow {
       if (rowY + this.rowHeight < rect.y || rowY > rect.y + rect.h) continue;
       ctx.fillStyle = i % 2 ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.055)';
       ctx.fillRect(rect.x + 1, rowY, rect.w - 2, this.rowHeight - 1);
-      const img = this.world.assets.getStatic(item.graphic, item.hue);
+      const img = this.world.assets.getStatic(displayedItemGraphic(item), item.hue);
       if (img) {
         const scale = Math.min(1, 20 / Math.max(img.width, img.height));
         ctx.drawImage(
@@ -2886,7 +2893,7 @@ export class PaperdollWindow {
       ctx.strokeStyle = 'rgba(154,126,71,0.55)';
       ctx.strokeRect(slotX + 0.5, slotY + 0.5, slot.w - 1, slot.h - 1);
       if (!slot.item) continue;
-      const img = this.world.assets.getStatic(slot.item.graphic, slot.item.hue || 0);
+      const img = this.world.assets.getStatic(displayedItemGraphic(slot.item), slot.item.hue || 0);
       if (img) {
         const fit = Math.min(1, (slot.w - 2) / Math.max(1, img.width), (slot.h - 2) / Math.max(1, img.height));
         const w = img.width * fit;
@@ -3516,7 +3523,7 @@ export class EquipmentWindow {
       if (y > this.y + this.height || y + 30 < this.y + 36) return;
       ctx.fillStyle = index % 2 ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.16)';
       ctx.fillRect(this.x + 8, y, this.width - 16, 28);
-      const img = this.world.assets.getStatic(item.graphic, item.hue || 0);
+      const img = this.world.assets.getStatic(displayedItemGraphic(item), item.hue || 0);
       if (img) {
         const scale = Math.min(1, 24 / Math.max(1, img.width), 24 / Math.max(1, img.height));
         ctx.drawImage(img, this.x + 12, y + 2, img.width * scale, img.height * scale);
@@ -5460,7 +5467,7 @@ export class ShopWindow {
         ctx.fillStyle = 'rgba(255,255,255,0.035)';
         ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
       }
-      const img = this.world.assets.getStatic(item.graphic, item.hue);
+      const img = this.world.assets.getStatic(displayedItemGraphic(item), item.hue);
       if (img) {
         const scale = Math.min(1, 32 / Math.max(img.width, img.height));
         ctx.drawImage(img, rect.x + 6, rect.y + 4, img.width * scale, img.height * scale);

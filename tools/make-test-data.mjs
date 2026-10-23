@@ -98,6 +98,8 @@ function staticArt(w,h,color) {
   add(1, landDiamond(c16(70,140,70)));
   add(2, landDiamond(c16(40,90,150)));
   add(0x4000+0x0eed, staticArt(12,10,c16(230,190,40)));
+  add(0x4000+0x0eee, staticArt(16,12,c16(230,190,40)));
+  add(0x4000+0x0eef, staticArt(20,14,c16(230,190,40)));
   add(0x4000+0x0cd3, staticArt(24,46,c16(30,120,40)));
   add(0x4000+0x0e75, staticArt(18,28,c16(120,80,40)));
   // leave all other land tiles mapping to tile 0? Not needed.

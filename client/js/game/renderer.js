@@ -3,6 +3,7 @@ import {
   animDirection,
   baseBodyGraphic,
   buildEquipmentOrder,
+  displayedItemGraphic,
   isFemaleMobile,
   isGargoyleBody,
 } from './entity.js';
@@ -398,7 +399,7 @@ export class Renderer {
         type: 'item',
         z,
         priorityZ: this.priorityZ(z, item.graphic),
-        graphic: item.graphic,
+        graphic: displayedItemGraphic(item),
         hue: item.hue,
         entity: item,
         amount: item.amount,
@@ -1288,10 +1289,11 @@ export class Renderer {
       if (minX === Infinity) return null;
       return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
     }
-    const img = this.assets.getStatic(entity.graphic, entity.hue);
+    const graphic = displayedItemGraphic(entity);
+    const img = this.assets.getStatic(graphic, entity.hue);
     if (!img) return null;
     const pos = this.staticDrawPos(x, y, z, img);
-    const bounds = this.assets.staticBounds(entity.graphic, entity.hue);
+    const bounds = this.assets.staticBounds(graphic, entity.hue);
     if (bounds) {
       return { x: pos.x + bounds.x, y: pos.y + bounds.y, w: bounds.w, h: bounds.h };
     }
@@ -1329,13 +1331,14 @@ export class Renderer {
   drawHeld(ctx) {
     const held = this.game.held;
     if (!held) return;
-    const img = this.assets.getStatic(held.graphic, held.hue);
+    const amount = this.game.world.heldAmount || (held.amount > 1 ? held.amount : 0);
+    const graphic = displayedItemGraphic({ graphic: held.graphic, amount: amount || held.amount });
+    const img = this.assets.getStatic(graphic, held.hue);
     if (!img) return;
     ctx.globalAlpha = 0.85;
     const dx = this.mouse.x - img.width / 2;
     const dy = this.mouse.y - img.height / 2;
     ctx.drawImage(img, dx, dy);
-    const amount = this.game.world.heldAmount || (held.amount > 1 ? held.amount : 0);
     if (amount > 1) {
       ctx.globalAlpha = 1;
       ctx.font = 'bold 12px monospace';

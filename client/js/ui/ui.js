@@ -26,7 +26,7 @@ import {
   saveSkillButtons,
   saveFriends,
 } from '../game/windows.js';
-import { Layer } from '../game/entity.js';
+import { Layer, displayedItemGraphic } from '../game/entity.js';
 import { parseCustomHousePacket } from '../game/housing.js';
 import { settings } from '../game/settings.js';
 import { BuffBarWindow, buffGraphic } from '../game/buffs.js';
@@ -4343,7 +4343,7 @@ export class UI {
           icon.alt = '';
           icon.draggable = false;
           icon.src = this.world.assets.url(
-            `/api/art/static/${entity.graphic}.png?hue=${entity.hue || 0}`
+            `/api/art/static/${displayedItemGraphic(entity)}.png?hue=${entity.hue || 0}`
           );
           icon.addEventListener('error', () => icon.remove());
           row.append(icon);

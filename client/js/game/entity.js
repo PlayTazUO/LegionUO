@@ -32,6 +32,7 @@ export const Layer = {
 };
 
 const GHOST_GRAPHICS = new Set([0x0192, 0x0193, 0x025f, 0x0260, 0x02b6, 0x02b7]);
+const COIN_GRAPHICS = new Set([0x0eea, 0x0eed, 0x0ef0]);
 const FEMALE_BODIES = new Set([0x00b8, 0x00ba, 0x0191, 0x0193, 0x025e, 0x0260, 0x029b, 0x02b7, 0x02ef]);
 const MALE_BODIES = new Set([0x00b7, 0x00b9, 0x0190, 0x0192, 0x025d, 0x025f, 0x029a, 0x02b6, 0x02ee]);
 const GARGOYLE_BODIES = new Set([0x029a, 0x029b, 0x02b6, 0x02b7]);
@@ -155,6 +156,25 @@ export function refreshMobileGender(mobile) {
 export function baseBodyGraphic(mobile) {
   const graphic = (mobile?.graphic & 0x7fff) || 0;
   return GHOST_BODY_BASE.get(graphic) ?? graphic;
+}
+
+export function isCoinGraphic(graphic) {
+  return COIN_GRAPHICS.has((graphic & 0xffff) || 0);
+}
+
+// Coins have dedicated stack art (graphic + 1 for a small pile, + 2 for a
+// large one). Other stackable items are drawn twice with a small offset.
+export function displayedItemGraphic(item) {
+  const graphic = (item?.graphic & 0xffff) || 0;
+  if (!isCoinGraphic(graphic)) return graphic;
+  const amount = Number(item.amount) || 0;
+  if (amount > 5) return (graphic + 2) & 0xffff;
+  if (amount > 1) return (graphic + 1) & 0xffff;
+  return graphic;
+}
+
+export function drawsStackedArt(item) {
+  return (Number(item?.amount) || 0) > 1 && !isCoinGraphic(item?.graphic);
 }
 
 function indexOfLayer(order, layer) {
