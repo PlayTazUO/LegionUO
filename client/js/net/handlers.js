@@ -1,6 +1,6 @@
 import { Reader } from '../util/binary.js';
 import { versionValue } from './packet-length.js';
-import { Layer, animDirection, isGhostGraphic } from '../game/entity.js';
+import { Layer, animDirection, isGhostGraphic, refreshMobileGender } from '../game/entity.js';
 
 const MessageType = {
   Regular: 0,
@@ -420,6 +420,7 @@ export class Handlers {
         entity.graphic = graphic;
         entity.hue = hue;
         entity.flags = flags;
+        refreshMobileGender(entity);
         entity.isFrozen = (flags & 0x01) !== 0;
         entity.isHidden = (flags & 0x80) !== 0;
         if (entity === world.player) entity.isStunned = false;
@@ -432,6 +433,8 @@ export class Handlers {
       } else if (serial === world.playerSerial) {
         const p = world.createPlayer(serial);
         p.graphic = graphic;
+        p.flags = flags;
+        refreshMobileGender(p);
         world.refreshGhostState(p);
         world.setEntityPosition(p, x, y, z);
       }
@@ -907,11 +910,13 @@ export class Handlers {
         mobile.graphic = graphic;
         mobile.hue = hue;
         mobile.flags = flags;
+        refreshMobileGender(mobile);
         if (x || y) world.reconcilePlayerPosition(x, y, z, direction);
       } else {
         mobile.graphic = graphic;
         mobile.hue = hue;
         mobile.flags = flags;
+        refreshMobileGender(mobile);
         world.moveMobile(mobile, x, y, z, direction);
       }
     };
@@ -932,6 +937,7 @@ export class Handlers {
         world.player.graphic = graphic;
         world.player.hue = hue;
         world.player.flags = flags;
+        refreshMobileGender(world.player);
         if (x || y) world.reconcilePlayerPosition(x, y, z, direction);
       } else {
         world.updateObject({ serial, graphic, x, y, z, direction, hue, flags, isMobile: true });
@@ -1260,6 +1266,7 @@ export class Handlers {
           world.player.graphic = graphic;
           world.player.hue = hue;
           world.player.flags = flags;
+          refreshMobileGender(world.player);
           if (x || y) world.reconcilePlayerPosition(x, y, z, direction);
         }
       } else {

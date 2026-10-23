@@ -2764,13 +2764,14 @@ export class PaperdollWindow {
   }
 
   bodyGump() {
-    const graphic = this.mobile.graphic;
+    const graphic = (this.mobile.graphic & 0x7fff) || 0;
     const hue = this.mobile.hue || 0;
     // TazUO's paperdoll body is always partial-hued: skin and cloth are grey
     // in the body gump, while the outline and details stay their own colour.
+    if (graphic === 0x0190 || graphic === 0x0192) return { id: 0x0c, hue, partial: true };
     if (graphic === 0x0191 || graphic === 0x0193) return { id: 0x0d, hue, partial: true };
-    if (graphic === 0x025d) return { id: 0x0e, hue, partial: true };
-    if (graphic === 0x025e) return { id: 0x0f, hue, partial: true };
+    if (graphic === 0x025d || graphic === 0x025f) return { id: 0x0e, hue, partial: true };
+    if (graphic === 0x025e || graphic === 0x0260) return { id: 0x0f, hue, partial: true };
     if (graphic === 0x029a || graphic === 0x02b6) return { id: 0x029a, hue, partial: true };
     if (graphic === 0x029b || graphic === 0x02b7) return { id: 0x0299, hue, partial: true };
     if (graphic === 0x04e5) return { id: 0xc835, hue, partial: true };

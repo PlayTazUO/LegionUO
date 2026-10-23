@@ -31,13 +31,15 @@ export const Layer = {
   Bank: 29,
 };
 
-const GHOST_GRAPHICS = new Set([0x0192, 0x0193, 0x02b6, 0x02b7]);
-const FEMALE_BODIES = new Set([0x0191, 0x0193, 0x025e, 0x029b, 0x02b7]);
-const MALE_BODIES = new Set([0x0190, 0x0192, 0x025d, 0x029a, 0x02b6]);
+const GHOST_GRAPHICS = new Set([0x0192, 0x0193, 0x025f, 0x0260, 0x02b6, 0x02b7]);
+const FEMALE_BODIES = new Set([0x00b8, 0x00ba, 0x0191, 0x0193, 0x025e, 0x0260, 0x029b, 0x02b7, 0x02ef]);
+const MALE_BODIES = new Set([0x00b7, 0x00b9, 0x0190, 0x0192, 0x025d, 0x025f, 0x029a, 0x02b6, 0x02ee]);
 const GARGOYLE_BODIES = new Set([0x029a, 0x029b, 0x02b6, 0x02b7]);
 const GHOST_BODY_BASE = new Map([
   [0x0192, 0x0190],
   [0x0193, 0x0191],
+  [0x025f, 0x025d],
+  [0x0260, 0x025e],
   [0x02b6, 0x029a],
   [0x02b7, 0x029b],
 ]);
@@ -130,12 +132,24 @@ export function isGargoyleBody(graphic) {
   return GARGOYLE_BODIES.has((graphic & 0x7fff) || 0);
 }
 
+export function bodyGender(graphic) {
+  const id = (graphic & 0x7fff) || 0;
+  if (FEMALE_BODIES.has(id)) return true;
+  if (MALE_BODIES.has(id)) return false;
+  return null;
+}
+
 export function isFemaleMobile(mobile) {
   if (!mobile) return false;
-  const graphic = (mobile.graphic & 0x7fff) || 0;
-  if (FEMALE_BODIES.has(graphic)) return true;
-  if (MALE_BODIES.has(graphic)) return false;
+  const gender = bodyGender(mobile.graphic);
+  if (gender !== null) return gender;
   return !!(mobile.isFemale || (mobile.flags & 0x02));
+}
+
+export function refreshMobileGender(mobile) {
+  if (!mobile?.isMobile) return;
+  const gender = bodyGender(mobile.graphic);
+  mobile.isFemale = gender ?? (mobile.flags & 0x02) !== 0;
 }
 
 export function baseBodyGraphic(mobile) {

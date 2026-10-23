@@ -1,4 +1,11 @@
-import { Entity, isGhostGraphic, isMobileSerial, Layer } from './entity.js';
+import {
+  Entity,
+  isFemaleMobile,
+  isGhostGraphic,
+  isMobileSerial,
+  refreshMobileGender,
+  Layer,
+} from './entity.js';
 import { OPLManager } from './opl.js';
 import { UltimaLiveManager } from './uolive.js';
 import { decodeCustomHouseDesign, multiBounds } from './housing.js';
@@ -354,7 +361,8 @@ export class World {
     if (created) this.setEntityPosition(entity, x, y, z);
     entity.graphic = graphic + graphicInc;
     if (hue) entity.hue = hue;
-    if (flags) entity.flags = flags;
+    entity.flags = flags;
+    refreshMobileGender(entity);
     this.refreshGhostState(entity);
     if (!mobile) {
       entity.x = x;
@@ -412,8 +420,10 @@ export class World {
     const player = this.player;
     if (!player) return;
     if (!player.isGhost) player.livingGraphic = player.graphic;
-    const female = player.isFemale || (player.flags & 0x02) !== 0;
-    player.graphic = player.race === 3 ? 0x02b6 + (female ? 1 : 0) : 0x0192 + (female ? 1 : 0);
+    const female = isFemaleMobile(player);
+    const base = player.race === 3 ? 0x02b6 : player.race === 2 ? 0x025f : 0x0192;
+    player.graphic = base + (female ? 1 : 0);
+    refreshMobileGender(player);
     player.isDead = true;
     player.isGhost = true;
     player.moving = false;
@@ -430,6 +440,7 @@ export class World {
     const player = this.player;
     if (!player) return;
     if (player.livingGraphic) player.graphic = player.livingGraphic;
+    refreshMobileGender(player);
     player.livingGraphic = 0;
     player.isDead = false;
     player.isGhost = false;
