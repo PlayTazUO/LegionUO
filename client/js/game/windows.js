@@ -2464,6 +2464,7 @@ export class PaperdollWindow {
     this.dragOffset = { x: 0, y: 0 };
     this.press = null;
     this.heldOrigin = null;
+    this.hover = null;
     this.start = performance.now();
   }
 
@@ -2509,30 +2510,32 @@ export class PaperdollWindow {
     const player = this.world.player;
     const defs = this.isOwn
       ? [
-          { id: 'help', label: 'Help', gump: 0x07ef, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 0 },
-          { id: 'logout', label: 'Logout', gump: 2009, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 2 },
-          { id: 'journal', label: 'Journal', gump: 2012, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 3 },
-          { id: 'skills', label: 'Skills', gump: 2015, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 4 },
+          { id: 'help', label: 'Help', gump: 0x07ef, hoverGump: 0x07f1, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 0 },
+          { id: 'logout', label: 'Logout', gump: 2009, hoverGump: 2011, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 2 },
+          { id: 'journal', label: 'Journal', gump: 2012, hoverGump: 2014, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 3 },
+          { id: 'skills', label: 'Skills', gump: 2015, hoverGump: 2017, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 4 },
           {
             id: 'war',
             label: player?.inWarMode ? 'War Mode' : 'Peace Mode',
             gump: player?.inWarMode ? 0x07e8 : 0x07e5,
+            hoverGump: player?.inWarMode ? 0x07ea : 0x07e7,
             x: PAPERDOLL_BUTTON_X,
             y: PAPERDOLL_BUTTON_Y + 27 * 6,
           },
-          { id: 'status', label: 'Status', gump: 2027, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 7 },
+          { id: 'status', label: 'Status', gump: 2027, hoverGump: 2029, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 7 },
           { id: 'profile', label: 'Profile', gump: 0x07d2, x: 25, y: 196, w: 19, h: 51 },
           { id: 'party', label: 'Party', gump: 0x07d2, x: 40, y: 196, w: 19, h: 51 },
           { id: 'virtue', label: 'Virtues', gump: 0x07d2, x: 55, y: 196, w: 19, h: 51 },
           { id: 'book', label: 'Equipment', gump: 0x07d2, x: 70, y: 196, w: 19, h: 51 },
         ]
       : [
-          { id: 'status', label: 'Status', gump: 2027, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 7 },
+          { id: 'status', label: 'Status', gump: 2027, hoverGump: 2029, x: PAPERDOLL_BUTTON_X, y: PAPERDOLL_BUTTON_Y + 27 * 7 },
           { id: 'profile', label: 'Profile', gump: 0x07d2, x: 25, y: 196, w: 19, h: 51 },
           { id: 'book', label: 'Equipment', gump: 0x07d2, x: 40, y: 196, w: 19, h: 51 },
         ];
     return defs.map((button) => {
       const img = this.world.assets.getGump(button.gump);
+      if (button.hoverGump) this.world.assets.getGump(button.hoverGump);
       return {
         ...button,
         w: button.w ?? img?.width ?? 64,
@@ -2625,6 +2628,7 @@ export class PaperdollWindow {
   }
 
   onMouseMove(mx, my) {
+    this.hover = this.buttonAt(mx, my)?.id || null;
     if (this.press && !this.press.moved) {
       const dx = mx - this.press.x;
       const dy = my - this.press.y;
@@ -2899,7 +2903,10 @@ export class PaperdollWindow {
     }
 
     for (const button of this.buttons) {
-      const img = this.world.assets.getGump(button.gump);
+      const hovered = this.hover === button.id;
+      const img =
+        (hovered && button.hoverGump ? this.world.assets.getGump(button.hoverGump) : null) ||
+        this.world.assets.getGump(button.gump);
       const bx = this.x + button.x;
       const by = this.y + button.y;
       if (img) {
