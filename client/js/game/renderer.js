@@ -368,9 +368,17 @@ export class Renderer {
     }
 
     const drawables = [];
+    const landVisible = cell.z < cutZ;
     for (const s of this.world.staticGrid(block)[(ly << 3) | lx] || []) {
       if (s.z >= cutZ) continue;
-      if (hideRoofs && ((this.assets.staticFlags(s.graphic) || 0) & ROOF_FLAG)) continue;
+      const flags = (this.assets.staticFlags(s.graphic) || 0) >>> 0;
+      if (hideRoofs && (flags & ROOF_FLAG)) continue;
+      // Statics buried under this tile's land (for example a basement wall
+      // that reaches exactly to the ground above it) must not be drawn over the
+      // ground. Keep them when the overhead cut hides that land so they remain
+      // visible from inside the basement.
+      const top = s.z + Math.max(1, this.world.staticCalcHeight(s.graphic, flags));
+      if (landVisible && top <= cell.z) continue;
       drawables.push({ type: 'static', z: s.z, priorityZ: this.priorityZ(s.z, s.graphic), graphic: s.graphic, hue: s.hue });
     }
     for (const item of groundItems.get(`${x},${y}`) || []) {

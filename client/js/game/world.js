@@ -778,10 +778,11 @@ export class World {
     // Impassable tiles only block if they reach above the surface the player
     // would stand on. The foundation walls of custom houses sit at z 0 and are
     // only five units tall, so they must be walk-over curbs when stepping from
-    // the entrance stairs onto the raised floor at z 7.
+    // the entrance stairs onto the raised floor at z 7. The same applies to a
+    // basement wall whose top is exactly level with the ground above it.
     let staticBlocked = false;
     for (const b of staticBlockers) {
-      if (b.top >= z && b.bottom < z + 16) {
+      if (b.top > z && b.bottom < z + 16) {
         staticBlocked = true;
         break;
       }
