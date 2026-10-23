@@ -61,6 +61,12 @@ import { Journal } from './journal.js';
 
 const $ = (id) => document.getElementById(id);
 
+// ServUO names a multi after its first component, which is the invisible
+// "nodraw" tile. Houses therefore all resolve to a "nodraw" label.
+function isNoDrawName(text) {
+  return /^no[\s_-]?draw/i.test(String(text || '').trim());
+}
+
 const OPEN_WINDOWS_STORAGE_BASE = 'legionuo.openwindows.v1';
 const PERSISTED_WINDOW_KINDS = new Set([
   'status',
@@ -4716,6 +4722,8 @@ export class UI {
     let bestScore = Infinity;
     for (const e of this.world.entities.values()) {
       if (e.isItem && e.container !== 0) continue;
+      // Invisible nodraw markers should never capture clicks.
+      if (e.isItem && !e.isMulti && this.world.assets.isNoDraw?.(e.graphic, false)) continue;
       if (e === this.world.player) continue;
       const d = Math.abs(e.x - x) + Math.abs(e.y - y);
       if (d < bestScore) {
@@ -4784,6 +4792,10 @@ export class UI {
     this.hoverSerial = target.serial >>> 0;
     const data = this.buildTooltip(target);
     if (!data.title && !data.lines.length) {
+      this.hideTooltipContent();
+      return;
+    }
+    if (isNoDrawName(data.title)) {
       this.hideTooltipContent();
       return;
     }

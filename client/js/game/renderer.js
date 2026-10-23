@@ -1192,6 +1192,7 @@ export class Renderer {
     const cutZ = overhead.cut;
     for (const entity of this.world.entities.values()) {
       if (!entity.isMobile && entity.container !== 0) continue;
+      if (entity.isMulti && best && !best.isMulti) continue;
       if ((entity.renderZ ?? entity.z) >= cutZ) continue;
       if (overhead.hideRoofs && !entity.isMobile && ((this.assets.staticFlags(entity.graphic) || 0) & ROOF_FLAG)) continue;
       const bounds = this.entityBounds(entity);
@@ -1200,7 +1201,16 @@ export class Renderer {
       const depth = (entity.renderX ?? entity.x) + (entity.renderY ?? entity.y);
       const rank = entity.isMobile ? 1 : 0;
       const bestRank = best?.isMobile ? 1 : 0;
-      if (depth > bestDepth || (depth === bestDepth && rank > bestRank)) {
+      // Multis (houses, boats) cover a large area but are background scenery:
+      // let any item or mobile under the cursor win, then fall back to the
+      // multi itself when nothing else is hovered.
+      const classRank = entity.isMulti ? 0 : 1;
+      const bestClassRank = best ? (best.isMulti ? 0 : 1) : -1;
+      if (
+        classRank > bestClassRank ||
+        (classRank === bestClassRank &&
+          (depth > bestDepth || (depth === bestDepth && rank > bestRank)))
+      ) {
         best = entity;
         bestDepth = depth;
       }
