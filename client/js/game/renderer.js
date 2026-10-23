@@ -733,28 +733,38 @@ export class Renderer {
     }
 
     const animData = this.assets.getAnim(mobile.graphic, group, dir, mobile.hue || 0);
+    const bodyReady = !!(animData && animData.meta.frames.length);
+    const lastFrameSet = mobile.lastFrameSet;
+    // Frames cached from an older direction must never be mixed with the
+    // current one: a rider or prop facing the new way under an old body reads
+    // as two sprites in the same frame. Only reuse the previous pose when it
+    // was drawn facing the same way, otherwise hold the whole old pose.
+    const staleMatchesDirection = lastFrameSet?.gameDir === gameDir;
     const pos = this.screenFor(mobile.renderX, mobile.renderY, mobile.renderZ);
     pos.sx += 22;
     pos.sy += 22;
     let spriteTop = Infinity;
 
     if (mount) {
-      const mg = this.mountAnimGroups(mount.animId);
-      const mountGroup = walking ? (running ? mg.runGroup : mg.walkGroup) : mg.idleGroup;
-      const mountAnim = this.assets.getAnim(mount.animId, mountGroup, dir, mount.hue);
-      if (mountAnim && mountAnim.meta.frames.length) {
-        const frames = mountAnim.meta.frames;
-        let index = this.animFrameIndex(mobile, anim, frames.length, sinceStart, serverPlaying, now, walking);
-        index = Math.min(index, frames.length - 1);
-        const top = this.drawAnimFrame(ctx, mountAnim, frames[index], pos.sx, pos.sy, mirror, 1);
-        if (top != null) spriteTop = Math.min(spriteTop, top);
+      const drawMount = bodyReady || !lastFrameSet?.body || staleMatchesDirection;
+      if (drawMount) {
+        const mg = this.mountAnimGroups(mount.animId);
+        const mountGroup = walking ? (running ? mg.runGroup : mg.walkGroup) : mg.idleGroup;
+        const mountAnim = this.assets.getAnim(mount.animId, mountGroup, dir, mount.hue);
+        if (mountAnim && mountAnim.meta.frames.length) {
+          const frames = mountAnim.meta.frames;
+          let index = this.animFrameIndex(mobile, anim, frames.length, sinceStart, serverPlaying, now, walking);
+          index = Math.min(index, frames.length - 1);
+          const top = this.drawAnimFrame(ctx, mountAnim, frames[index], pos.sx, pos.sy, mirror, 1);
+          if (top != null) spriteTop = Math.min(spriteTop, top);
+        }
       }
       pos.sy += mount.offsetY;
     }
 
     let drewBody = false;
     let bodyFrame = null;
-    if (animData && animData.meta.frames.length) {
+    if (bodyReady) {
       const frames = animData.meta.frames;
       const source = this.animFrameSource(mobile, serverPlaying, walking);
       const baseFrame = this.animFrameIndex(mobile, anim, frames.length, sinceStart, serverPlaying, now, walking);
@@ -763,9 +773,11 @@ export class Renderer {
       const top = this.drawAnimFrame(ctx, animData, bodyFrame, pos.sx, pos.sy, mirror, 1);
       if (top != null) spriteTop = Math.min(spriteTop, top);
       drewBody = true;
-    } else if (mobile.lastFrameSet?.body) {
-      // Keep the last loaded frame visible while the new group/direction loads.
-      const last = mobile.lastFrameSet;
+    } else if (lastFrameSet?.body) {
+      // Keep the last loaded pose visible while the new group/direction loads.
+      // The whole set is reused so the body and equipment stay in one
+      // direction instead of showing the old and new facings together.
+      const last = lastFrameSet;
       const top = this.drawAnimFrame(ctx, last.body.data, last.body.frame, pos.sx, pos.sy, last.body.mirror, 1);
       if (top != null) spriteTop = Math.min(spriteTop, top);
       for (const entry of last.equipment) {
@@ -778,9 +790,9 @@ export class Renderer {
 
     // Equipment layers for humanoid bodies.
     if (drewBody) {
-      const frameSet = { body: { data: animData, frame: bodyFrame, mirror }, equipment: [] };
+      const frameSet = { gameDir, body: { data: animData, frame: bodyFrame, mirror }, equipment: [] };
       const previousEquipment = new Map(
-        (mobile.lastFrameSet?.equipment || []).filter((entry) => entry.animId != null).map((entry) => [entry.animId, entry])
+        (lastFrameSet?.equipment || []).filter((entry) => entry.animId != null).map((entry) => [entry.animId, entry])
       );
       if (type === 'people' && !mobile.isGhost && this.assets.tileData) {
         for (const layer of equipmentLayers) {
@@ -792,9 +804,10 @@ export class Renderer {
           const { animId, hue, partial } = equipment;
           const equip = this.assets.getAnim(animId, group, dir, hue, true, partial);
           if (!equip || !equip.meta.frames.length) {
-            // Hold the previous pose for this layer while it streams in.
+            // Hold the previous pose for this layer while it streams in, but
+            // only if it faces the same way as the body we just drew.
             const previous = previousEquipment.get(animId);
-            if (previous) {
+            if (previous && previous.gameDir === gameDir) {
               const top = this.drawAnimFrame(ctx, previous.data, previous.frame, pos.sx, pos.sy, previous.mirror, 1);
               if (top != null) spriteTop = Math.min(spriteTop, top);
               frameSet.equipment.push(previous);
@@ -810,7 +823,7 @@ export class Renderer {
           const frame = frames[Math.min(fi, frames.length - 1)];
           const top = this.drawAnimFrame(ctx, equip, frame, pos.sx, pos.sy, mirror, 1);
           if (top != null) spriteTop = Math.min(spriteTop, top);
-          frameSet.equipment.push({ data: equip, frame, mirror, animId });
+          frameSet.equipment.push({ data: equip, frame, mirror, animId, gameDir });
         }
       }
       mobile.lastFrameSet = frameSet;
