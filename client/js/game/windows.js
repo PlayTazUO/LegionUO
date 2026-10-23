@@ -2453,6 +2453,38 @@ function drawWrappedText(ctx, text, options) {
   ctx.restore();
 }
 
+const gumpAlphaCache = new WeakMap();
+
+function gumpAlphaMask(img) {
+  let mask = gumpAlphaCache.get(img);
+  if (mask) return mask;
+  const w = img.naturalWidth || img.width;
+  const h = img.naturalHeight || img.height;
+  if (!w || !h) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.drawImage(img, 0, 0);
+  let data;
+  try {
+    data = ctx.getImageData(0, 0, w, h).data;
+  } catch {
+    return null;
+  }
+  mask = { w, h, alpha: new Uint8Array(w * h) };
+  for (let i = 0; i < mask.alpha.length; i++) mask.alpha[i] = data[i * 4 + 3];
+  gumpAlphaCache.set(img, mask);
+  return mask;
+}
+
+function gumpAlphaAt(img, x, y) {
+  const mask = gumpAlphaMask(img);
+  if (!mask || x < 0 || y < 0 || x >= mask.w || y >= mask.h) return false;
+  return mask.alpha[y * mask.w + x] > 0;
+}
+
 export class PaperdollWindow {
   constructor(world, mobile) {
     this.world = world;
@@ -2568,9 +2600,33 @@ export class PaperdollWindow {
     return this.slotAt(mx, my)?.item || null;
   }
 
+  avatarItemAt(mx, my) {
+    const avatar = this.avatarRect;
+    if (mx < avatar.x || my < avatar.y) return null;
+    const x = Math.floor(mx - avatar.x);
+    const y = Math.floor(my - avatar.y);
+    const layerOrder = buildEquipmentOrder(this.mobile, this.world.assets, {
+      altTorso: isFemaleMobile(this.mobile) || isGargoyleBody(this.mobile.graphic),
+    });
+    for (let i = layerOrder.length - 1; i >= 0; i--) {
+      const item = this.mobile.getItem(layerOrder[i]);
+      if (!item) continue;
+      const gump = this.equipGump(item);
+      if (!gump) continue;
+      const img = this.world.assets.getGump(gump.id, gump.hue, gump.partial);
+      if (!img) continue;
+      if (gumpAlphaAt(img, x, y)) return item;
+    }
+    return null;
+  }
+
+  itemAt(mx, my) {
+    return this.equipmentAt(mx, my) || this.avatarItemAt(mx, my);
+  }
+
   targetAt(mx, my) {
     if (!this.contains(mx, my)) return null;
-    return this.equipmentAt(mx, my);
+    return this.itemAt(mx, my);
   }
 
   buttonAt(mx, my) {
@@ -2595,20 +2651,21 @@ export class PaperdollWindow {
       return { id: `paperdoll:${this.mobile.serial}:button:${button.id}`, title: button.label };
     }
     const slot = this.slotAt(mx, my);
-    if (!slot) return null;
-    if (!slot.item) {
+    if (slot && !slot.item) {
       return { id: `paperdoll:${this.mobile.serial}:layer:${slot.layer}`, title: layerName(slot.layer) };
     }
+    const item = slot?.item || this.avatarItemAt(mx, my);
+    if (!item) return null;
     return {
-      id: `paperdoll:${this.mobile.serial}:${slot.item.serial}`,
-      serial: slot.item.serial,
-      title: resolveItemName(this.world, slot.item),
+      id: `paperdoll:${this.mobile.serial}:${item.serial}`,
+      serial: item.serial,
+      title: resolveItemName(this.world, item),
     };
   }
 
   onMouseDown(mx, my, button) {
     if (button === 2) {
-      const item = this.equipmentAt(mx, my);
+      const item = this.itemAt(mx, my);
       if (item) this.world.game.ui.openContextMenu(item.serial, mx, my);
       else this.close();
       return true;
@@ -2623,6 +2680,13 @@ export class PaperdollWindow {
       if (slot) {
         if (slot.item && !this.world.held && this.canLiftSlot(slot)) {
           this.press = { item: slot.item, x: mx, y: my, moved: false };
+        }
+        return true;
+      }
+      const item = this.avatarItemAt(mx, my);
+      if (item) {
+        if (!this.world.held && this.canLiftSlot(item)) {
+          this.press = { item, x: mx, y: my, moved: false };
         }
         return true;
       }
@@ -2663,6 +2727,11 @@ export class PaperdollWindow {
     if (this.world.held && this.contains(mx, my)) this.equipHeld(mx, my);
   }
 
+  onDoubleClick(mx, my) {
+    const item = this.itemAt(mx, my);
+    if (item) this.world.socket.out.doubleClick(item.serial);
+  }
+
   onItemDrop(mx, my) {
     if (!this.world.held || !this.contains(mx, my)) return false;
     this.equipHeld(mx, my);
@@ -2677,7 +2746,7 @@ export class PaperdollWindow {
       return true;
     }
     const slot = this.slotAt(mx, my);
-    const layer = this.layerForItem(item) || slot?.layer || 0;
+    const layer = this.layerForItem(item) || slot?.layer || this.avatarItemAt(mx, my)?.layer || 0;
     if (!layer) {
       this.restoreHeld(item);
       return true;
