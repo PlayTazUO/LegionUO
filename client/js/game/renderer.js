@@ -8,10 +8,12 @@ import {
 } from './entity.js';
 import { hasUoHtmlMarkup, drawServerText, measureUoHtml } from './html.js';
 import { MOUNTS } from './mounts.js';
+import { findSittingInfo, sittingPose } from './sitting.js';
 import { settings } from './settings.js';
 import { notorietyColor } from '../util/ui.js';
 
 const ANIM_FRAME_MS = 80;
+const PEOPLE_SIT_GROUP = 25;
 const CORPSE_Z_BUMP = 1;
 const CULL_PAD = 80;
 const MAX_OBJECT_Z = 127;
@@ -665,7 +667,6 @@ export class Renderer {
     const running = !!mobile.running;
 
     const gameDir = mobile.direction & 7;
-    const { dir, mirror } = animDirection(gameDir);
     const gargoyle = isGargoyleBody(mobile.graphic);
     const equipmentLayers =
       type === 'people'
@@ -682,9 +683,16 @@ export class Renderer {
     }
     const turning = (mobile.turnAnimGraceUntil || 0) > now;
     const walking = mobile.moving || turning;
+    const sitting =
+      !walking && !mobile.isDead && !mobile.isGhost && type === 'people' && !mount
+        ? findSittingInfo(this.world, mobile)
+        : null;
+    const pose = sitting ? sittingPose(sitting, gameDir) : null;
+    const { dir, mirror } = pose || animDirection(gameDir);
 
     let group;
-    if (serverPlaying) group = anim.group;
+    if (pose) group = PEOPLE_SIT_GROUP;
+    else if (serverPlaying) group = anim.group;
     else if (walking) group = running ? runGroup : walkGroup;
     else group = idleGroup;
 
@@ -743,6 +751,10 @@ export class Renderer {
     const pos = this.screenFor(mobile.renderX, mobile.renderY, mobile.renderZ);
     pos.sx += 22;
     pos.sy += 22;
+    if (pose) {
+      pos.sx += pose.offsetX;
+      pos.sy += pose.offsetY;
+    }
     let spriteTop = Infinity;
 
     if (mount) {
