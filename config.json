@@ -13,6 +13,8 @@
   "defaultLoginPort": 2593,
   "loginEncryption": false,
   "gameEncryption": false,
+  "sendWebIdentity": false,
+  "webIdentitySecret": "",
   "walkDelay": 400,
   "runDelay": 200,
   "mountedWalkDelay": 200,

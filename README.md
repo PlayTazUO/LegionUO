@@ -49,7 +49,9 @@ Then open <http://127.0.0.1:8080>.
   "defaultLoginHost": "",
   "defaultLoginPort": 2593,
   "loginEncryption": true,
-  "gameEncryption": true
+  "gameEncryption": true,
+  "sendWebIdentity": false,
+  "webIdentitySecret": ""
 }
 ```
 
@@ -75,6 +77,12 @@ Then open <http://127.0.0.1:8080>.
   shard closes the connection silently right after a login packet, try turning
   the matching option off. Server-to-client Huffman compression still works when
   game encryption is off.
+- `sendWebIdentity` - set to `true` to send a ClassicUO WebIdentity packet
+  (`0xA4`) to the shard after the relay, when the game connection opens. The
+  packet identifies the proxy and its real connecting IP.
+- `webIdentitySecret` - pre-shared secret from the shard's web identity config.
+  It stays in this server and is never sent to the browser. Leave empty to skip
+  sending the packet even when `sendWebIdentity` is `true`.
 
 ## What is implemented
 

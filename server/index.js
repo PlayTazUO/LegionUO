@@ -98,6 +98,8 @@ function loadConfig() {
     mountedWalkDelay: 200,
     mountedRunDelay: 100,
     moveSpeedMultiplier: 1,
+    sendWebIdentity: false,
+    webIdentitySecret: '',
     shutdownPassphrase: '',
   };
   try {
@@ -621,6 +623,11 @@ function logStartup() {
       proxyHosts.length ? proxyHosts.join(', ') : '(any)'
     }`
   );
+  if (config.sendWebIdentity) {
+    console.log(
+      `[legionuo] web identity: enabled${config.webIdentitySecret ? '' : ' (webIdentitySecret is empty)'}`
+    );
+  }
 }
 
 function startHttpsServer() {

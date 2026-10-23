@@ -3,6 +3,104 @@ import net from 'node:net';
 
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 
+const WEB_IDENTITY_PACKET_ID = 0xa4;
+const WEB_IDENTITY_PACKET_LENGTH = 149;
+const WEB_IDENTITY_VERSION = 1;
+
+// Login packets that can appear before the relay packet. IDs below 0x80 (and
+// 0xA8/0xA9) use the usual 16-bit length at bytes 1-2.
+const LOGIN_FIXED_LENGTHS = new Map([
+  [0x82, 2],
+  [0x86, 5],
+  [0x8c, 11],
+  [0xef, 21],
+]);
+
+/**
+ * Watches the login stream for the 0x8C relay packet. The next TCP connection
+ * after a relay is the game connection, which is where the shard expects the
+ * web identity packet.
+ */
+class RelayPacketDetector {
+  constructor() {
+    this.buffer = Buffer.alloc(0);
+    this.done = false;
+  }
+
+  feed(chunk) {
+    if (this.done) return false;
+    this.buffer = this.buffer.length ? Buffer.concat([this.buffer, chunk]) : chunk;
+
+    while (this.buffer.length >= 2) {
+      const id = this.buffer[0];
+      let length = LOGIN_FIXED_LENGTHS.get(id);
+      if (length === undefined) {
+        if (id < 0x80 || id === 0xa8 || id === 0xa9) {
+          if (this.buffer.length < 3) return false;
+          length = this.buffer.readUInt16BE(1);
+        } else {
+          // Unknown fixed-length packet; stop rather than risk a false match.
+          this.done = true;
+          return false;
+        }
+      }
+      if (length < 2 || length > 0x8000) {
+        this.done = true;
+        return false;
+      }
+      if (this.buffer.length < length) return false;
+      if (id === 0x8c) {
+        this.done = true;
+        this.buffer = Buffer.alloc(0);
+        return true;
+      }
+      this.buffer = this.buffer.subarray(length);
+    }
+    return false;
+  }
+}
+
+function connectingIpFor(remote) {
+  const value = String(remote || '');
+  return value.startsWith('::ffff:') ? value.slice(7) : value;
+}
+
+/**
+ * 0xA4 SystemInfo / ClassicUO WebIdentity packet.
+ *
+ * Layout (big endian, 149 bytes total):
+ *   0xA4 | "LUOWEB" (6) | version (1) | timestamp (4) | secret | userId |
+ *   connectingIp | externalAuthProvider | externalAuthUsername |
+ *   externalAuthId | role | zero padding
+ *
+ * All strings are null terminated UTF-8.
+ */
+function buildWebIdentityPacket({ secret, userId, connectingIp, role = 'user' }) {
+  const packet = Buffer.alloc(WEB_IDENTITY_PACKET_LENGTH);
+  let offset = 0;
+  packet[offset++] = WEB_IDENTITY_PACKET_ID;
+  packet.write('LUOWEB', offset, 'ascii');
+  offset += 6;
+  packet[offset++] = WEB_IDENTITY_VERSION;
+  packet.writeUInt32BE(Math.floor(Date.now() / 1000) >>> 0, offset);
+  offset += 4;
+
+  // External auth is intentionally left empty for now.
+  const fields = [secret, userId, connectingIp, '', '', '', role];
+  for (const value of fields) {
+    const bytes = Buffer.from(String(value ?? ''), 'utf8');
+    if (offset + bytes.length + 1 > WEB_IDENTITY_PACKET_LENGTH) return null;
+    bytes.copy(packet, offset);
+    offset += bytes.length;
+    packet[offset++] = 0;
+  }
+  return packet;
+}
+
+function webIdentityEnabled(options) {
+  return options.sendWebIdentity === true;
+}
+
 function encodeFrame(opcode, payload) {
   const len = payload.length;
   let header;
@@ -38,6 +136,10 @@ class WebSocketConnection {
     this.tcpBytes = 0;
     this.loggedFirstData = false;
     this.warnedNoTcp = false;
+    this.webIdentityUserId = crypto.randomUUID();
+    this.gameConnectPending = false;
+    this.gameConnectionSeen = false;
+    this.warnedWebIdentitySecret = false;
 
     socket.on('data', (chunk) => this.feed(chunk));
     socket.on('close', () => this.cleanup());
@@ -238,6 +340,11 @@ export function attachWebSocketServer(httpServer, options = {}) {
         const label = `${host}:${port}`;
         ws.tcpLabel = label;
         ws.warnedNoTcp = false;
+        const isGameConnection = webIdentityEnabled(options) && ws.gameConnectPending;
+        ws.gameConnectPending = false;
+        if (isGameConnection) ws.gameConnectionSeen = true;
+        const relayDetector =
+          webIdentityEnabled(options) && !ws.gameConnectionSeen ? new RelayPacketDetector() : null;
         let tcpBytes = 0;
         let loggedFirstData = false;
         const started = Date.now();
@@ -262,10 +369,41 @@ export function attachWebSocketServer(httpServer, options = {}) {
         tcp.on('connect', () => {
           clearTimeout(connectTimer);
           console.log(`[proxy] tcp connected ${label} (${tcp.remoteAddress}:${tcp.remotePort}) in ${Date.now() - started}ms`);
+
+          if (isGameConnection) {
+            const secret = String(options.webIdentitySecret || '');
+            if (!secret) {
+              if (!ws.warnedWebIdentitySecret) {
+                ws.warnedWebIdentitySecret = true;
+                console.warn(
+                  `[proxy] sendWebIdentity is enabled but webIdentitySecret is empty; not sending an identity for ${label}`
+                );
+              }
+            } else {
+              const packet = buildWebIdentityPacket({
+                secret,
+                userId: ws.webIdentityUserId,
+                connectingIp: connectingIpFor(ws.remote),
+              });
+              if (!packet) {
+                console.warn(`[proxy] web identity too long for the 149-byte packet; not sending one for ${label}`);
+              } else {
+                tcp.write(packet);
+                console.log(
+                  `[proxy] sent web identity for ${connectingIpFor(ws.remote)} to ${label}`
+                );
+              }
+            }
+          }
+
           ws.sendJSON({ type: 'open', host, port });
         });
 
         tcp.on('data', (data) => {
+          if (relayDetector?.feed(data)) {
+            ws.gameConnectPending = true;
+            console.log(`[proxy] relay received on ${label}; web identity queued for the game connection`);
+          }
           tcpBytes += data.length;
           if (!loggedFirstData) {
             loggedFirstData = true;
