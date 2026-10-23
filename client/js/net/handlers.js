@@ -762,13 +762,12 @@ export class Handlers {
 
     const effect = (r) => {
       const type = r.readU8();
-      if (type > 4) {
-        if (type === 4) {
-          r.skip(8);
-          r.readU16BE();
-        }
+      if (type === 4) {
+        r.skip(8);
+        r.readU16BE();
         return;
       }
+      if (type > 4) return;
       const source = r.readU32BE();
       const target = r.readU32BE();
       const graphic = r.readU16BE();
@@ -790,18 +789,20 @@ export class Handlers {
         hue = r.readU32BE();
         blend = r.readU32BE() % 7;
       }
+      const src = type === 2 ? null : world.getMobile(source);
+      const dst = type === 0 || type === 5 ? world.getMobile(target) : null;
       game.effects.add({
         type,
         source,
         target,
         graphic,
         hue: hue & 0xffff,
-        sx,
-        sy,
-        sz,
-        dx,
-        dy,
-        dz,
+        sx: src?.x ?? sx,
+        sy: src?.y ?? sy,
+        sz: src?.z ?? sz,
+        dx: dst?.x ?? dx,
+        dy: dst?.y ?? dy,
+        dz: dst?.z ?? dz,
         speed,
         duration,
         fixedDirection,

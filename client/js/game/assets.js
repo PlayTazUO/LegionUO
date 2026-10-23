@@ -44,6 +44,8 @@ export class AssetManager {
     this.animMeta = new Map();
     this.animPromise = new Map();
     this.animTypes = new Map();
+    this.effectMeta = new Map();
+    this.effectPromise = new Map();
     this.tileData = null;
     this.tileDataPromise = null;
     this.equipConversions = null;
@@ -70,6 +72,8 @@ export class AssetManager {
     this.animMeta.clear();
     this.animPromise.clear();
     this.animTypes.clear();
+    this.effectMeta.clear();
+    this.effectPromise.clear();
     this.tileData = null;
     this.tileDataPromise = null;
     this.equipConversions = null;
@@ -141,6 +145,36 @@ export class AssetManager {
   staticBounds(id, hue = 0) {
     const entry = this.images.get(this.imageKey(`static|${id}|${hue}`));
     return entry?.ready ? entry.bounds : null;
+  }
+
+  /**
+   * Effect art shares the static art cache but is never hidden by tiledata's
+   * "nodraw" name: effects are meant to be drawn even when the same graphic
+   * is flagged for placement.
+   */
+  getEffectArt(id, hue = 0) {
+    return this.image(`static|${id}|${hue}`, this.url(`/api/art/static/${id}.png?hue=${hue}`), true);
+  }
+
+  getEffectMeta(graphic) {
+    if (this.effectMeta.has(graphic)) return this.effectMeta.get(graphic);
+    if (!this.effectPromise.has(graphic)) {
+      this.effectPromise.set(
+        graphic,
+        fetch(this.url(`/api/effect/${graphic}`))
+          .then((r) => (r.ok ? r.json() : null))
+          .then((m) => {
+            this.effectMeta.set(graphic, m || null);
+            return m;
+          })
+          .catch(() => {
+            this.effectMeta.set(graphic, null);
+            return null;
+          })
+          .finally(() => this.effectPromise.delete(graphic))
+      );
+    }
+    return null;
   }
 
   getTexmap(id, hue = 0) {

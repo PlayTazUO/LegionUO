@@ -536,6 +536,12 @@ async function handleRequest(req, res) {
       return;
     }
 
+    m = pathname.match(/^\/api\/effect\/(\d+)$/);
+    if (m) {
+      sendJSON(res, 200, assets.effect(Number(m[1])));
+      return;
+    }
+
     m = pathname.match(/^\/api\/map\/(\d+)\/(\d+)\/(\d+)$/);
     if (m) {
       const useXFiles = ['1', 'true'].includes(String(url.searchParams.get('x') || '').toLowerCase());

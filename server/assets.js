@@ -10,6 +10,7 @@ import { TileDataManager } from './uo/tiledata.js';
 import { EquipConvManager } from './uo/equipconv.js';
 import { TileArtManager } from './uo/tileart.js';
 import { AnimationsManager, MAX_DIRECTIONS, MAX_ACTIONS } from './uo/anim.js';
+import { AnimDataManager } from './uo/animdata.js';
 import { ClilocManager } from './uo/cliloc.js';
 import { SkillsManager } from './uo/skills.js';
 import { MultiManager } from './uo/multi.js';
@@ -112,6 +113,7 @@ export class AssetService {
     this.equipconv = new EquipConvManager(this.files);
     this.tileart = new TileArtManager(this.files);
     this.animations = new AnimationsManager(this.files, this.hues);
+    this.animData = new AnimDataManager(this.files);
     this.clilocs = new ClilocManager(this.files, config.language || 'enu');
     this.skills = new SkillsManager(this.files);
     this.multis = new MultiManager(this.files, config.clientVersion);
@@ -291,6 +293,15 @@ export class AssetService {
     };
     this.cache.set(key, result);
     return result;
+  }
+
+  effect(graphic) {
+    const key = this.cacheKey(`effect|${graphic}`);
+    const cached = this.cache.get(key);
+    if (cached) return cached;
+    const meta = this.animData.animation(graphic);
+    this.cache.set(key, meta);
+    return meta;
   }
 
   mapBlock(map, bx, by, useXFiles = false) {
