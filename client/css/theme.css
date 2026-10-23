@@ -1,0 +1,688 @@
+/* ==========================================================================
+   LegionUO theme
+   --------------------------------------------------------------------------
+   This stylesheet owns the client's colours, backgrounds and visual identity.
+   `style.css` keeps layout, spacing and behaviour, so a server can rebrand
+   the client here without accidentally changing how the UI is laid out.
+
+   Start with the design tokens in :root. Most rules below consume them; the
+   remaining literal values are component-specific accents that are still safe
+   to change. Typical rebranding needs only the tokens near the top.
+   ========================================================================== */
+
+:root {
+  color-scheme: dark;
+
+  /* Typography ---------------------------------------------------------- */
+  --uo-font-ui: 'Segoe UI', Tahoma, sans-serif;
+  --uo-font-display: Georgia, serif;
+  --uo-font-mono: Consolas, 'SF Mono', 'Courier New', monospace;
+
+  /* Base surfaces ------------------------------------------------------- */
+  --uo-bg: #050505;
+  --uo-bg-rgb: 5, 5, 5;
+  --uo-surface: #17130c;
+  --uo-surface-raised: #241d12;
+  --uo-surface-sunken: #0d0c09;
+  --uo-surface-alt: #0c0b08;
+  --uo-surface-overlay: rgba(18, 15, 10, 0.9);
+  --uo-overlay: rgba(0, 0, 0, 0.6);
+
+  /* Text ---------------------------------------------------------------- */
+  --uo-text: #e8e0c8;
+  --uo-text-bright: #f1e6c6;
+  --uo-text-body: #e2d6b4;
+  --uo-text-dim: #8f8262;
+  --uo-text-muted: #9c8c63;
+  --uo-text-label: #b9a87d;
+  --uo-text-soft: #cfc09a;
+  --uo-accent: #e5cd8d;
+  --uo-accent-soft: #bfa96f;
+  --uo-accent-strong: #ffe0a0;
+  --uo-gold: #e7d39b;
+  --uo-gold-bright: #f0dfa8;
+
+  /* Borders ------------------------------------------------------------- */
+  --uo-border: #6c5c38;
+  --uo-border-strong: #7c6839;
+  --uo-border-input: #50452b;
+  --uo-border-focus: #b99a58;
+  --uo-border-macro: #3c4730;
+
+  /* Feedback ------------------------------------------------------------ */
+  --uo-brand: #9b3c2b;
+  --uo-danger: #d88a5a;
+  --uo-danger-bright: #e06050;
+  --uo-warning: #d6b45d;
+  --uo-success: #9fd27a;
+
+  /* Status bar fills ---------------------------------------------------- */
+  --uo-hp-fill: linear-gradient(180deg, #d45744, #8f2f24);
+  --uo-stamina-fill: linear-gradient(180deg, #74c662, #3e7d2e);
+  --uo-mana-fill: linear-gradient(180deg, #6ba6ef, #2f5fa8);
+
+  /* Gradients and surfaces ---------------------------------------------- */
+  --uo-screen-bg: radial-gradient(circle at 50% 30%, rgba(32, 26, 16, 0.9), rgba(3, 3, 3, 0.98));
+  --uo-loading-bg: radial-gradient(circle at 50% 45%, rgba(28, 23, 14, 0.75), rgba(3, 3, 3, 0.98) 70%);
+  --uo-titlebar-bg: linear-gradient(180deg, #2a2212, #17130c);
+  --uo-panel-gradient: linear-gradient(180deg, rgba(31, 26, 17, 0.98), rgba(16, 14, 10, 0.98));
+  --uo-button-bg: linear-gradient(180deg, #4a3d22, #2a2212);
+  --uo-button-bg-hover: linear-gradient(180deg, #5d4c2b, #352a16);
+
+  /* Effects ------------------------------------------------------------- */
+  --uo-window-shadow: 0 0 0 1px var(--uo-border), 0 24px 80px rgba(0, 0, 0, 0.7);
+  --uo-panel-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  --uo-dialog-shadow: 0 24px 80px rgba(0, 0, 0, 0.7), inset 0 0 60px rgba(0, 0, 0, 0.4);
+  --uo-text-shadow: 0 2px 0 #000;
+  --uo-text-shadow-soft: 0 1px 0 #000;
+
+  /* Journal ------------------------------------------------------------- */
+  --journal-bg: 52, 46, 34;
+  --journal-opacity: 0.9;
+  --uo-journal-speaker: #9ab7e0;
+  --uo-journal-time: #7c7155;
+  --uo-journal-system: #d6b45d;
+  --uo-journal-speech: #e2d6b4;
+  --uo-journal-party: #78d68a;
+  --uo-journal-guild: #c9a0ff;
+  --uo-journal-chat: #9fd3c7;
+  --uo-journal-spells: #8fb8ff;
+  --uo-journal-damage: #e06050;
+
+  /* Macro window -------------------------------------------------------- */
+  --uo-macro-bg: rgba(18, 15, 10, 0.98);
+  --uo-macro-header-bg: #181d13;
+  --uo-macro-border: #3c4730;
+  --uo-macro-text: #d9c58d;
+  --uo-macro-text-dim: #8d8060;
+  --uo-macro-active-bg: rgba(201, 176, 108, 0.24);
+  --uo-macro-active-border: #c9b06c;
+  --uo-macro-active-text: #f0dfa8;
+}
+
+/* ----------------------------- base chrome ----------------------------- */
+
+html,
+body {
+  background: var(--uo-bg);
+  color: var(--uo-text);
+  font-family: var(--uo-font-ui);
+}
+
+#gameWindow {
+  background: var(--uo-bg);
+  box-shadow: var(--uo-window-shadow);
+}
+
+#gameTitleBar {
+  background: var(--uo-titlebar-bg);
+  border-bottom: 1px solid var(--uo-border);
+  color: var(--uo-accent-soft);
+}
+
+#gameTitle {
+  color: var(--uo-accent);
+  font-family: var(--uo-font-display);
+  text-shadow: var(--uo-text-shadow-soft);
+}
+
+.titleStat {
+  border: 1px solid rgba(0, 0, 0, 0.75);
+  background: rgba(0, 0, 0, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.titleStatText {
+  color: #f2e6c6;
+  text-shadow: var(--uo-text-shadow-soft);
+}
+
+.titleStat.hp .titleStatFill {
+  background: var(--uo-hp-fill);
+}
+
+.titleStat.stam .titleStatFill {
+  background: var(--uo-stamina-fill);
+}
+
+.titleStat.mana .titleStatFill {
+  background: var(--uo-mana-fill);
+}
+
+#gameResize,
+#journalResize {
+  background: linear-gradient(135deg, transparent 0 45%, rgba(157, 143, 107, 0.7) 46% 55%, transparent 56%),
+    linear-gradient(135deg, transparent 0 65%, rgba(157, 143, 107, 0.5) 66% 75%, transparent 76%);
+}
+
+#game.war-mode {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M3 2L3 20L8 15L12 23L15 21L11 13L19 13Z' fill='%23e03030' stroke='%23000' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") 3 2, default;
+}
+
+/* --------------------------- loading & login --------------------------- */
+
+#worldLoading {
+  background: var(--uo-loading-bg);
+  color: var(--uo-accent);
+}
+
+.worldLoadingBox {
+  text-shadow: var(--uo-text-shadow);
+}
+
+.worldLoadingSpinner {
+  border: 3px solid rgba(140, 118, 70, 0.28);
+  border-top-color: var(--uo-accent);
+}
+
+#worldLoadingText {
+  font-family: var(--uo-font-display);
+}
+
+#worldLoadingDetail {
+  color: var(--uo-text-muted);
+}
+
+.screen {
+  background: var(--uo-screen-bg);
+}
+
+.loginPanel {
+  background: var(--uo-panel-gradient);
+  border: 1px solid var(--uo-border);
+  box-shadow: var(--uo-dialog-shadow);
+}
+
+.brand {
+  color: var(--uo-accent);
+  font-family: var(--uo-font-display);
+  text-shadow: var(--uo-text-shadow);
+}
+
+.brand span {
+  color: var(--uo-brand);
+}
+
+.tagline {
+  color: var(--uo-text-dim);
+}
+
+#loginForm label {
+  color: var(--uo-text-label);
+}
+
+.status {
+  color: var(--uo-danger);
+}
+
+.list .serverName {
+  color: #f1dda2;
+}
+
+.list .serverMeta {
+  color: var(--uo-text-dim);
+}
+
+.showPass {
+  color: var(--uo-text-dim) !important;
+}
+
+/* --------------------------- shared controls --------------------------- */
+
+input {
+  background: var(--uo-surface-sunken);
+  border: 1px solid var(--uo-border-input);
+  color: var(--uo-text-bright);
+}
+
+input:focus {
+  border-color: var(--uo-border-focus);
+}
+
+button {
+  background: var(--uo-button-bg);
+  color: var(--uo-gold);
+  border: 1px solid var(--uo-border-strong);
+}
+
+button:hover {
+  background: var(--uo-button-bg-hover);
+  color: #fff0c0;
+}
+
+.panel {
+  background: var(--uo-surface-overlay);
+  border: 1px solid rgba(133, 112, 65, 0.8);
+  box-shadow: var(--uo-panel-shadow);
+}
+
+.hamburgerBar {
+  background: var(--uo-gold);
+}
+
+/* ------------------------------- hud ----------------------------------- */
+
+#perfStats {
+  border-right: 1px solid rgba(133, 112, 65, 0.45);
+  color: var(--uo-text-soft);
+}
+
+#perfStats .good {
+  color: var(--uo-success);
+}
+
+#perfStats .warn {
+  color: #e0c15e;
+}
+
+#perfStats .bad {
+  color: #d9705b;
+}
+
+#targetInfo {
+  color: #ffd98a;
+}
+
+#systemMessages .systemMessage {
+  background: rgba(18, 15, 10, 0.72);
+  border-left: 2px solid rgba(133, 112, 65, 0.8);
+  color: var(--uo-warning);
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.8);
+}
+
+#touchStick {
+  border: 1px solid rgba(157, 143, 107, 0.3);
+  background: radial-gradient(circle, rgba(43, 36, 23, 0.2), rgba(12, 10, 6, 0.24));
+  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.2), 0 4px 18px rgba(0, 0, 0, 0.2);
+}
+
+#touchStick.active {
+  border-color: rgba(229, 205, 141, 0.5);
+  background: radial-gradient(circle, rgba(62, 52, 30, 0.3), rgba(12, 10, 6, 0.34));
+}
+
+#touchStick.configuring {
+  border: 2px dashed rgba(229, 205, 141, 0.85);
+  background: radial-gradient(circle, rgba(62, 52, 30, 0.42), rgba(12, 10, 6, 0.4));
+  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.2), 0 0 0 4px rgba(229, 205, 141, 0.12),
+    0 4px 18px rgba(0, 0, 0, 0.3);
+}
+
+#touchStick.configuring::after {
+  border: 1px solid #8a7341;
+  background: var(--uo-surface-overlay);
+  color: var(--uo-accent-strong);
+}
+
+#touchStickKnob {
+  border: 1px solid var(--uo-accent);
+  background: radial-gradient(circle at 35% 30%, #d8c390, #8b7642 62%, #584a27 100%);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+}
+
+#nearbyItems {
+  background: rgba(18, 15, 10, 0.3);
+}
+
+.nearbyItem {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(133, 112, 65, 0.35);
+  color: var(--uo-accent);
+}
+
+.nearbyItem:hover,
+.nearbyItem:active,
+.nearbyItem.activated {
+  background: rgba(229, 205, 141, 0.18);
+  border-color: rgba(229, 205, 141, 0.7);
+  color: #fff0c0;
+}
+
+.nearbyItemAmount {
+  color: var(--uo-accent-soft);
+}
+
+/* ------------------------------ journal -------------------------------- */
+
+#journalPanel {
+  background: rgba(var(--journal-bg, 52, 46, 34), var(--journal-opacity, 0.9));
+}
+
+#journalTitle {
+  background: rgba(0, 0, 0, 0.28);
+  border-bottom: 1px solid rgba(133, 112, 65, 0.45);
+  color: var(--uo-accent-soft);
+}
+
+.journalTools button {
+  background: rgba(40, 33, 20, 0.9);
+  border: 1px solid rgba(133, 112, 65, 0.6);
+  color: var(--uo-macro-text);
+}
+
+#journalTabs {
+  border-bottom: 1px solid rgba(133, 112, 65, 0.25);
+  background: rgba(0, 0, 0, 0.12);
+}
+
+#journalTabs button {
+  border: 1px solid transparent;
+  background: transparent;
+  color: #9d8f6b;
+}
+
+#journalTabs button:hover {
+  color: var(--uo-accent);
+  background: rgba(133, 112, 65, 0.18);
+}
+
+#journalTabs button.active {
+  color: #f0dda4;
+  border-color: rgba(133, 112, 65, 0.55);
+  background: rgba(133, 112, 65, 0.22);
+}
+
+#journalOptions {
+  color: #b9a97e;
+  background: rgba(0, 0, 0, 0.25);
+  border-bottom: 1px solid rgba(133, 112, 65, 0.3);
+}
+
+#journalOptions label {
+  color: #b9a97e;
+}
+
+#journalOptions input[type='color'] {
+  background: transparent;
+  border: 1px solid rgba(133, 112, 65, 0.6);
+}
+
+#journal {
+  color: var(--uo-text-body);
+  font-family: var(--uo-font-mono);
+}
+
+#journal .msg .who {
+  color: var(--uo-journal-speaker);
+}
+
+#journal .msg .time {
+  color: var(--uo-journal-time);
+}
+
+#journal .msg.system {
+  color: var(--uo-journal-system);
+}
+
+#journal .msg.speech {
+  color: var(--uo-journal-speech);
+}
+
+#journal .msg.party {
+  color: var(--uo-journal-party);
+}
+
+#journal .msg.guild {
+  color: var(--uo-journal-guild);
+}
+
+#journal .msg.chat {
+  color: var(--uo-journal-chat);
+}
+
+#journal .msg.spells {
+  color: var(--uo-journal-spells);
+}
+
+#journal .msg.damage {
+  color: var(--uo-journal-damage);
+}
+
+#chatRow {
+  border-top: 1px solid rgba(133, 112, 65, 0.5);
+}
+
+#chatRow select {
+  background: var(--uo-surface-alt);
+  color: var(--uo-text-body);
+  border: 1px solid rgba(133, 112, 65, 0.6);
+}
+
+#chatRow input {
+  background: var(--uo-surface-alt);
+}
+
+/* ------------------------------- tooltip ------------------------------- */
+
+#tooltip {
+  background: rgba(16, 13, 8, 0.97);
+  border: 1px solid rgba(157, 133, 79, 0.9);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
+  color: #e8d7a8;
+}
+
+#tooltip .tooltipTitle {
+  color: var(--uo-accent-strong);
+}
+
+#tooltip .tooltipLine {
+  color: var(--uo-text-soft);
+}
+
+#tooltip .tooltipLine.property {
+  color: var(--uo-success);
+}
+
+#cursorHint {
+  background: var(--uo-overlay);
+  border: 1px solid #8a7341;
+  color: var(--uo-accent-strong);
+}
+
+/* ---------------------------- macro window ----------------------------- */
+
+#macroWindow {
+  background: var(--uo-macro-bg);
+  border: 1px solid #857041;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  color: var(--uo-macro-text);
+  font: 12px var(--uo-font-mono);
+}
+
+.macroHeader {
+  background: var(--uo-macro-header-bg);
+  border-bottom: 1px solid var(--uo-macro-border);
+}
+
+.macroTitle {
+  color: #e8d7a8;
+  font: bold 13px var(--uo-font-mono);
+}
+
+.macroSidebar {
+  border-right: 1px solid var(--uo-macro-border);
+}
+
+.macroListItem {
+  background: rgba(0, 0, 0, 0.24);
+  border: 1px solid var(--uo-macro-border);
+  color: var(--uo-macro-text);
+}
+
+.macroListItem.active {
+  background: var(--uo-macro-active-bg);
+  border-color: var(--uo-macro-active-border);
+  color: var(--uo-macro-active-text);
+}
+
+.macroCount {
+  color: var(--uo-macro-text-dim);
+}
+
+.macroNameRow span {
+  color: var(--uo-accent-soft);
+}
+
+.macroNameRow input,
+.macroAction input,
+.macroAction select {
+  background: var(--uo-surface-sunken);
+  border: 1px solid var(--uo-border-input);
+  color: var(--uo-text-bright);
+  font: 12px var(--uo-font-mono);
+}
+
+.macroActions {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--uo-macro-border);
+}
+
+.macroAction {
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(60, 71, 48, 0.7);
+}
+
+.macroActionNote {
+  color: var(--uo-macro-text-dim);
+}
+
+.macroAddSelect {
+  background: var(--uo-surface-sunken);
+  border: 1px solid var(--uo-border-input);
+  color: var(--uo-text-bright);
+  font: 12px var(--uo-font-mono);
+}
+
+.macroStatus {
+  color: var(--uo-text-muted);
+}
+
+.macroEmpty {
+  color: var(--uo-macro-text-dim);
+}
+
+.macroDragGhost {
+  background: rgba(18, 15, 10, 0.96);
+  border: 1px solid var(--uo-macro-active-border);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55);
+  color: var(--uo-macro-active-text);
+  font: 12px var(--uo-font-mono);
+}
+
+.macroLoopBody {
+  border-left: 1px dashed #5b4e30;
+}
+
+.macroLoopBody .macroAction {
+  background: rgba(20, 24, 15, 0.55);
+}
+
+.macroLoopAdd select {
+  background: var(--uo-surface-sunken);
+  border: 1px solid var(--uo-border-input);
+  color: var(--uo-text-bright);
+  font: 12px var(--uo-font-mono);
+}
+
+/* ------------------------------- modals -------------------------------- */
+
+#modalBackdrop {
+  background: var(--uo-overlay);
+}
+
+.modal {
+  background: var(--uo-surface);
+  border: 1px solid var(--uo-border-strong);
+}
+
+#modalTitle {
+  color: var(--uo-gold);
+}
+
+.modalField {
+  color: var(--uo-accent-soft);
+}
+
+#modalBody .uoMenuItem {
+  background: var(--uo-surface-raised);
+  border: 1px solid #5f5133;
+}
+
+#modalBody .uoMenuItem:hover {
+  background: #3a2f1c;
+  border-color: var(--uo-macro-active-border);
+}
+
+#modalBody .uoMenuNumber {
+  color: var(--uo-gold);
+  text-shadow: 0 0 2px #000;
+}
+
+#modalBody .uoMenuChoice {
+  color: var(--uo-macro-text);
+}
+
+#modalBody .uoMenuChoice input {
+  accent-color: var(--uo-macro-active-border);
+}
+
+#modalBody .dyeBody {
+  color: var(--uo-macro-text);
+}
+
+#modalBody .dyeGrid {
+  background: #0d0b07;
+  border: 1px solid #5f5133;
+}
+
+#modalBody .dyeCell:hover {
+  outline: 1px solid #fff;
+}
+
+#modalBody .dyeCell.selected {
+  outline: 2px solid #fff;
+}
+
+#modalBody .dyePreview {
+  background: #0d0b07;
+  border: 1px solid #5f5133;
+}
+
+#modalBody .dyeSwatch {
+  border: 1px solid #5f5133;
+}
+
+#modalBody .dyeHueLabel,
+#modalBody .dyeSideLabel {
+  color: var(--uo-accent-soft);
+}
+
+#modalBody .dyeShade {
+  color: var(--uo-macro-text);
+  background: var(--uo-surface-raised);
+  border: 1px solid #5f5133;
+}
+
+#modalBody .dyeShade.active {
+  color: var(--uo-macro-active-text);
+  background: #3a2f1c;
+  border-color: var(--uo-macro-active-border);
+}
+
+/* ----------------------------- scrollbars ------------------------------ */
+
+::-webkit-scrollbar-track {
+  background: #0d0b07;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4d4126;
+}
+
+/* ------------------------------- mobile -------------------------------- */
+
+@media (max-width: 720px), (pointer: coarse) {
+  .macroSidebar {
+    border-bottom: 1px solid var(--uo-macro-border);
+  }
+}

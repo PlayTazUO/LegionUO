@@ -8,9 +8,6 @@ body {
   height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
-  background: #050505;
-  color: #e8e0c8;
-  font-family: 'Segoe UI', Tahoma, sans-serif;
   user-select: none;
   -webkit-user-select: none;
   -webkit-text-size-adjust: 100%;
@@ -23,8 +20,6 @@ body {
   height: 726px;
   display: flex;
   flex-direction: column;
-  background: #050505;
-  box-shadow: 0 0 0 1px #6c5c38, 0 24px 80px rgba(0, 0, 0, 0.7);
   touch-action: none;
 }
 
@@ -40,9 +35,6 @@ body {
   gap: 10px;
   padding: 0 10px;
   cursor: move;
-  background: linear-gradient(180deg, #2a2212, #17130c);
-  border-bottom: 1px solid #6c5c38;
-  color: #bfa96f;
   font-size: 11px;
   letter-spacing: 1px;
 }
@@ -54,9 +46,6 @@ body {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  color: #e5cd8d;
-  font-family: Georgia, serif;
-  text-shadow: 0 1px 0 #000;
   pointer-events: none;
 }
 
@@ -74,10 +63,7 @@ body {
   min-width: 38px;
   height: 14px;
   overflow: hidden;
-  border: 1px solid rgba(0, 0, 0, 0.75);
   border-radius: 2px;
-  background: rgba(0, 0, 0, 0.55);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
 .titleStatFill {
@@ -93,24 +79,10 @@ body {
   display: block;
   padding: 0 4px;
   overflow: hidden;
-  color: #f2e6c6;
   font: 9px/12px Consolas, 'SF Mono', monospace;
   letter-spacing: 0.4px;
   white-space: nowrap;
   text-overflow: ellipsis;
-  text-shadow: 0 1px 0 #000;
-}
-
-.titleStat.hp .titleStatFill {
-  background: linear-gradient(180deg, #d45744, #8f2f24);
-}
-
-.titleStat.stam .titleStatFill {
-  background: linear-gradient(180deg, #74c662, #3e7d2e);
-}
-
-.titleStat.mana .titleStatFill {
-  background: linear-gradient(180deg, #6ba6ef, #2f5fa8);
 }
 
 #gameViewport {
@@ -128,8 +100,6 @@ body {
   height: 16px;
   z-index: 30;
   cursor: nwse-resize;
-  background: linear-gradient(135deg, transparent 0 45%, rgba(157, 143, 107, 0.7) 46% 55%, transparent 56%),
-    linear-gradient(135deg, transparent 0 65%, rgba(157, 143, 107, 0.5) 66% 75%, transparent 76%);
 }
 
 #game {
@@ -141,10 +111,6 @@ body {
   -webkit-touch-callout: none;
 }
 
-#game.war-mode {
-  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M3 2L3 20L8 15L12 23L15 21L11 13L19 13Z' fill='%23e03030' stroke='%23000' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") 3 2, default;
-}
-
 #worldLoading {
   position: absolute;
   inset: 0;
@@ -152,8 +118,6 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at 50% 45%, rgba(28, 23, 14, 0.75), rgba(3, 3, 3, 0.98) 70%);
-  color: #e5cd8d;
 }
 
 .worldLoadingBox {
@@ -162,14 +126,11 @@ body {
   align-items: center;
   gap: 10px;
   text-align: center;
-  text-shadow: 0 2px 0 #000;
 }
 
 .worldLoadingSpinner {
   width: 34px;
   height: 34px;
-  border: 3px solid rgba(140, 118, 70, 0.28);
-  border-top-color: #e5cd8d;
   border-radius: 50%;
   animation: worldLoadingSpin 0.9s linear infinite;
 }
@@ -181,7 +142,6 @@ body {
 }
 
 #worldLoadingText {
-  font-family: Georgia, serif;
   font-size: 18px;
   letter-spacing: 2px;
 }
@@ -190,7 +150,6 @@ body {
   min-height: 15px;
   font-size: 12px;
   letter-spacing: 1px;
-  color: #9c8c63;
 }
 
 .hidden {
@@ -200,7 +159,6 @@ body {
 .screen {
   position: fixed;
   inset: 0;
-  background: radial-gradient(circle at 50% 30%, rgba(32, 26, 16, 0.9), rgba(3, 3, 3, 0.98));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -209,30 +167,19 @@ body {
 
 .loginPanel {
   width: min(420px, 92vw);
-  background: linear-gradient(180deg, rgba(31, 26, 17, 0.98), rgba(16, 14, 10, 0.98));
-  border: 1px solid #6c5c38;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.7), inset 0 0 60px rgba(0, 0, 0, 0.4);
   padding: 26px;
   border-radius: 4px;
 }
 
 .brand {
-  font-family: Georgia, serif;
   letter-spacing: 6px;
   font-size: 30px;
-  color: #e5cd8d;
   text-align: center;
-  text-shadow: 0 2px 0 #000;
-}
-
-.brand span {
-  color: #9b3c2b;
 }
 
 .tagline {
   text-align: center;
   font-size: 12px;
-  color: #8f8262;
   margin: 4px 0 22px;
   letter-spacing: 1px;
 }
@@ -240,40 +187,24 @@ body {
 #loginForm label {
   display: block;
   font-size: 12px;
-  color: #b9a87d;
   margin-bottom: 10px;
 }
 
 input {
   width: 100%;
   margin-top: 4px;
-  background: #0d0c09;
-  border: 1px solid #50452b;
-  color: #f1e6c6;
   padding: 8px 10px;
   font-size: 14px;
   outline: none;
   border-radius: 2px;
 }
 
-input:focus {
-  border-color: #b99a58;
-}
-
 button {
-  background: linear-gradient(180deg, #4a3d22, #2a2212);
-  color: #e7d39b;
-  border: 1px solid #7c6839;
   padding: 7px 14px;
   cursor: pointer;
   font-size: 13px;
   border-radius: 2px;
   touch-action: manipulation;
-}
-
-button:hover {
-  background: linear-gradient(180deg, #5d4c2b, #352a16);
-  color: #fff0c0;
 }
 
 #connectBtn {
@@ -288,7 +219,6 @@ button:hover {
   margin-top: 12px;
   min-height: 18px;
   font-size: 12px;
-  color: #d88a5a;
   text-align: center;
 }
 
@@ -307,13 +237,8 @@ button:hover {
   padding: 10px;
 }
 
-.list .serverName {
-  color: #f1dda2;
-}
-
 .list .serverMeta {
   float: right;
-  color: #8f8262;
   font-size: 11px;
 }
 
@@ -322,7 +247,6 @@ button:hover {
   align-items: center;
   gap: 6px;
   font-size: 11px !important;
-  color: #8f8262 !important;
 }
 
 .showPass input {
@@ -377,9 +301,6 @@ body.uo-cursor * {
 }
 
 .panel {
-  background: rgba(18, 15, 10, 0.9);
-  border: 1px solid rgba(133, 112, 65, 0.8);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
   border-radius: 3px;
   pointer-events: auto;
 }
@@ -410,7 +331,6 @@ body.uo-cursor * {
   display: block;
   width: 100%;
   height: 2px;
-  background: #e7d39b;
   border-radius: 1px;
 }
 
@@ -436,23 +356,9 @@ body.uo-cursor * {
   gap: 8px;
   padding: 0 8px 0 4px;
   margin: 0 2px 0 0;
-  border-right: 1px solid rgba(133, 112, 65, 0.45);
   font: 11px/1.2 Consolas, 'SF Mono', monospace;
-  color: #cfc09a;
   white-space: nowrap;
   pointer-events: none;
-}
-
-#perfStats .good {
-  color: #9fd27a;
-}
-
-#perfStats .warn {
-  color: #e0c15e;
-}
-
-#perfStats .bad {
-  color: #d9705b;
 }
 
 #journalPanel {
@@ -464,8 +370,6 @@ body.uo-cursor * {
   height: 176px;
   display: flex;
   flex-direction: column;
-  --journal-bg: 52, 46, 34;
-  background: rgba(var(--journal-bg), var(--journal-opacity, 0.9));
   min-width: 280px;
   min-height: 120px;
   overflow: hidden;
@@ -479,11 +383,8 @@ body.uo-cursor * {
   padding: 3px 6px 3px 9px;
   cursor: move;
   touch-action: none;
-  background: rgba(0, 0, 0, 0.28);
-  border-bottom: 1px solid rgba(133, 112, 65, 0.45);
   font-size: 11px;
   letter-spacing: 1px;
-  color: #bfa96f;
 }
 
 #journalPanel.dragging,
@@ -505,37 +406,18 @@ body.uo-cursor * {
   padding: 1px 5px;
   font-size: 11px;
   line-height: 16px;
-  background: rgba(40, 33, 20, 0.9);
-  border: 1px solid rgba(133, 112, 65, 0.6);
-  color: #d9c58d;
 }
 
 #journalTabs {
   display: flex;
   gap: 2px;
   padding: 3px 5px;
-  border-bottom: 1px solid rgba(133, 112, 65, 0.25);
-  background: rgba(0, 0, 0, 0.12);
 }
 
 #journalTabs button {
   padding: 2px 8px;
   font-size: 10px;
   border-radius: 2px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: #9d8f6b;
-}
-
-#journalTabs button:hover {
-  color: #e5cd8d;
-  background: rgba(133, 112, 65, 0.18);
-}
-
-#journalTabs button.active {
-  color: #f0dda4;
-  border-color: rgba(133, 112, 65, 0.55);
-  background: rgba(133, 112, 65, 0.22);
 }
 
 #journalOptions {
@@ -545,9 +427,6 @@ body.uo-cursor * {
   gap: 4px 12px;
   padding: 5px 8px;
   font-size: 10px;
-  color: #b9a97e;
-  background: rgba(0, 0, 0, 0.25);
-  border-bottom: 1px solid rgba(133, 112, 65, 0.3);
 }
 
 #journalOptions label {
@@ -556,7 +435,6 @@ body.uo-cursor * {
   gap: 4px;
   margin: 0;
   font-size: 10px;
-  color: #b9a97e;
 }
 
 #journalOptions input[type='number'] {
@@ -575,8 +453,6 @@ body.uo-cursor * {
   height: 18px;
   margin: 0;
   padding: 0 1px;
-  background: transparent;
-  border: 1px solid rgba(133, 112, 65, 0.6);
   cursor: pointer;
 }
 
@@ -588,8 +464,6 @@ body.uo-cursor * {
   padding: 6px 10px;
   font-size: var(--journal-font-size, 12px);
   line-height: 1.45;
-  color: #e2d6b4;
-  font-family: 'Consolas', 'Courier New', monospace;
   user-select: text;
   overflow-wrap: anywhere;
 }
@@ -602,45 +476,12 @@ body.uo-cursor * {
   display: none;
 }
 
-#journal .msg .who {
-  color: #9ab7e0;
-}
-
 #journal .msg .time {
   display: none;
-  color: #7c7155;
 }
 
 #journalPanel.show-times #journal .msg .time {
   display: inline;
-}
-
-#journal .msg.system {
-  color: #d6b45d;
-}
-
-#journal .msg.speech {
-  color: #e2d6b4;
-}
-
-#journal .msg.party {
-  color: #78d68a;
-}
-
-#journal .msg.guild {
-  color: #c9a0ff;
-}
-
-#journal .msg.chat {
-  color: #9fd3c7;
-}
-
-#journal .msg.spells {
-  color: #8fb8ff;
-}
-
-#journal .msg.damage {
-  color: #e06050;
 }
 
 #journalResize {
@@ -651,15 +492,12 @@ body.uo-cursor * {
   height: 14px;
   cursor: nwse-resize;
   touch-action: none;
-  background: linear-gradient(135deg, transparent 0 45%, rgba(157, 143, 107, 0.7) 46% 55%, transparent 56%),
-    linear-gradient(135deg, transparent 0 65%, rgba(157, 143, 107, 0.5) 66% 75%, transparent 76%);
 }
 
 #chatRow {
   display: flex;
   gap: 5px;
   padding: 6px;
-  border-top: 1px solid rgba(133, 112, 65, 0.5);
 }
 
 #chatRow select {
@@ -667,14 +505,10 @@ body.uo-cursor * {
   margin: 0;
   padding: 3px 4px;
   font-size: 11px;
-  background: #0c0b08;
-  color: #e2d6b4;
-  border: 1px solid rgba(133, 112, 65, 0.6);
 }
 
 #chatRow input {
   margin: 0;
-  background: #0c0b08;
 }
 
 #chatRow button {
@@ -688,7 +522,6 @@ body.uo-cursor * {
   transform: translateX(-50%);
   padding: 6px 12px;
   font-size: 12px;
-  color: #ffd98a;
 }
 
 #systemMessages {
@@ -706,12 +539,8 @@ body.uo-cursor * {
 
 #systemMessages .systemMessage {
   padding: 2px 8px;
-  background: rgba(18, 15, 10, 0.72);
-  border-left: 2px solid rgba(133, 112, 65, 0.8);
   border-radius: 2px;
   font: 12px/1.4 Consolas, 'Courier New', monospace;
-  color: #d6b45d;
-  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.8);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   animation: systemMessageIn 0.18s ease-out;
@@ -741,9 +570,6 @@ body.uo-cursor * {
   width: 132px;
   height: 132px;
   border-radius: 50%;
-  border: 1px solid rgba(157, 143, 107, 0.3);
-  background: radial-gradient(circle, rgba(43, 36, 23, 0.2), rgba(12, 10, 6, 0.24));
-  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.2), 0 4px 18px rgba(0, 0, 0, 0.2);
   pointer-events: auto;
   touch-action: none;
   z-index: 2;
@@ -751,15 +577,7 @@ body.uo-cursor * {
   -webkit-user-select: none;
 }
 
-#touchStick.active {
-  border-color: rgba(229, 205, 141, 0.5);
-  background: radial-gradient(circle, rgba(62, 52, 30, 0.3), rgba(12, 10, 6, 0.34));
-}
-
 #touchStick.configuring {
-  border: 2px dashed rgba(229, 205, 141, 0.85);
-  background: radial-gradient(circle, rgba(62, 52, 30, 0.42), rgba(12, 10, 6, 0.4));
-  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.2), 0 0 0 4px rgba(229, 205, 141, 0.12), 0 4px 18px rgba(0, 0, 0, 0.3);
   cursor: grab;
 }
 
@@ -771,9 +589,6 @@ body.uo-cursor * {
   transform: translateX(-50%);
   margin-bottom: 6px;
   padding: 3px 8px;
-  border: 1px solid #8a7341;
-  background: rgba(18, 15, 10, 0.9);
-  color: #ffe0a0;
   font-size: 11px;
   white-space: nowrap;
   pointer-events: none;
@@ -791,9 +606,6 @@ body.uo-cursor * {
   width: 54px;
   height: 54px;
   border-radius: 50%;
-  border: 1px solid #e5cd8d;
-  background: radial-gradient(circle at 35% 30%, #d8c390, #8b7642 62%, #584a27 100%);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
   transform: translate(-50%, -50%);
   pointer-events: none;
 }
@@ -808,7 +620,6 @@ body.uo-cursor * {
   flex-direction: column;
   width: min(170px, calc(100vw - 24px));
   padding: 3px;
-  background: rgba(18, 15, 10, 0.3);
   pointer-events: auto;
   z-index: 3;
 }
@@ -831,21 +642,10 @@ body.uo-cursor * {
   gap: 4px;
   min-height: var(--nearby-row-height);
   padding: 0 5px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(133, 112, 65, 0.35);
   border-radius: 2px;
-  color: #e5cd8d;
   font: 10px/1.1 'Segoe UI', Tahoma, sans-serif;
   text-align: left;
   touch-action: manipulation;
-}
-
-.nearbyItem:hover,
-.nearbyItem:active,
-.nearbyItem.activated {
-  background: rgba(229, 205, 141, 0.18);
-  border-color: rgba(229, 205, 141, 0.7);
-  color: #fff0c0;
 }
 
 .nearbyItemIcon {
@@ -867,7 +667,6 @@ body.uo-cursor * {
 
 .nearbyItemAmount {
   flex: 0 0 auto;
-  color: #bfa96f;
   font-size: 9px;
   pointer-events: none;
 }
@@ -877,11 +676,7 @@ body.uo-cursor * {
   z-index: 35;
   max-width: 340px;
   padding: 8px 10px;
-  background: rgba(16, 13, 8, 0.97);
-  border: 1px solid rgba(157, 133, 79, 0.9);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
   border-radius: 3px;
-  color: #e8d7a8;
   font-size: 12px;
   line-height: 1.45;
   pointer-events: none;
@@ -890,19 +685,13 @@ body.uo-cursor * {
 }
 
 #tooltip .tooltipTitle {
-  color: #ffe0a0;
   font-size: 13px;
   font-weight: 600;
   margin-bottom: 3px;
 }
 
 #tooltip .tooltipLine {
-  color: #cfc09a;
   margin-top: 1px;
-}
-
-#tooltip .tooltipLine.property {
-  color: #9fd27a;
 }
 
 #cursorHint {
@@ -911,9 +700,6 @@ body.uo-cursor * {
   bottom: 186px;
   transform: translateX(-50%);
   padding: 5px 12px;
-  background: rgba(0, 0, 0, 0.6);
-  border: 1px solid #8a7341;
-  color: #ffe0a0;
   font-size: 12px;
   pointer-events: none;
 }
@@ -925,12 +711,7 @@ body.uo-cursor * {
   flex-direction: column;
   min-width: 320px;
   min-height: 260px;
-  background: rgba(18, 15, 10, 0.98);
-  border: 1px solid #857041;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
   border-radius: 3px;
-  color: #d9c58d;
-  font: 12px monospace;
   pointer-events: auto;
 }
 
@@ -940,16 +721,12 @@ body.uo-cursor * {
   justify-content: space-between;
   flex: 0 0 30px;
   padding: 0 8px 0 10px;
-  background: #181d13;
-  border-bottom: 1px solid #3c4730;
   cursor: move;
   touch-action: none;
   user-select: none;
 }
 
 .macroTitle {
-  color: #e8d7a8;
-  font: bold 13px monospace;
   letter-spacing: 1px;
 }
 
@@ -969,7 +746,6 @@ body.uo-cursor * {
   flex-direction: column;
   flex: 0 0 190px;
   min-height: 0;
-  border-right: 1px solid #3c4730;
 }
 
 .macroList {
@@ -987,9 +763,6 @@ body.uo-cursor * {
   width: 100%;
   margin-bottom: 3px;
   padding: 6px 8px;
-  background: rgba(0, 0, 0, 0.24);
-  border: 1px solid #3c4730;
-  color: #d9c58d;
   text-align: left;
   font-size: 12px;
   cursor: grab;
@@ -999,15 +772,8 @@ body.uo-cursor * {
   cursor: grabbing;
 }
 
-.macroListItem.active {
-  background: rgba(201, 176, 108, 0.24);
-  border-color: #c9b06c;
-  color: #f0dfa8;
-}
-
 .macroCount {
   flex: 0 0 auto;
-  color: #8d8060;
   font-size: 10px;
 }
 
@@ -1035,7 +801,6 @@ body.uo-cursor * {
 
 .macroNameRow span {
   flex: 0 0 38px;
-  color: #bfa96f;
 }
 
 .macroNameRow input,
@@ -1045,11 +810,7 @@ body.uo-cursor * {
   min-width: 0;
   margin: 0;
   padding: 5px 7px;
-  background: #0d0c09;
-  border: 1px solid #50452b;
   border-radius: 2px;
-  color: #f1e6c6;
-  font: 12px monospace;
   outline: none;
   user-select: text;
 }
@@ -1076,8 +837,6 @@ body.uo-cursor * {
   min-height: 0;
   padding: 4px;
   overflow: auto;
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid #3c4730;
 }
 
 .macroAction {
@@ -1086,8 +845,6 @@ body.uo-cursor * {
   gap: 5px;
   flex: 0 0 auto;
   padding: 4px;
-  background: rgba(0, 0, 0, 0.18);
-  border: 1px solid rgba(60, 71, 48, 0.7);
 }
 
 .macroActionType {
@@ -1103,7 +860,6 @@ body.uo-cursor * {
 .macroActionNote {
   flex: 1;
   min-width: 0;
-  color: #8d8060;
   font-size: 11px;
 }
 
@@ -1112,11 +868,7 @@ body.uo-cursor * {
   min-width: 0;
   margin: 0;
   padding: 6px 7px;
-  background: #0d0c09;
-  border: 1px solid #50452b;
   border-radius: 2px;
-  color: #f1e6c6;
-  font: 12px monospace;
   cursor: pointer;
   outline: none;
 }
@@ -1138,13 +890,11 @@ body.uo-cursor * {
 
 .macroStatus {
   min-height: 14px;
-  color: #9c8c63;
   font-size: 10px;
 }
 
 .macroEmpty {
   padding: 8px;
-  color: #8d8060;
   font-size: 11px;
   line-height: 1.4;
 }
@@ -1153,12 +903,7 @@ body.uo-cursor * {
   position: fixed;
   z-index: 80;
   padding: 5px 9px;
-  background: rgba(18, 15, 10, 0.96);
-  border: 1px solid #c9b06c;
   border-radius: 2px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55);
-  color: #f0dfa8;
-  font: 12px monospace;
   pointer-events: none;
   white-space: nowrap;
 }
@@ -1176,11 +921,6 @@ body.uo-cursor * {
   gap: 4px;
   margin-left: 14px;
   padding: 4px 0 4px 8px;
-  border-left: 1px dashed #5b4e30;
-}
-
-.macroLoopBody .macroAction {
-  background: rgba(20, 24, 15, 0.55);
 }
 
 .macroLoopAdd {
@@ -1194,11 +934,7 @@ body.uo-cursor * {
   min-width: 0;
   margin: 0;
   padding: 4px 6px;
-  background: #0d0c09;
-  border: 1px solid #50452b;
   border-radius: 2px;
-  color: #f1e6c6;
-  font: 12px monospace;
   cursor: pointer;
   outline: none;
 }
@@ -1211,20 +947,16 @@ body.uo-cursor * {
 
 #modalBackdrop {
   z-index: 50;
-  background: rgba(0, 0, 0, 0.6);
 }
 
 .modal {
   width: min(440px, 90vw);
-  background: #17130c;
-  border: 1px solid #7c6839;
   padding: 18px;
   border-radius: 3px;
 }
 
 #modalTitle {
   font-size: 15px;
-  color: #e7d39b;
   margin-bottom: 12px;
 }
 
@@ -1244,7 +976,6 @@ body.uo-cursor * {
   flex-direction: column;
   gap: 4px;
   margin-bottom: 10px;
-  color: #bfa96f;
   font-size: 12px;
 }
 
@@ -1277,14 +1008,7 @@ body.uo-cursor * {
   width: 54px;
   height: 54px;
   padding: 3px;
-  background: #241d12;
-  border: 1px solid #5f5133;
   border-radius: 2px;
-}
-
-#modalBody .uoMenuItem:hover {
-  background: #3a2f1c;
-  border-color: #c9b06c;
 }
 
 #modalBody .uoMenuItem img {
@@ -1297,9 +1021,7 @@ body.uo-cursor * {
   position: absolute;
   top: 1px;
   left: 3px;
-  color: #e7d39b;
   font-size: 10px;
-  text-shadow: 0 0 2px #000;
   pointer-events: none;
 }
 
@@ -1316,7 +1038,6 @@ body.uo-cursor * {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  color: #d9c58d;
   font-size: 13px;
   line-height: 1.35;
   cursor: pointer;
@@ -1326,11 +1047,9 @@ body.uo-cursor * {
   width: auto;
   min-height: 0;
   margin: 3px 0 0;
-  accent-color: #c9b06c;
 }
 
 #modalBody .dyeBody {
-  color: #d9c58d;
   font-size: 12px;
 }
 
@@ -1344,8 +1063,6 @@ body.uo-cursor * {
   display: grid;
   gap: 0;
   padding: 4px;
-  background: #0d0b07;
-  border: 1px solid #5f5133;
 }
 
 #modalBody .dyeCell {
@@ -1359,13 +1076,11 @@ body.uo-cursor * {
 }
 
 #modalBody .dyeCell:hover {
-  outline: 1px solid #fff;
   outline-offset: -1px;
   z-index: 1;
 }
 
 #modalBody .dyeCell.selected {
-  outline: 2px solid #fff;
   outline-offset: -2px;
   z-index: 2;
 }
@@ -1383,20 +1098,16 @@ body.uo-cursor * {
   object-fit: contain;
   image-rendering: pixelated;
   align-self: center;
-  background: #0d0b07;
-  border: 1px solid #5f5133;
 }
 
 #modalBody .dyeSwatch {
   width: 96px;
   height: 16px;
   align-self: center;
-  border: 1px solid #5f5133;
 }
 
 #modalBody .dyeHueLabel,
 #modalBody .dyeSideLabel {
-  color: #bfa96f;
   text-align: center;
 }
 
@@ -1410,17 +1121,8 @@ body.uo-cursor * {
   width: 24px;
   height: 22px;
   padding: 0;
-  color: #d9c58d;
-  background: #241d12;
-  border: 1px solid #5f5133;
   border-radius: 2px;
   cursor: pointer;
-}
-
-#modalBody .dyeShade.active {
-  color: #f0dfa8;
-  background: #3a2f1c;
-  border-color: #c9b06c;
 }
 
 ::-webkit-scrollbar {
@@ -1428,12 +1130,7 @@ body.uo-cursor * {
   height: 8px;
 }
 
-::-webkit-scrollbar-track {
-  background: #0d0b07;
-}
-
 ::-webkit-scrollbar-thumb {
-  background: #4d4126;
   border-radius: 4px;
 }
 
@@ -1550,7 +1247,6 @@ body.uo-cursor * {
     flex: 0 0 auto;
     max-height: 32%;
     border-right: 0;
-    border-bottom: 1px solid #3c4730;
   }
 
   .macroList {

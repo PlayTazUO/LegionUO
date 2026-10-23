@@ -217,6 +217,22 @@ Then open <http://127.0.0.1:8080>.
 | `GET /api/mapimage?facet=&x0=&y0=&x1=&y1=&w=&h=` | Cropped facet map PNG |
 | `WS /proxy` | UO TCP relay (JSON `connect` control frame, binary thereafter) |
 
+## Theming
+
+The client's colours and visual identity live in `client/css/theme.css`.
+`client/css/style.css` contains layout, spacing and functional styles only, so
+a server can rebrand the client without risking broken controls or layouts.
+
+To theme a shard, edit the design tokens in the `:root` block at the top of
+`theme.css` (`--uo-bg`, `--uo-accent`, `--uo-border`, `--uo-button-bg`, fonts,
+journal message colours, and so on). The rest of the file maps those tokens onto
+the login screen, game window, HUD, journal, tooltip, macro editor and modals.
+Fonts and backgrounds are also defined there.
+
+Keep custom changes in `theme.css`; use `style.css` only when changing layout or
+behaviour. Both files are served with `Cache-Control: no-cache`, so a reload
+picks up theme edits immediately.
+
 ## Local test shard
 
 `tools/make-test-data.mjs` generates a tiny synthetic UO data directory, and
@@ -258,11 +274,6 @@ you trust. The asset server itself never stores credentials.
   against every UO installation variant.
 - Radar colours require `radarcol.mul`; map item gumps require `facetXX.mul` (or
   `facetX.mul`). Multi footprints are drawn from `/api/multi` when loaded.
-
-## Roadmap
-
-See [`docs/REMAINING_SYSTEMS.md`](docs/REMAINING_SYSTEMS.md) for the basic client
-systems checklist and the remaining polish items.
 
 ## Credits
 
