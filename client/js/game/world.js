@@ -747,15 +747,14 @@ export class World {
       if (surfaceZ > z) z = surfaceZ;
     }
 
-    let staticBlocked = false;
+    const staticBlockers = [];
     for (const s of statics) {
       const flags = (this.assets.staticFlags(s.graphic) || 0) >>> 0;
       if (!(flags & TILE_FLAG_IMPASSABLE)) continue;
-      const top = s.z + Math.max(1, this.staticCalcHeight(s.graphic, flags));
-      if (top >= z && s.z < z + 16) {
-        staticBlocked = true;
-        break;
-      }
+      staticBlockers.push({
+        top: s.z + Math.max(1, this.staticCalcHeight(s.graphic, flags)),
+        bottom: s.z,
+      });
     }
     const multi = this.multiAt(x, y, z, referenceZ);
     if (multi) {
@@ -763,6 +762,17 @@ export class World {
       if (multi.surface != null) {
         z = multi.surface;
         hasSurface = true;
+      }
+    }
+    // Impassable tiles only block if they reach above the surface the player
+    // would stand on. The foundation walls of custom houses sit at z 0 and are
+    // only five units tall, so they must be walk-over curbs when stepping from
+    // the entrance stairs onto the raised floor at z 7.
+    let staticBlocked = false;
+    for (const b of staticBlockers) {
+      if (b.top >= z && b.bottom < z + 16) {
+        staticBlocked = true;
+        break;
       }
     }
     const blocked = staticBlocked || (multi?.blocked ?? false) || (landBlocked && !hasSurface);
@@ -800,6 +810,7 @@ export class World {
   multiAt(x, y, z, fromZ = z) {
     const referenceZ = Number.isFinite(fromZ) ? fromZ : z;
     let result = null;
+    const blockers = [];
     for (const entity of this.entities.values()) {
       if (!entity.isItem || !entity.isMulti || !entity.hasPosition) continue;
       const parts = this.multiParts(entity);
@@ -825,10 +836,22 @@ export class World {
           if (result.surface == null || surfaceZ > result.surface) result.surface = surfaceZ;
         }
         if (!(flags & TILE_FLAG_IMPASSABLE)) continue;
-        const top = partZ + Math.max(1, this.staticCalcHeight(part.graphic, flags));
-        if (top > z + 1 && partZ < z + 16) {
-          result = result || { blocked: false, noDiagonal: false, surface: null };
+        blockers.push({
+          top: partZ + Math.max(1, this.staticCalcHeight(part.graphic, flags)),
+          bottom: partZ,
+        });
+      }
+    }
+    if (blockers.length) {
+      result = result || { blocked: false, noDiagonal: false, surface: null };
+      // Measure obstacles against the surface this tile resolves to, not the
+      // ground below it. Stair and floor tiles often share a tile with the low
+      // foundation walls of a custom house, which are walked over from above.
+      const surfaceZ = result.surface ?? z;
+      for (const b of blockers) {
+        if (b.top > surfaceZ + 1 && b.bottom < surfaceZ + 16) {
           result.blocked = true;
+          break;
         }
       }
     }
