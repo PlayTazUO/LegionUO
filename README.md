@@ -36,6 +36,7 @@ Then open <http://127.0.0.1:8080>.
 
 ```json
 {
+  "name": "LegionUO",
   "uoDir": "",
   "httpPort": 8080,
   "httpsPort": 0,
@@ -55,6 +56,8 @@ Then open <http://127.0.0.1:8080>.
 }
 ```
 
+- `name` - display name shown in the browser tab, login screen, and client
+  messages. Defaults to `LegionUO`; set it to customize the shard branding.
 - `uoDir` - UO data directory. Can also be set with `UO_DIR` or `--uo-dir`.
 - `httpsPort` - optional HTTPS port. When set together with `httpsCert` and
   `httpsKey`, the server also listens for TLS traffic on this port. HTTP stays

@@ -1,4 +1,5 @@
 {
+  "name": "LegionUO",
   "uoDir": "/Applications/TUO/UOMemento",
   "httpPort": 8080,
   "httpsPort": 0,

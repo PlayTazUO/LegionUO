@@ -78,6 +78,7 @@ function detectUODir() {
 
 function loadConfig() {
   const config = {
+    name: 'LegionUO',
     uoDir: '',
     httpPort: 8080,
     httpsPort: 0,
@@ -131,6 +132,14 @@ function loadConfig() {
 
 const configPath = path.join(root, 'config.json');
 let config = loadConfig();
+
+function serverName() {
+  return config.name || 'LegionUO';
+}
+
+function logTag() {
+  return `[${serverName()}]`;
+}
 let assets = new AssetService(config);
 let configMtime = (() => {
   try {
@@ -156,7 +165,7 @@ function reloadConfigIfChanged() {
       assets.setCacheLimit(config.cacheMb);
       return;
     }
-    console.log(`[legionuo] config changed, reloading assets (${next.uoDir || 'no UO dir'})`);
+    console.log(`${logTag()} config changed, reloading assets (${next.uoDir || 'no UO dir'})`);
     try {
       assets.files.closeAll();
     } catch {
@@ -308,7 +317,7 @@ function passphraseMatches(supplied) {
 
 function requestPassphrase(res) {
   res.writeHead(401, {
-    'WWW-Authenticate': 'Basic realm="LegionUO shutdown", charset="UTF-8"',
+    'WWW-Authenticate': `Basic realm="${serverName()} shutdown", charset="UTF-8"`,
     'Content-Type': 'text/plain; charset=utf-8',
     'Cache-Control': 'no-store',
   });
@@ -348,7 +357,7 @@ function handleShutdown(req, res) {
     return;
   }
   shuttingDown = true;
-  console.log(`[legionuo] shutdown requested via ?shutdown from ${req.socket.remoteAddress}`);
+  console.log(`${logTag()} shutdown requested via ?shutdown from ${req.socket.remoteAddress}`);
   sendJSON(res, 200, { ok: true, shuttingDown: true });
   setTimeout(() => process.exit(0), 100);
 }
@@ -377,6 +386,7 @@ async function handleRequest(req, res) {
     if (pathname === '/api/config') {
       sendJSON(res, 200, {
         ...assets.info(),
+        name: config.name || 'LegionUO',
         wsPath: '/proxy',
         defaultLoginHost: config.defaultLoginHost || '',
         defaultLoginPort: config.defaultLoginPort || 2593,
@@ -593,7 +603,7 @@ async function handleRequest(req, res) {
 
     serveStatic(res, pathname);
   } catch (err) {
-    console.error('[legionuo] request error', req.url, err);
+    console.error(`${logTag()} request error`, req.url, err);
     sendJSON(res, 500, { error: String(err?.message || err) });
   }
 }
@@ -608,24 +618,24 @@ server.keepAliveTimeout = 65 * 1000;
 server.headersTimeout = 66 * 1000;
 
 function logStartup() {
-  console.log(`[legionuo] UO data: ${config.uoDir || '(not configured)'}`);
+  console.log(`${logTag()} UO data: ${config.uoDir || '(not configured)'}`);
   const info = assets.info();
-  console.log(`[legionuo] art: ${info.paths.art || 'NOT FOUND'}`);
-  console.log(`[legionuo] gumps: ${info.paths.gumps || 'NOT FOUND'}`);
-  console.log(`[legionuo] tiledata: ${info.paths.tiledata || 'NOT FOUND'}`);
-  console.log(`[legionuo] cliloc: ${info.paths.cliloc || 'NOT FOUND'}`);
-  if (!config.uoDir) console.log('[legionuo] Set uoDir in config.json or pass --uo-dir <path>');
+  console.log(`${logTag()} art: ${info.paths.art || 'NOT FOUND'}`);
+  console.log(`${logTag()} gumps: ${info.paths.gumps || 'NOT FOUND'}`);
+  console.log(`${logTag()} tiledata: ${info.paths.tiledata || 'NOT FOUND'}`);
+  console.log(`${logTag()} cliloc: ${info.paths.cliloc || 'NOT FOUND'}`);
+  if (!config.uoDir) console.log(`${logTag()} Set uoDir in config.json or pass --uo-dir <path>`);
   const proxyHosts = config.defaultLoginHost
     ? [config.defaultLoginHost, ...(config.allowProxyHosts || [])]
     : config.allowProxyHosts || [];
   console.log(
-    `[legionuo] proxy: default login host ${config.defaultLoginHost || '(none)'}, allowed hosts ${
+    `${logTag()} proxy: default login host ${config.defaultLoginHost || '(none)'}, allowed hosts ${
       proxyHosts.length ? proxyHosts.join(', ') : '(any)'
     }`
   );
   if (config.sendWebIdentity) {
     console.log(
-      `[legionuo] web identity: enabled${config.webIdentitySecret ? '' : ' (webIdentitySecret is empty)'}`
+      `${logTag()} web identity: enabled${config.webIdentitySecret ? '' : ' (webIdentitySecret is empty)'}`
     );
   }
 }
@@ -634,7 +644,7 @@ function startHttpsServer() {
   const port = Number(config.httpsPort) || 0;
   if (port <= 0) return;
   if (!config.httpsCert || !config.httpsKey) {
-    console.warn('[legionuo] httpsPort is set but httpsCert/httpsKey are missing; HTTPS is disabled');
+    console.warn(`${logTag()} httpsPort is set but httpsCert/httpsKey are missing; HTTPS is disabled`);
     return;
   }
 
@@ -646,7 +656,7 @@ function startHttpsServer() {
     };
   } catch (err) {
     console.error(
-      `[legionuo] cannot read HTTPS certificate/key (${config.httpsCert}, ${config.httpsKey}): ${err.message}`
+      `${logTag()} cannot read HTTPS certificate/key (${config.httpsCert}, ${config.httpsKey}): ${err.message}`
     );
     return;
   }
@@ -655,14 +665,14 @@ function startHttpsServer() {
   attachWebSocketServer(httpsServer, config);
   httpsServer.keepAliveTimeout = server.keepAliveTimeout;
   httpsServer.headersTimeout = server.headersTimeout;
-  httpsServer.on('error', (err) => console.error('[legionuo] HTTPS server error', err));
+  httpsServer.on('error', (err) => console.error(`${logTag()} HTTPS server error`, err));
   httpsServer.listen(port, config.host, () => {
-    console.log(`[legionuo] asset server listening on https://${config.host}:${port}`);
+    console.log(`${logTag()} asset server listening on https://${config.host}:${port}`);
   });
 }
 
 server.listen(config.httpPort, config.host, () => {
-  console.log(`[legionuo] asset server listening on http://${config.host}:${config.httpPort}`);
+  console.log(`${logTag()} asset server listening on http://${config.host}:${config.httpPort}`);
   logStartup();
   startHttpsServer();
 });

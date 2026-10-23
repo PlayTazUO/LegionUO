@@ -623,7 +623,7 @@ export class UI {
       this.journal.clear();
       if (this.journal.settings.open !== false) this.journal.show(false);
       else this.journal.hide(false);
-      this.addJournal('Welcome to LegionUO.', '#d6b45d', true);
+      this.addJournal(`Welcome to ${this.game.config?.name || 'LegionUO'}.`, '#d6b45d', true);
       this.restoreOpenWindows();
     }
     this.cancelMacroPlayback();
