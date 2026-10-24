@@ -4086,6 +4086,7 @@ export class UI {
     stick.style.top = `${Math.round(Math.max(0, Math.min(maxY, y * maxY)))}px`;
     stick.style.right = 'auto';
     stick.style.bottom = 'auto';
+    this.positionNearbyItems();
   }
 
   moveJoystickTo(clientX, clientY) {
@@ -4099,6 +4100,7 @@ export class UI {
     stick.style.top = `${Math.round(top)}px`;
     stick.style.right = 'auto';
     stick.style.bottom = 'auto';
+    this.positionNearbyItems();
   }
 
   startJoystickDrag(event) {
@@ -4268,6 +4270,37 @@ export class UI {
     this.nearbyItemTap = null;
   }
 
+  positionNearbyItems() {
+    const root = $('nearbyItems');
+    if (!root || root.classList.contains('hidden')) return;
+    const stick = this.touchStick;
+    const rect = stick && !stick.classList.contains('hidden') ? stick.getBoundingClientRect() : null;
+    if (!rect || !rect.width || !rect.height) {
+      root.style.left = '50%';
+      root.style.top = 'auto';
+      root.style.bottom = 'calc(154px + env(safe-area-inset-bottom, 0px))';
+      root.style.transform = 'translateX(-50%)';
+      return;
+    }
+    const vp = viewportSize();
+    const margin = 6;
+    const gap = 8;
+    const width = root.offsetWidth;
+    const height = root.offsetHeight;
+    let left = rect.left + rect.width / 2 - width / 2;
+    left = Math.max(margin, Math.min(vp.width - width - margin, left));
+    let top = rect.top - gap - height;
+    if (top < margin) {
+      const below = rect.bottom + gap;
+      top = below + height <= vp.height - margin ? below : vp.height - height - margin;
+    }
+    top = Math.max(margin, Math.min(vp.height - height - margin, top));
+    root.style.left = `${Math.round(left)}px`;
+    root.style.top = `${Math.round(top)}px`;
+    root.style.bottom = 'auto';
+    root.style.transform = 'none';
+  }
+
   updateNearbyItems() {
     const root = $('nearbyItems');
     const list = $('nearbyItemsList');
@@ -4365,6 +4398,7 @@ export class UI {
       }
     }
     root.classList.remove('hidden');
+    this.positionNearbyItems();
   }
 
   updateTouchControls() {
