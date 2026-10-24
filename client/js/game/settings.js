@@ -14,6 +14,7 @@ const DEFAULTS = {
   questArrow: true,
   waypoints: true,
   mobileContainerView: true,
+  transparentForegroundStatics: false,
   audioEnabled: typeof location !== 'undefined' && new URLSearchParams(location.search).has('audio'),
   audioVolume: 60,
   footsteps: true,
@@ -45,6 +46,7 @@ const BOOLEAN_KEYS = [
   'questArrow',
   'waypoints',
   'mobileContainerView',
+  'transparentForegroundStatics',
   'audioEnabled',
   'footsteps',
 ];

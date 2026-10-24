@@ -174,7 +174,8 @@ Then open <http://127.0.0.1:8080>.
   commands.
 - Options window (`OPT` / `-options`) with General, Display, Audio, and Keys tabs for
   always-run, auto-open doors, journal timestamps, names, health bars, speech, lighting, weather,
-  quest arrow, waypoints, game zoom, audio, volume, footsteps, joystick position, and rebindable shortcuts;
+  transparent foreground statics, quest arrow, waypoints, game zoom, audio, volume, footsteps,
+  joystick position, and rebindable shortcuts;
   settings apply live and persist per account in `localStorage`.
 - Custom-house design window with floor/category controls, add/delete prompts,
   backup/restore/commit/revert/clear/exit commands, and `0xD8` design updates.

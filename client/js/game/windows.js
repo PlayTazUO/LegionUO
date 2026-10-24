@@ -4086,7 +4086,7 @@ export class OptionsWindow {
   constructor(world) {
     this.world = world;
     this.width = 400;
-    this.height = 480;
+    this.height = 510;
     const savedX = settings.get('optionsX');
     const savedY = settings.get('optionsY');
     const pos = clampPosition(
@@ -4158,6 +4158,12 @@ export class OptionsWindow {
           key: 'mobileContainerView',
           label: 'Touch container view',
           hint: 'Large tap-friendly item grid on touch devices',
+        },
+        {
+          type: 'toggle',
+          key: 'transparentForegroundStatics',
+          label: 'Transparent foreground statics',
+          hint: 'Fade statics directly below you to 30% opacity so walls do not hide the character',
         },
         { type: 'toggle', key: 'showNames', label: 'Show mobile names' },
         { type: 'toggle', key: 'showHealthBars', label: 'Show health bars' },

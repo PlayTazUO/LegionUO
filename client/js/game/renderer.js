@@ -25,6 +25,16 @@ const ZOOM_WHEEL_STEP = 1.1;
 const TRANSPARENT_FLAG = 0x00000004;
 const FOLIAGE_FLAG = 0x00020000;
 const ROOF_FLAG = 0x10000000;
+const SURFACE_FLAG = 0x00000200;
+const BRIDGE_FLAG = 0x00000400;
+const FOREGROUND_FADE_ALPHA = 0.3;
+const FOREGROUND_FADE_TILES = [
+  [0, 1],
+  [1, 0],
+  [0, 2],
+  [1, 1],
+  [2, 0],
+];
 // UO's flat land art (land.mul) is pre-shaded for the isometric key light, so
 // a raw texmap drawn on a slope reads ~15% brighter. ClassicUO compensates
 // with get_light(normal); for a flat tile that evaluates to 0.5 + cos(45)/2.
@@ -167,6 +177,20 @@ export class Renderer {
     return priority;
   }
 
+  foregroundFadeTiles() {
+    if (!settings.get('transparentForegroundStatics')) return null;
+    const player = this.world.player;
+    if (!player) return null;
+    const x = Math.round(player.renderX ?? player.x);
+    const y = Math.round(player.renderY ?? player.y);
+    return new Set(FOREGROUND_FADE_TILES.map(([dx, dy]) => `${x + dx},${y + dy}`));
+  }
+
+  foregroundFadeAlpha(graphic) {
+    const flags = (this.assets.staticFlags(graphic) || 0) >>> 0;
+    return flags & (SURFACE_FLAG | BRIDGE_FLAG) ? 1 : FOREGROUND_FADE_ALPHA;
+  }
+
   overheadState() {
     // When the player is inside a building, the first floor/roof above their
     // head becomes a cut plane: nothing at or above it is drawn. That keeps
@@ -286,6 +310,7 @@ export class Renderer {
     this.world.ensureMapAround(px, py, Math.ceil(reach / 8) + 1);
 
     const overhead = this.overheadState();
+    const fadeTiles = this.foregroundFadeTiles();
     const cutZ = overhead.cut;
     const groundItems = new Map();
     const mobiles = new Map();
@@ -328,7 +353,7 @@ export class Renderer {
         const x = px + a;
         const y = py + depth - a;
         if (x < 0 || y < 0) continue;
-        this.drawTile(ctx, x, y, groundItems, mobiles, now, cutZ, overhead.hideRoofs);
+        this.drawTile(ctx, x, y, groundItems, mobiles, now, cutZ, overhead.hideRoofs, fadeTiles);
       }
     }
 
@@ -347,7 +372,7 @@ export class Renderer {
     this.drawWaypoints(ctx);
   }
 
-  drawTile(ctx, x, y, groundItems, mobiles, now, cutZ = Infinity, hideRoofs = false) {
+  drawTile(ctx, x, y, groundItems, mobiles, now, cutZ = Infinity, hideRoofs = false, fadeTiles = null) {
     const block = this.world.getBlock(x >> 3, y >> 3);
     if (!block) return;
     const lx = x & 7;
@@ -369,6 +394,7 @@ export class Renderer {
 
     const drawables = [];
     const landVisible = cell.z < cutZ;
+    const fadeTile = fadeTiles?.has(`${x},${y}`) || false;
     for (const s of this.world.staticGrid(block)[(ly << 3) | lx] || []) {
       if (s.z >= cutZ) continue;
       const flags = (this.assets.staticFlags(s.graphic) || 0) >>> 0;
@@ -379,7 +405,14 @@ export class Renderer {
       // visible from inside the basement.
       const top = s.z + Math.max(1, this.world.staticCalcHeight(s.graphic, flags));
       if (landVisible && top <= cell.z) continue;
-      drawables.push({ type: 'static', z: s.z, priorityZ: this.priorityZ(s.z, s.graphic), graphic: s.graphic, hue: s.hue });
+      drawables.push({
+        type: 'static',
+        z: s.z,
+        priorityZ: this.priorityZ(s.z, s.graphic),
+        graphic: s.graphic,
+        hue: s.hue,
+        alpha: fadeTile ? this.foregroundFadeAlpha(s.graphic) : 1,
+      });
     }
     for (const item of groundItems.get(`${x},${y}`) || []) {
       if (item.part) {
@@ -395,6 +428,7 @@ export class Renderer {
           hue: 0,
           entity: item.entity,
           order: item.order,
+          alpha: fadeTile ? this.foregroundFadeAlpha(part.graphic) : 1,
         });
         continue;
       }
@@ -436,7 +470,9 @@ export class Renderer {
         if (!img) continue;
         const p = this.staticDrawPos(x, y, d.z, img);
         if (!this.imageVisible(p.x, p.y, img.width, img.height)) continue;
+        if (d.alpha != null && d.alpha !== 1) ctx.globalAlpha = d.alpha;
         ctx.drawImage(img, p.x, p.y);
+        if (d.alpha != null && d.alpha !== 1) ctx.globalAlpha = 1;
         if (d.amount > 1) {
           ctx.fillStyle = '#ffe08a';
           ctx.font = '11px monospace';
