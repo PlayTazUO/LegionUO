@@ -160,6 +160,7 @@ export class ContainerWindow {
 
   contains(mx, my) {
     if (mx >= this.x && my >= this.y && mx < this.x + this.width && my < this.y + this.height) return true;
+    if (this.mobileView) return false;
     const list = this.listRect;
     return mx >= list.x && my >= list.y && mx < list.x + list.w && my < list.y + list.h;
   }
@@ -2654,7 +2655,7 @@ export class PaperdollWindow {
     if (slot && !slot.item) {
       return { id: `paperdoll:${this.mobile.serial}:layer:${slot.layer}`, title: layerName(slot.layer) };
     }
-    const item = slot?.item || this.avatarItemAt(mx, my);
+    const item = this.backpackAt(mx, my) || slot?.item || this.avatarItemAt(mx, my);
     if (!item) return null;
     return {
       id: `paperdoll:${this.mobile.serial}:${item.serial}`,
@@ -2728,7 +2729,7 @@ export class PaperdollWindow {
   }
 
   onDoubleClick(mx, my) {
-    const item = this.itemAt(mx, my);
+    const item = this.backpackAt(mx, my) || this.itemAt(mx, my);
     if (item) this.world.socket.out.doubleClick(item.serial);
   }
 
@@ -2906,14 +2907,31 @@ export class PaperdollWindow {
     return { id: primary, hue, partial };
   }
 
-  backpackGump() {
-    if (!this.world.assets.tileData) return 0;
-    const item =
+  backpackItem() {
+    if (!this.world.assets.tileData) return null;
+    return (
       this.mobile.getItem(Layer.Backpack) ||
-      [...this.mobile.items.values()].find((entry) => entry.layer === Layer.Backpack);
+      [...this.mobile.items.values()].find((entry) => entry.layer === Layer.Backpack) ||
+      null
+    );
+  }
+
+  backpackGump() {
+    const item = this.backpackItem();
     if (!item) return 0;
     const animId = this.world.assets.staticAnimId(item.graphic);
     return animId ? animId + PAPERDOLL_MALE_GUMP_OFFSET : 0;
+  }
+
+  backpackAt(mx, my) {
+    const item = this.backpackItem();
+    const gump = this.backpackGump();
+    if (!item || !gump) return null;
+    const img = this.world.assets.getGump(gump);
+    if (!img) return null;
+    const x = Math.floor(mx - this.x);
+    const y = Math.floor(my - this.avatarRect.y);
+    return gumpAlphaAt(img, x, y) ? item : null;
   }
 
   draw(ctx, now) {
