@@ -630,6 +630,38 @@ button:hover {
   color: var(--uo-macro-text);
 }
 
+#modalBody select {
+  background: var(--uo-surface-sunken);
+  border: 1px solid var(--uo-border-input);
+  color: var(--uo-text-bright);
+}
+
+#modalBody select:focus {
+  border-color: var(--uo-border-focus);
+}
+
+#modalBody .ccPanelTitle,
+#modalBody .ccField > span,
+#modalBody .ccColorGroup > span {
+  color: var(--uo-accent-soft);
+}
+
+#modalBody .ccHint {
+  color: var(--uo-text-dim);
+}
+
+#modalBody .ccError {
+  color: var(--uo-danger-bright);
+}
+
+#modalBody .ccSliderValue {
+  color: var(--uo-text-soft);
+}
+
+#modalBody .ccSwatch {
+  border-color: var(--uo-surface-sunken);
+}
+
 #modalBody .dyeGrid {
   background: #0d0b07;
   border: 1px solid #5f5133;

@@ -13,6 +13,7 @@ import { AnimationsManager, MAX_DIRECTIONS, MAX_ACTIONS } from './uo/anim.js';
 import { AnimDataManager } from './uo/animdata.js';
 import { ClilocManager } from './uo/cliloc.js';
 import { SkillsManager } from './uo/skills.js';
+import { ProfessionsManager } from './uo/professions.js';
 import { MultiManager } from './uo/multi.js';
 import { TexmapManager } from './uo/texmaps.js';
 import { SoundManager } from './uo/sound.js';
@@ -116,6 +117,7 @@ export class AssetService {
     this.animData = new AnimDataManager(this.files);
     this.clilocs = new ClilocManager(this.files, config.language || 'enu');
     this.skills = new SkillsManager(this.files);
+    this.professions = new ProfessionsManager(this.files, this.skills);
     this.multis = new MultiManager(this.files, config.clientVersion);
     this.sounds = new SoundManager(this.files);
     this.fonts = new FontManager(this.files, this.hues);
@@ -175,6 +177,7 @@ export class AssetService {
         fonts: has('fonts.mul'),
         music: has('Music/Digital/Config.txt') || has('Music/Config.txt'),
         skills: has('skills.mul') || has('Skills.mul'),
+        professions: has('Prof.txt'),
         radar: has('radarcol.mul'),
         facets: has('facet00.mul') || has('facet0.mul'),
       },
@@ -192,6 +195,7 @@ export class AssetService {
         fonts: this.files.find('fonts.mul'),
         music: this.files.find('Music/Digital/Config.txt') || this.files.find('Music/Config.txt'),
         skills: this.files.find('skills.mul') || this.files.find('Skills.mul'),
+        professions: this.files.find('Prof.txt'),
         radar: this.files.find('radarcol.mul'),
         facet0: this.files.find('facet00.mul') || this.files.find('facet0.mul'),
       },
@@ -398,6 +402,15 @@ export class AssetService {
     const cached = this.cache.get(key);
     if (cached) return cached;
     const buf = Buffer.from(JSON.stringify(this.skills.toJSON()));
+    this.cache.set(key, buf);
+    return buf;
+  }
+
+  professionsJSON() {
+    const key = this.cacheKey('professions');
+    const cached = this.cache.get(key);
+    if (cached) return cached;
+    const buf = Buffer.from(JSON.stringify(this.professions.toJSON()));
     this.cache.set(key, buf);
     return buf;
   }

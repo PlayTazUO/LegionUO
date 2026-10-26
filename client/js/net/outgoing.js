@@ -1,5 +1,5 @@
 import { Writer } from '../util/binary.js';
-import { getPacketLength, buildLengthTable } from './packet-length.js';
+import { getPacketLength, buildLengthTable, versionValue } from './packet-length.js';
 
 export class Outgoing {
   constructor(socket, clientVersion) {
@@ -907,17 +907,42 @@ export class Outgoing {
       strength = 10,
       dexterity = 10,
       intelligence = 10,
-      skills = [[0, 50], [1, 50], [2, 50], [3, 50]],
+      skills = [],
       cityIndex = 0,
       slot = 0,
       profession = 0,
       hue = 0,
-      hair = [0x203b, 0],
+      hair = [0, 0],
       beard = [0, 0],
       shirtHue = 0,
       pantsHue = 0,
     } = options;
-    const id = 0xf8;
+
+    const version = versionValue(this.socket.clientVersion || '7.0.104.0');
+    const newPacket = version >= 0x07001000; // ClientVersion.CV_70160
+    const id = newPacket ? 0xf8 : 0x00;
+    const skillCount = newPacket ? 4 : 3;
+
+    // TazUO sends the highest skills first; the server only reads the first
+    // three entries on pre-7.0.16 clients and four on newer clients.
+    const chosen = [...skills]
+      .filter((entry) => Array.isArray(entry) && Number.isFinite(Number(entry[0])))
+      .map(([index, value]) => [Number(index) & 0xff, Number(value) & 0xff])
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, skillCount);
+    while (chosen.length < skillCount) chosen.push([0, 0]);
+
+    // Classic clients send a simple female flag. Later clients use
+    // (race * 2 + female), and pre-7.0 clients use zero-based races.
+    let raceGender;
+    if (version < 0x04000b64) {
+      raceGender = female ? 1 : 0;
+    } else {
+      let value = race;
+      if (version < 0x07000000) value--;
+      raceGender = (value * 2 + (female ? 1 : 0)) & 0xff;
+    }
+
     this.send(this.make(id, (w) => {
       w.writeU32BE(0xedededed);
       w.writeU32BE(0xffffffff);
@@ -927,32 +952,28 @@ export class Outgoing {
       w.writeU32BE(this.socket.clientVersionValue || 0x07006800);
       w.writeU32BE(0x01);
       w.writeU32BE(0x00);
-      w.writeU8(profession);
+      w.writeU8(profession & 0xff);
       w.writeZero(15);
-      w.writeU8((female ? 2 : 1) | ((race & 3) << 2));
+      w.writeU8(raceGender);
       w.writeU8(strength);
       w.writeU8(dexterity);
       w.writeU8(intelligence);
-      for (const [index, value] of skills.slice(0, 4)) {
+      for (const [index, value] of chosen) {
         w.writeU8(index);
         w.writeU8(value);
       }
       w.writeU16BE(hue);
       w.writeU16BE(hair[0]);
       w.writeU16BE(hair[1]);
-      w.writeZero(4);
       w.writeU16BE(beard[0]);
       w.writeU16BE(beard[1]);
-      w.writeZero(4);
       w.writeU16BE(cityIndex);
       w.writeZero(2);
       w.writeU16BE(slot);
       w.writeU32BE(0x0100007f);
       w.writeU16BE(shirtHue);
-      w.writeZero(2);
       w.writeU16BE(pantsHue);
-      w.writeZero(2);
-    }, 106));
+    }, newPacket ? 106 : 104));
   }
 
 

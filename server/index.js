@@ -423,6 +423,11 @@ async function handleRequest(req, res) {
       return;
     }
 
+    if (pathname === '/api/professions') {
+      sendJSONMaybeGzip(req, res, assets.professionsJSON(), 'public, max-age=3600');
+      return;
+    }
+
     let m = pathname.match(/^\/api\/cliloc\/(\d+)$/);
     if (m) {
       const text = assets.clilocs.get(Number(m[1]));

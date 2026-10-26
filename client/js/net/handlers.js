@@ -178,6 +178,7 @@ export class Handlers {
 
     this.set(0xa8, (r) => {
       game.clearLoginWatchdog();
+      world.login.pendingCreate = false;
       r.readU8();
       const count = r.readU16BE();
       const servers = [];
@@ -189,6 +190,7 @@ export class Handlers {
 
     this.set(0xa9, (r) => {
       game.clearLoginWatchdog();
+      world.login.pendingCreate = false;
       const count = r.readU8();
       const chars = [];
       for (let i = 0; i < count; i++) {
@@ -240,7 +242,9 @@ export class Handlers {
       }
       world.login.characters = chars;
       world.login.step = 'characters';
+      world.login.pendingCreate = false;
       game.ui?.showCharacters(chars, world.login.cities);
+      game.ui?.setLoginStatus?.('Character created. Select it to enter the world.');
     });
 
     for (const id of [0x82, 0x85, 0x53]) {
@@ -248,9 +252,19 @@ export class Handlers {
         if (world.inGame) return;
         game.clearLoginWatchdog();
         const code = r.readU8();
-        world.login.error = `${rejectionMessage(id, code)} [0x${id.toString(16)} code ${code}]`;
-        world.login.step = 'error';
+        const message = rejectionMessage(id, code);
+        world.login.error = `${message} [0x${id.toString(16)} code ${code}]`;
         console.warn('[login]', world.login.error);
+        if (world.login.pendingCreate) {
+          // The shard rejected the character, not the account. Do not drop
+          // the login connection: keep the character list usable so the
+          // player can correct the name and try again.
+          world.login.pendingCreate = false;
+          world.login.step = 'characters';
+          game.ui?.onCharacterCreateError(message);
+          return;
+        }
+        world.login.step = 'error';
         game.ui?.showLoginError(world.login.error);
         socket.close();
       });

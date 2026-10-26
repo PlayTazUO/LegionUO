@@ -116,7 +116,7 @@ Then open <http://127.0.0.1:8080>.
   resolution and hue application
 - `tiledata.mul` (old and modern layouts)
 - `texmaps.mul` + `texidx.mul` (plus `TexTerr.def` remaps) for stretched terrain
-- `hues.mul`, `Cliloc.*` (including BWT-compressed clilocs), `skills.mul`,
+- `hues.mul`, `Cliloc.*` (including BWT-compressed clilocs), `skills.mul`, `Prof.txt`,
   `multi.mul`/`MultiCollection.uop`, `fonts.mul`, `sound.mul`/`soundidx.mul`
 - Digital music (`Music/Digital/Config.txt` plus the referenced MP3 files)
 - Shard-local `Art/Statics`, `Art/Land`, `Gumps`, `Clilocs.txt`
@@ -168,7 +168,9 @@ Then open <http://127.0.0.1:8080>.
   hover coordinates and double-click click-to-walk.
 - Movable/resizable journal with per-account message history, tabs/filters,
   timestamps, opacity/font/line settings, ignore list and chat speech modes.
-- Login/server/character selection, character creation, optional remembered
+- Login/server/character selection and a TazUO-style character creation wizard
+  (race/gender, hair and facial hair, skin/hair/clothing hues, profession presets,
+  attribute/skill point-buy, city selection and a live character preview), optional remembered
   account/password, a movable status window (saved position, live stats, and
   paperdoll/skills/journal/war/refresh/logout actions), skills list and chat
   commands.
@@ -200,6 +202,7 @@ Then open <http://127.0.0.1:8080>.
 | `GET /api/hues` | Text colour table (32-colour hue entries) |
 | `GET /api/tiledata` | Land/static flags, height, layer, anim id (`?names=1` for names) |
 | `GET /api/skills` | Skill names |
+| `GET /api/professions` | `Prof.txt` presets with stats and starting skills |
 | `GET /api/cliloc/:id`, `/api/cliloc?ids=1,2`, `/api/cliloc/all` | Cliloc strings |
 | `GET /api/multi/:id` | Multi components |
 | `GET /api/art/land/:id.png?hue=&partial=` | Land tile |

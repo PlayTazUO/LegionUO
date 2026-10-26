@@ -56,6 +56,7 @@ import { findSpellByName } from '../game/spells.js';
 import { MapGumpWindow, MinimapWindow, WorldMapWindow } from '../game/maps.js';
 import { WaypointWindow, addLocalWaypoint, clearLocalWaypoints, loadLocalWaypoints } from '../game/waypoints.js';
 import { Reader } from '../util/binary.js';
+import { CharCreationWizard } from '../game/charcreation.js';
 import { accountStorageKey, clampPosition, isMobileLayout, viewportSize } from '../util/ui.js';
 import { Journal } from './journal.js';
 
@@ -543,7 +544,12 @@ export class UI {
       });
       list.appendChild(b);
     });
-    if (chars.filter(Boolean).length < 5) {
+    const flags = this.world.login.characterListFlags || 0;
+    let maxChars = 5;
+    if (flags & 0x04) maxChars = 1;
+    else if (flags & 0x1000) maxChars = 7;
+    else if (flags & 0x40) maxChars = 6;
+    if (chars.filter(Boolean).length < maxChars) {
       const create = document.createElement('button');
       create.textContent = 'Create character';
       create.addEventListener('click', () => this.showCreateCharacter(cities));
@@ -561,41 +567,17 @@ export class UI {
 
 
   showCreateCharacter(cities = []) {
-    const cityOptions = (cities.length ? cities : [{ index: 0, name: 'Britain' }])
-      .map((c) => `<option value="${c.index}">${escapeHtml(c.name || `City ${c.index}`)}</option>`)
-      .join('');
-    const html = `
-      <div style="display:grid;gap:8px;font-size:13px">
-        <label>Name <input id="ccName" maxlength="30" value="New Adventurer"></label>
-        <label>Gender <select id="ccGender"><option value="0">Male</option><option value="1">Female</option></select></label>
-        <label>Race <select id="ccRace"><option value="1">Human</option><option value="2">Elf</option><option value="3">Gargoyle</option></select></label>
-        <div style="display:flex;gap:8px">
-          <label>Str <input id="ccStr" type="number" min="10" max="60" value="45"></label>
-          <label>Dex <input id="ccDex" type="number" min="10" max="60" value="35"></label>
-          <label>Int <input id="ccInt" type="number" min="10" max="60" value="10"></label>
-        </div>
-        <label>City <select id="ccCity">${cityOptions}</select></label>
-      </div>`;
-    this.showModal('Create Character', html, () => {
-      const name = document.getElementById('ccName').value.trim() || 'New Adventurer';
-      const female = document.getElementById('ccGender').value === '1';
-      const race = parseInt(document.getElementById('ccRace').value, 10) || 1;
-      const str = parseInt(document.getElementById('ccStr').value, 10) || 45;
-      const dex = parseInt(document.getElementById('ccDex').value, 10) || 35;
-      const int = parseInt(document.getElementById('ccInt').value, 10) || 10;
-      const cityIndex = parseInt(document.getElementById('ccCity').value, 10) || 0;
-      this.world.socket.out.createCharacter({
-        name,
-        female,
-        race,
-        strength: str,
-        dexterity: dex,
-        intelligence: int,
-        cityIndex,
-        skills: [[43, 50], [1, 50], [45, 50], [26, 50], [25, 50]],
-      });
-      this.setLoginStatus('Creating character...');
-    }, true);
+    const wizard = new CharCreationWizard(this, cities);
+    void wizard.open();
+  }
+
+  onCharacterCreateError(message) {
+    this.showCharacters(this.world.login.characters || [], this.world.login.cities || []);
+    this.setLoginStatus(message || 'Character creation failed.');
+    const body = document.createElement('div');
+    body.className = 'status';
+    body.textContent = message || 'Character creation failed.';
+    this.showModal('Character Creation Failed', body, null, false);
   }
 
   showLoginError(message) {
@@ -5074,7 +5056,7 @@ export class UI {
 
   /* ----------------------------- modal ----------------------------- */
 
-  showModal(title, body, onOk, showCancel = true, onCancel = null) {
+  showModal(title, body, onOk, showCancel = true, onCancel = null, options = {}) {
     const titleEl = $('modalTitle');
     titleEl.textContent = '';
     appendServerText(titleEl, title);
@@ -5082,10 +5064,14 @@ export class UI {
     bodyEl.innerHTML = '';
     if (typeof body === 'string') bodyEl.innerHTML = body;
     else if (body) bodyEl.appendChild(body);
+    const modal = document.querySelector('.modal');
+    if (modal) modal.classList.toggle('wide', !!options.wide);
+    const buttons = document.querySelector('.modalButtons');
+    if (buttons) buttons.style.display = options.customFooter ? 'none' : '';
     $('modalBackdrop').classList.remove('hidden');
-    $('modalCancel').style.display = showCancel ? '' : 'none';
+    $('modalCancel').style.display = options.customFooter ? 'none' : showCancel ? '' : 'none';
     $('modalOk').textContent = onOk ? 'OK' : 'Close';
-    $('modalOk').style.display = '';
+    $('modalOk').style.display = options.customFooter ? 'none' : '';
     this.modalOk = onOk || (() => this.hideModal());
     this.modalCancel = onCancel || null;
   }
@@ -5187,8 +5173,4 @@ function readBuffArgs(r) {
   const length = r.readU16BE();
   if (length > 2) return r.readUnicodeLE(length);
   return r.readUnicodeLE();
-}
-
-function escapeHtml(text) {
-  return String(text).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
