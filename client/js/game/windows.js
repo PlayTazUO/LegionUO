@@ -4096,6 +4096,7 @@ export class HealthBarWindow {
 const OPTION_TABS = [
   { id: 'general', label: 'General' },
   { id: 'display', label: 'Display' },
+  { id: 'overlay', label: 'Overlay' },
   { id: 'audio', label: 'Audio' },
   { id: 'keys', label: 'Keys' },
 ];
@@ -4132,11 +4133,14 @@ export class OptionsWindow {
   }
 
   tabRects() {
+    const gap = 4;
+    const count = OPTION_TABS.length;
+    const width = Math.floor((this.width - 28 - gap * (count - 1)) / count);
     return OPTION_TABS.map((tab, index) => ({
       ...tab,
-      x: this.x + 14 + index * 90,
+      x: this.x + 14 + index * (width + gap),
       y: this.y + 42,
-      w: 86,
+      w: width,
       h: 22,
     }));
   }
@@ -4191,6 +4195,53 @@ export class OptionsWindow {
         { type: 'toggle', key: 'weather', label: 'Weather effects' },
         { type: 'toggle', key: 'questArrow', label: 'Quest arrow' },
         { type: 'toggle', key: 'waypoints', label: 'Waypoint markers' },
+      ];
+    }
+    if (this.tab === 'overlay') {
+      return [
+        {
+          type: 'toggle',
+          key: 'radarOverlay',
+          label: 'Show overlay radar',
+          hint: 'Transparent radar on top of the game; mouse clicks pass through',
+        },
+        {
+          type: 'slider',
+          key: 'radarOverlayTransparency',
+          label: 'Transparency',
+          min: 0,
+          max: 100,
+          step: 1,
+          format: (value) => `${value}%`,
+        },
+        {
+          type: 'slider',
+          key: 'radarOverlaySize',
+          label: 'Size',
+          min: 96,
+          max: 480,
+          step: 8,
+          format: (value) => `${value}px`,
+        },
+        {
+          type: 'slider',
+          key: 'radarOverlayX',
+          label: 'Horizontal',
+          min: 0,
+          max: 1,
+          step: 0.01,
+          format: (value) => `${Math.round(value * 100)}%`,
+        },
+        {
+          type: 'slider',
+          key: 'radarOverlayY',
+          label: 'Vertical',
+          min: 0,
+          max: 1,
+          step: 0.01,
+          format: (value) => `${Math.round(value * 100)}%`,
+        },
+        { type: 'note', label: '0% is left/top, 100% is right/bottom.' },
       ];
     }
     if (this.tab === 'keys') {

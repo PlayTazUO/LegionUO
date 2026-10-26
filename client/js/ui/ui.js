@@ -53,7 +53,7 @@ import {
   saveMacros,
 } from '../game/macros.js';
 import { findSpellByName } from '../game/spells.js';
-import { MapGumpWindow, MinimapWindow, WorldMapWindow } from '../game/maps.js';
+import { MapGumpWindow, MinimapWindow, RadarOverlay, WorldMapWindow } from '../game/maps.js';
 import { WaypointWindow, addLocalWaypoint, clearLocalWaypoints, loadLocalWaypoints } from '../game/waypoints.js';
 import { Reader } from '../util/binary.js';
 import { CharCreationWizard } from '../game/charcreation.js';
@@ -5101,7 +5101,19 @@ export class UI {
 
   /* ----------------------------- drawing ----------------------------- */
 
+  drawRadarOverlay(ctx, now) {
+    if (!this.world.inGame || !settings.get('radarOverlay')) return;
+    if (!this.radarOverlay) this.radarOverlay = new RadarOverlay(this.world);
+    this.radarOverlay.draw(ctx, now, {
+      transparency: settings.get('radarOverlayTransparency'),
+      size: settings.get('radarOverlaySize'),
+      x: settings.get('radarOverlayX'),
+      y: settings.get('radarOverlayY'),
+    });
+  }
+
   draw(ctx, now, topCtx = null) {
+    this.drawRadarOverlay(ctx, now);
     this.drawSelection(ctx);
     const top = this.topWindow;
     const journalIndex = this.journal?.isOpen?.() ? this.windows.indexOf(this.journalEntry) : -1;

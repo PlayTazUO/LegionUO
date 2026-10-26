@@ -15,6 +15,11 @@ const DEFAULTS = {
   waypoints: true,
   mobileContainerView: true,
   transparentForegroundStatics: false,
+  radarOverlay: false,
+  radarOverlayTransparency: 30,
+  radarOverlaySize: 220,
+  radarOverlayX: 1,
+  radarOverlayY: 0,
   audioEnabled: typeof location !== 'undefined' && new URLSearchParams(location.search).has('audio'),
   audioVolume: 60,
   footsteps: true,
@@ -47,13 +52,14 @@ const BOOLEAN_KEYS = [
   'waypoints',
   'mobileContainerView',
   'transparentForegroundStatics',
+  'radarOverlay',
   'audioEnabled',
   'footsteps',
 ];
 
 const KEY_KEYS = ['keyJournal', 'keyHelp', 'keyWar', 'keyLastTarget', 'keyAllNames'];
 
-const TABS = ['general', 'display', 'audio', 'keys'];
+const TABS = ['general', 'display', 'overlay', 'audio', 'keys'];
 
 class SettingsStore {
   constructor() {
@@ -108,6 +114,18 @@ class SettingsStore {
     this.values.gameZoom = Number.isFinite(gameZoom)
       ? Math.round(Math.max(0.5, Math.min(2, gameZoom)) * 100) / 100
       : DEFAULTS.gameZoom;
+    const overlayTransparency = Number(this.values.radarOverlayTransparency);
+    this.values.radarOverlayTransparency = Number.isFinite(overlayTransparency)
+      ? Math.max(0, Math.min(100, Math.round(overlayTransparency)))
+      : DEFAULTS.radarOverlayTransparency;
+    const overlaySize = Number(this.values.radarOverlaySize);
+    this.values.radarOverlaySize = Number.isFinite(overlaySize)
+      ? Math.max(64, Math.min(600, Math.round(overlaySize)))
+      : DEFAULTS.radarOverlaySize;
+    for (const key of ['radarOverlayX', 'radarOverlayY']) {
+      const value = Number(this.values[key]);
+      this.values[key] = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : DEFAULTS[key];
+    }
     if (!TABS.includes(this.values.optionsTab)) this.values.optionsTab = DEFAULTS.optionsTab;
     for (const key of ['optionsX', 'optionsY']) {
       const value = this.values[key];

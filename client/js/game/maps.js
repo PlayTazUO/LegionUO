@@ -172,6 +172,123 @@ function inside(rect, x, y) {
   return x >= rect.x && y >= rect.y && x < rect.x + rect.w && y < rect.y + rect.h;
 }
 
+function rebuildRadar(world, view, now) {
+  const player = world.player;
+  if (!player) return;
+  const key = `${player.x},${player.y}`;
+  if (key === view.cacheKey && !view.dirty && now - view.lastRender < RADAR_REFRESH_MS) return;
+  view.cacheKey = key;
+  view.dirty = false;
+  view.lastRender = now;
+
+  const size = BASE_MAP_SIZE;
+  const ctx = view.bufferCtx;
+  const image = ctx.createImageData(size, size);
+  const pixels = image.data;
+  for (let i = 0; i < pixels.length; i += 4) {
+    pixels[i] = 20;
+    pixels[i + 1] = 18;
+    pixels[i + 2] = 14;
+    pixels[i + 3] = 255;
+  }
+
+  const center = size >> 1;
+  const radius = center + 4;
+  const px = player.x;
+  const py = player.y;
+  const minBx = (px - radius) >> 3;
+  const maxBx = (px + radius) >> 3;
+  const minBy = (py - radius) >> 3;
+  const maxBy = (py + radius) >> 3;
+
+  for (let bx = minBx; bx <= maxBx; bx++) {
+    for (let by = minBy; by <= maxBy; by++) {
+      const block = world.getBlock(bx, by);
+      if (!block) continue;
+      const statics = blockStaticColors(block);
+      for (let i = 0; i < 64; i++) {
+        const tx = (bx << 3) + (i & 7);
+        const ty = (by << 3) + (i >> 3);
+        const dx = tx - px;
+        const dy = ty - py;
+        const gx = center + dx - dy;
+        const gy = center + dx + dy;
+        if (gx < 0 || gy < 0 || gx >= size || gy >= size) continue;
+
+        const cell = block.cells[i];
+        let index = cell.tile;
+        let isStatic = false;
+        if (statics) {
+          const staticIndex = statics.colors[i];
+          if (staticIndex && statics.zs[i] >= cell.z && hasRadarColor(world, staticIndex)) {
+            index = staticIndex;
+            isStatic = true;
+          }
+        }
+        const [r, g, b] = colorFor(world, index, isStatic);
+        const p = (gy * size + gx) * 4;
+        pixels[p] = r;
+        pixels[p + 1] = g;
+        pixels[p + 2] = b;
+        pixels[p + 3] = 255;
+      }
+    }
+  }
+
+  ctx.putImageData(image, 0, 0);
+}
+
+function drawRadarEntities(world, ctx, area) {
+  const scale = area.w / BASE_MAP_SIZE;
+  const player = world.player;
+  if (!player) return;
+  const cx = area.x + area.w / 2;
+  const cy = area.y + area.h / 2;
+
+  for (const entity of world.entities.values()) {
+    if (!entity.isItem || !entity.isMulti || !entity.hasPosition) continue;
+    const parts = world.multiParts(entity);
+    if (!parts || !parts.length) continue;
+    for (const part of parts) {
+      const tx = entity.x + (part.x || 0);
+      const ty = entity.y + (part.y || 0);
+      const dx = tx - player.x;
+      const dy = ty - player.y;
+      const gx = cx + (dx - dy) * scale;
+      const gy = cy + (dx + dy) * scale;
+      if (gx < area.x || gy < area.y || gx >= area.x + area.w || gy >= area.y + area.h) continue;
+      const [r, g, b] = colorFor(world, 0x4000 + (part.graphic || 0), true);
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.fillRect(Math.round(gx), Math.round(gy), 2, 2);
+    }
+  }
+
+  for (const entity of world.entities.values()) {
+    if (!entity.isMobile || entity === player || !entity.hasPosition) continue;
+    const dx = entity.x - player.x;
+    const dy = entity.y - player.y;
+    const gx = cx + (dx - dy) * scale;
+    const gy = cy + (dx + dy) * scale;
+    if (gx < area.x || gy < area.y || gx >= area.x + area.w || gy >= area.y + area.h) continue;
+    ctx.fillStyle = notorietyColor(entity.notoriety);
+    ctx.fillRect(Math.round(gx), Math.round(gy), 2, 2);
+  }
+
+  for (const waypoint of [...(world.waypoints || []), ...(world.localWaypoints || [])]) {
+    if (waypoint.map !== world.mapIndex) continue;
+    const dx = waypoint.x - player.x;
+    const dy = waypoint.y - player.y;
+    const gx = cx + (dx - dy) * scale;
+    const gy = cy + (dx + dy) * scale;
+    if (gx < area.x || gy < area.y || gx >= area.x + area.w || gy >= area.y + area.h) continue;
+    ctx.fillStyle = '#ffd34a';
+    ctx.fillRect(Math.round(gx) - 1, Math.round(gy) - 1, 3, 3);
+  }
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(Math.round(cx) - 1, Math.round(cy) - 1, 3, 3);
+}
+
 export class MinimapWindow {
   constructor(world) {
     this.world = world;
@@ -295,121 +412,11 @@ export class MinimapWindow {
   }
 
   rebuild(now) {
-    const player = this.world.player;
-    if (!player) return;
-    const key = `${player.x},${player.y}`;
-    if (key === this.cacheKey && !this.dirty && now - this.lastRender < RADAR_REFRESH_MS) return;
-    this.cacheKey = key;
-    this.dirty = false;
-    this.lastRender = now;
-
-    const size = BASE_MAP_SIZE;
-    const ctx = this.bufferCtx;
-    const image = ctx.createImageData(size, size);
-    const pixels = image.data;
-    for (let i = 0; i < pixels.length; i += 4) {
-      pixels[i] = 20;
-      pixels[i + 1] = 18;
-      pixels[i + 2] = 14;
-      pixels[i + 3] = 255;
-    }
-
-    const center = size >> 1;
-    const radius = center + 4;
-    const px = player.x;
-    const py = player.y;
-    const minBx = (px - radius) >> 3;
-    const maxBx = (px + radius) >> 3;
-    const minBy = (py - radius) >> 3;
-    const maxBy = (py + radius) >> 3;
-
-    for (let bx = minBx; bx <= maxBx; bx++) {
-      for (let by = minBy; by <= maxBy; by++) {
-        const block = this.world.getBlock(bx, by);
-        if (!block) continue;
-        const statics = blockStaticColors(block);
-        for (let i = 0; i < 64; i++) {
-          const tx = (bx << 3) + (i & 7);
-          const ty = (by << 3) + (i >> 3);
-          const dx = tx - px;
-          const dy = ty - py;
-          const gx = center + dx - dy;
-          const gy = center + dx + dy;
-          if (gx < 0 || gy < 0 || gx >= size || gy >= size) continue;
-
-          const cell = block.cells[i];
-          let index = cell.tile;
-          let isStatic = false;
-          if (statics) {
-            const staticIndex = statics.colors[i];
-            if (staticIndex && statics.zs[i] >= cell.z && hasRadarColor(this.world, staticIndex)) {
-              index = staticIndex;
-              isStatic = true;
-            }
-          }
-          const [r, g, b] = colorFor(this.world, index, isStatic);
-          const p = (gy * size + gx) * 4;
-          pixels[p] = r;
-          pixels[p + 1] = g;
-          pixels[p + 2] = b;
-          pixels[p + 3] = 255;
-        }
-      }
-    }
-
-    ctx.putImageData(image, 0, 0);
+    rebuildRadar(this.world, this, now);
   }
 
   drawOverlay(ctx, now) {
-    const area = this.mapRect;
-    const scale = area.w / BASE_MAP_SIZE;
-    const player = this.world.player;
-    if (!player) return;
-    const cx = area.x + area.w / 2;
-    const cy = area.y + area.h / 2;
-
-    for (const entity of this.world.entities.values()) {
-      if (!entity.isItem || !entity.isMulti || !entity.hasPosition) continue;
-      const parts = this.world.multiParts(entity);
-      if (!parts || !parts.length) continue;
-      for (const part of parts) {
-        const tx = entity.x + (part.x || 0);
-        const ty = entity.y + (part.y || 0);
-        const dx = tx - player.x;
-        const dy = ty - player.y;
-        const gx = cx + (dx - dy) * scale;
-        const gy = cy + (dx + dy) * scale;
-        if (gx < area.x || gy < area.y || gx >= area.x + area.w || gy >= area.y + area.h) continue;
-        const [r, g, b] = colorFor(this.world, 0x4000 + (part.graphic || 0), true);
-        ctx.fillStyle = `rgb(${r},${g},${b})`;
-        ctx.fillRect(Math.round(gx), Math.round(gy), 2, 2);
-      }
-    }
-
-    for (const entity of this.world.entities.values()) {
-      if (!entity.isMobile || entity === player || !entity.hasPosition) continue;
-      const dx = entity.x - player.x;
-      const dy = entity.y - player.y;
-      const gx = cx + (dx - dy) * scale;
-      const gy = cy + (dx + dy) * scale;
-      if (gx < area.x || gy < area.y || gx >= area.x + area.w || gy >= area.y + area.h) continue;
-      ctx.fillStyle = notorietyColor(entity.notoriety);
-      ctx.fillRect(Math.round(gx), Math.round(gy), 2, 2);
-    }
-
-    for (const waypoint of [...(this.world.waypoints || []), ...(this.world.localWaypoints || [])]) {
-      if (waypoint.map !== this.world.mapIndex) continue;
-      const dx = waypoint.x - player.x;
-      const dy = waypoint.y - player.y;
-      const gx = cx + (dx - dy) * scale;
-      const gy = cy + (dx + dy) * scale;
-      if (gx < area.x || gy < area.y || gx >= area.x + area.w || gy >= area.y + area.h) continue;
-      ctx.fillStyle = '#ffd34a';
-      ctx.fillRect(Math.round(gx) - 1, Math.round(gy) - 1, 3, 3);
-    }
-
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(Math.round(cx) - 1, Math.round(cy) - 1, 3, 3);
+    drawRadarEntities(this.world, ctx, this.mapRect);
   }
 
   draw(ctx, now) {
@@ -435,6 +442,51 @@ export class MinimapWindow {
     ctx.fillText(`${this.world.player?.x ?? 0}, ${this.world.player?.y ?? 0}`, area.x + area.w - 2, area.y + area.h - 2);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
+  }
+}
+
+export class RadarOverlay {
+  constructor(world) {
+    this.world = world;
+    this.buffer = document.createElement('canvas');
+    this.buffer.width = BASE_MAP_SIZE;
+    this.buffer.height = BASE_MAP_SIZE;
+    this.bufferCtx = this.buffer.getContext('2d');
+    this.cacheKey = '';
+    this.lastRender = 0;
+    this.dirty = true;
+    radarColorData(world, () => {
+      this.dirty = true;
+    });
+  }
+
+  draw(ctx, now, options = {}) {
+    if (!this.world.player) return;
+    const rect = this.world.game?.renderer?.canvas?.getBoundingClientRect?.();
+    const vx = rect?.left || 0;
+    const vy = rect?.top || 0;
+    const vw = rect?.width || window.innerWidth;
+    const vh = rect?.height || window.innerHeight;
+    const maxSize = Math.max(32, Math.min(vw, vh) - 8);
+    const size = Math.round(clampNumber(Number(options.size) || 220, 64, maxSize));
+    const xRange = Math.max(0, vw - size);
+    const yRange = Math.max(0, vh - size);
+    const x = Math.round(vx + clampNumber(Number(options.x) || 0, 0, 1) * xRange);
+    const y = Math.round(vy + clampNumber(Number(options.y) || 0, 0, 1) * yRange);
+    const transparency = clampNumber(Number(options.transparency) || 0, 0, 100);
+    const alpha = 1 - transparency / 100;
+
+    rebuildRadar(this.world, this, now);
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(this.buffer, x, y, size, size);
+    drawRadarEntities(this.world, ctx, { x, y, w: size, h: size });
+    ctx.restore();
+
+    ctx.strokeStyle = `rgba(201,176,108,${0.65 * Math.max(alpha, 0.15)})`;
+    ctx.strokeRect(x + 0.5, y + 0.5, size - 1, size - 1);
   }
 }
 
@@ -707,7 +759,9 @@ export class WorldMapWindow {
     const defaultHeight = Math.min(800, Math.max(WORLD_MAP_MIN_HEIGHT, window.innerHeight - 120));
     this.width = Math.round(Number(this.saved.width) || defaultWidth);
     this.height = Math.round(Number(this.saved.height) || defaultHeight);
-    this.facet = clampNumber(Math.floor(Number(this.saved.facet) || 0), 0, this.facetCount - 1);
+    const currentFacet = Number(world.mapIndex);
+    const defaultFacet = Number.isFinite(currentFacet) ? currentFacet : Number(this.saved.facet) || 0;
+    this.facet = clampNumber(Math.floor(defaultFacet), 0, this.facetCount - 1);
     this.zoom = clampNumber(Number(this.saved.zoom) || 1, 1, WORLD_MAP_MAX_ZOOM);
     const savedX = Number(this.saved.x);
     const savedY = Number(this.saved.y);
