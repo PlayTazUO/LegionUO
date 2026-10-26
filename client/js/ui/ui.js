@@ -594,6 +594,9 @@ export class UI {
     const login = $('loginScreen');
     login.classList.add('hidden');
     login.style.display = 'none';
+    if (document.activeElement && document.activeElement !== document.body) {
+      document.activeElement.blur();
+    }
     $('hud').classList.remove('hidden');
     this.closeTopMenu?.();
     this.updateFullscreenButton();

@@ -3,6 +3,21 @@ export function clamp(value, min, max) {
 }
 
 /**
+ * The layout viewport. Unlike the visual viewport this does not shrink when the
+ * on-screen keyboard opens, so client panels keep their position relative to
+ * the full screen while the user is typing.
+ */
+function layoutViewportSize() {
+  const width = Math.round(
+    document.documentElement?.clientWidth || window.innerWidth || 1
+  );
+  const height = Math.round(
+    document.documentElement?.clientHeight || window.innerHeight || 1
+  );
+  return { width: Math.max(1, width), height: Math.max(1, height) };
+}
+
+/**
  * The visible viewport. Kept in one place so every panel uses the same
  * dimensions when the client is running on a phone or tablet. The visual
  * viewport tracks the actual on-screen area while mobile browser chrome and
@@ -10,13 +25,15 @@ export function clamp(value, min, max) {
  * and let fixed elements extend past the edge of the screen.
  */
 export function viewportSize() {
+  const layout = layoutViewportSize();
   const visual = window.visualViewport;
-  const width = Math.round(
-    visual?.width || window.innerWidth || document.documentElement?.clientWidth || 1
-  );
-  const height = Math.round(
-    visual?.height || window.innerHeight || document.documentElement?.clientHeight || 1
-  );
+  const width = Math.round(visual?.width || layout.width);
+  const height = Math.round(visual?.height || layout.height);
+  // A soft keyboard shrinks the visual viewport while leaving the layout
+  // viewport intact. Ignore that shrink so opening the journal or chat does not
+  // resize the game window or drag the hotbar halfway up the screen.
+  const sameWidth = Math.abs(width - layout.width) <= layout.width * 0.05;
+  if (sameWidth && height < layout.height * 0.75) return layout;
   return { width: Math.max(1, width), height: Math.max(1, height) };
 }
 

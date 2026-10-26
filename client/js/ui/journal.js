@@ -451,6 +451,8 @@ export class Journal {
   }
 
   hide(persist = true) {
+    const active = document.activeElement;
+    if (active && this.root?.contains(active)) active.blur();
     this.root?.classList.add('hidden');
     if (persist && this.settings.open !== false) {
       this.settings.open = false;
