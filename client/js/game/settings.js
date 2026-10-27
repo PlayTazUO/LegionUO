@@ -61,6 +61,15 @@ const KEY_KEYS = ['keyJournal', 'keyHelp', 'keyWar', 'keyLastTarget', 'keyAllNam
 
 const TABS = ['general', 'display', 'overlay', 'audio', 'keys'];
 
+function minGameZoom() {
+  if (typeof window === 'undefined') return 0.5;
+  try {
+    return window.matchMedia?.('(pointer: coarse)').matches || window.innerWidth < 700 ? 0.8 : 0.5;
+  } catch {
+    return 0.5;
+  }
+}
+
 class SettingsStore {
   constructor() {
     this.values = { ...DEFAULTS };
@@ -112,7 +121,7 @@ class SettingsStore {
       : DEFAULTS.frameLimit;
     const gameZoom = Number(this.values.gameZoom);
     this.values.gameZoom = Number.isFinite(gameZoom)
-      ? Math.round(Math.max(0.5, Math.min(2, gameZoom)) * 100) / 100
+      ? Math.round(Math.max(minGameZoom(), Math.min(2, gameZoom)) * 100) / 100
       : DEFAULTS.gameZoom;
     const overlayTransparency = Number(this.values.radarOverlayTransparency);
     this.values.radarOverlayTransparency = Number.isFinite(overlayTransparency)

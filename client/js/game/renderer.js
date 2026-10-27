@@ -11,7 +11,7 @@ import { hasUoHtmlMarkup, drawServerText, measureUoHtml } from './html.js';
 import { MOUNTS } from './mounts.js';
 import { findSittingInfo, sittingPose } from './sitting.js';
 import { settings } from './settings.js';
-import { notorietyColor } from '../util/ui.js';
+import { isMobileLayout, notorietyColor } from '../util/ui.js';
 
 const ANIM_FRAME_MS = 80;
 const PEOPLE_SIT_GROUP = 25;
@@ -63,6 +63,7 @@ export class Renderer {
     this.game = game;
     this.camera = { x: 0, y: 0 };
     this.mouse = { x: 0, y: 0, world: { x: 0, y: 0 } };
+    this.minZoom = isMobileLayout() ? 0.8 : MIN_GAME_ZOOM;
     this.zoom = this.clampZoom(settings.get('gameZoom'));
     this.landTileCache = new Map();
     this.landTileCacheBytes = 0;
@@ -83,7 +84,7 @@ export class Renderer {
   clampZoom(value) {
     const zoom = Number(value);
     if (!Number.isFinite(zoom)) return 1;
-    return Math.max(MIN_GAME_ZOOM, Math.min(MAX_GAME_ZOOM, zoom));
+    return Math.max(this.minZoom ?? MIN_GAME_ZOOM, Math.min(MAX_GAME_ZOOM, zoom));
   }
 
   get viewWidth() {

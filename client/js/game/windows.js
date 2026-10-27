@@ -12,7 +12,7 @@ import { settings } from './settings.js';
 import { buffText } from './buffs.js';
 import { hotbarSkillSlot, hotbarSpellSlot } from './hotbar.js';
 import { SPELLS_PER_PAGE, getBookSpells, getCircleName, getSpellbookInfo, getSpellbookInfoByOffset } from './spells.js';
-import { accountStorageKey, clampPosition, fitText, notorietyColor, viewportSize } from '../util/ui.js';
+import { accountStorageKey, clampPosition, fitText, isMobileLayout, notorietyColor, viewportSize } from '../util/ui.js';
 
 const CONTAINER_STORAGE_BASE = 'legionuo.container.v1';
 const CONTAINER_MARGIN = 6;
@@ -4170,7 +4170,7 @@ export class OptionsWindow {
           type: 'slider',
           key: 'gameZoom',
           label: 'Game zoom',
-          min: 0.5,
+          min: isMobileLayout() ? 0.8 : 0.5,
           max: 2,
           step: 0.1,
           format: (value) => `${Math.round(value * 100)}%`,
