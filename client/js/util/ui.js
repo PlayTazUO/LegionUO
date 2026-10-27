@@ -6,8 +6,14 @@ export function clamp(value, min, max) {
  * The layout viewport. Unlike the visual viewport this does not shrink when the
  * on-screen keyboard opens, so client panels keep their position relative to
  * the full screen while the user is typing.
+ *
+ * Reading documentElement dimensions forces a layout flush, so keep a cached
+ * copy for the many per-frame callers and refresh it only when the viewport
+ * itself changes.
  */
-function layoutViewportSize() {
+let cachedLayoutViewport = null;
+
+function measureLayoutViewport() {
   const width = Math.round(
     document.documentElement?.clientWidth || window.innerWidth || 1
   );
@@ -15,6 +21,19 @@ function layoutViewportSize() {
     document.documentElement?.clientHeight || window.innerHeight || 1
   );
   return { width: Math.max(1, width), height: Math.max(1, height) };
+}
+
+function layoutViewportSize() {
+  if (!cachedLayoutViewport) cachedLayoutViewport = measureLayoutViewport();
+  return cachedLayoutViewport;
+}
+
+if (typeof window !== 'undefined') {
+  const refreshLayoutViewport = () => {
+    cachedLayoutViewport = null;
+  };
+  window.addEventListener('resize', refreshLayoutViewport);
+  window.addEventListener('orientationchange', () => setTimeout(refreshLayoutViewport, 120));
 }
 
 /**
