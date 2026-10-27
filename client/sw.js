@@ -1,7 +1,8 @@
 const CACHE_PREFIX = 'legionuo-assets-';
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const CACHE_NAME = `${CACHE_PREFIX}${CACHE_VERSION}`;
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_CACHE_ENTRIES = 10000;
 const ASSET_PATHS = new Set([
   'anim',
   'art',
@@ -50,23 +51,53 @@ function isStale(response) {
   return Number.isFinite(date) && Date.now() - date > MAX_AGE_MS;
 }
 
+let cachedEntryCount = null;
+
+async function trimCache(cache) {
+  const keys = await cache.keys();
+  const remove = keys.length - MAX_CACHE_ENTRIES + Math.ceil(MAX_CACHE_ENTRIES * 0.05);
+  for (let i = 0; i < remove; i++) await cache.delete(keys[i]);
+  cachedEntryCount = keys.length - remove;
+}
+
+async function storeResponse(event, cache, request, response) {
+  event.waitUntil(
+    (async () => {
+      try {
+        await cache.put(request, response.clone());
+        if (cachedEntryCount == null) cachedEntryCount = (await cache.keys()).length;
+        else cachedEntryCount++;
+        if (cachedEntryCount > MAX_CACHE_ENTRIES) await trimCache(cache);
+      } catch {
+        /* quota or cache storage errors must not break the response */
+      }
+    })()
+  );
+}
+
 async function fetchAndCache(event, cache, request) {
   const response = await fetch(request);
   if (response.status === 200 && response.type === 'basic') {
-    event.waitUntil(cache.put(request, response.clone()).catch(() => {}));
+    storeResponse(event, cache, request, response);
   }
   return response;
 }
 
 async function respond(event) {
-  const cache = await caches.open(CACHE_NAME);
-  const cached = await cache.match(event.request);
-  if (cached) {
-    if (isStale(cached)) {
-      event.waitUntil(fetchAndCache(event, cache, event.request).catch(() => {}));
+  let cache = null;
+  try {
+    cache = await caches.open(CACHE_NAME);
+    const cached = await cache.match(event.request);
+    if (cached) {
+      if (isStale(cached)) {
+        event.waitUntil(fetchAndCache(event, cache, event.request).catch(() => {}));
+      }
+      return cached;
     }
-    return cached;
+  } catch {
+    cache = null;
   }
+  if (!cache) return fetch(event.request);
   return fetchAndCache(event, cache, event.request);
 }
 
