@@ -306,8 +306,11 @@ export class Renderer {
     const range = this.tileRange();
     const px = this.world.player.x;
     const py = this.world.player.y;
-    const reach = Math.max(range.lateral, range.depthFront, range.depthBack);
-    this.world.ensureMapAround(px, py, Math.ceil(reach / 8) + 1);
+    // Blocks only need to cover the drawn diamond, not a square around the
+    // largest isometric offset. Over-fetching here gets much worse when zoomed
+    // out, flooding the asset server and mobile memory with map blocks.
+    const span = Math.ceil((range.lateral + Math.max(range.depthFront, range.depthBack)) / 2);
+    this.world.ensureMapAround(px, py, Math.ceil(span / 8) + 1);
 
     const overhead = this.overheadState();
     const fadeTiles = this.foregroundFadeTiles();

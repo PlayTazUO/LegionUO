@@ -1,5 +1,8 @@
 import { serverCacheId, withServerParam } from './serverCache.js';
 
+const IMAGE_CACHE_LIMIT_MOBILE = 3000;
+const IMAGE_CACHE_LIMIT_DESKTOP = 12000;
+
 function opaqueBounds(img) {
   const w = img.naturalWidth || img.width;
   const h = img.naturalHeight || img.height;
@@ -57,6 +60,10 @@ export class AssetManager {
     this.multiPromises = new Map();
     this.fontMeta = new Map();
     this.fontPromise = new Map();
+    const mobile =
+      typeof window !== 'undefined' &&
+      (window.matchMedia?.('(pointer: coarse)').matches || window.innerWidth < 700);
+    this.imageLimit = mobile ? IMAGE_CACHE_LIMIT_MOBILE : IMAGE_CACHE_LIMIT_DESKTOP;
   }
 
   setDebug(enabled) {
@@ -98,20 +105,45 @@ export class AssetManager {
 
   image(key, url, computeBounds = false) {
     const cacheKey = this.imageKey(key);
+    const usedAt = performance.now();
     let entry = this.images.get(cacheKey);
-    if (entry) return entry.ready ? entry.img : null;
+    if (entry) {
+      entry.usedAt = usedAt;
+      return entry.ready ? entry.img : null;
+    }
     const img = new Image();
-    entry = { img, ready: false, failed: false, bounds: null };
+    entry = { img, ready: false, failed: false, bounds: null, usedAt };
     this.images.set(cacheKey, entry);
     img.onload = () => {
       if (computeBounds) entry.bounds = opaqueBounds(img);
       entry.ready = true;
+      entry.usedAt = performance.now();
+      this.trimImageCache();
     };
     img.onerror = () => {
       entry.failed = true;
+      entry.usedAt = performance.now();
+      this.trimImageCache();
     };
     img.src = url;
     return null;
+  }
+
+  trimImageCache() {
+    if (this.images.size <= this.imageLimit) return;
+    const now = performance.now();
+    if (now - (this.lastImageTrim || 0) < 1000) return;
+    this.lastImageTrim = now;
+    const target = Math.floor(this.imageLimit * 0.9);
+    let remove = this.images.size - target;
+    if (remove <= 0) return;
+    for (const [key, entry] of this.images) {
+      if (remove <= 0) break;
+      if (!entry.ready && !entry.failed) continue;
+      if (now - entry.usedAt < 1000) continue;
+      this.images.delete(key);
+      remove--;
+    }
   }
 
   pendingImageCount() {

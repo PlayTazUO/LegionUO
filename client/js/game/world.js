@@ -22,6 +22,7 @@ const DOOR_OPEN_COOLDOWN = 500;
 const STEP_UP_Z = 8;
 const STEP_DOWN_Z = 16;
 const MAP_BATCH_SIZE = 256;
+const MAX_MAP_BLOCKS = 2048;
 
 export class Mobile extends Entity {
   constructor(serial) {
@@ -1011,6 +1012,7 @@ export class World {
         if (data) {
           this.mapCache.set(key, data);
           this.mapFailures.delete(key);
+          this.trimMapCache();
         } else {
           this.mapCache.delete(key);
           this.mapFailures.set(key, performance.now() + 2000);
@@ -1035,6 +1037,18 @@ export class World {
       for (const cb of this.mapListeners) cb(key, data);
     });
     return promise;
+  }
+
+  trimMapCache() {
+    if (this.mapCache.size <= MAX_MAP_BLOCKS) return;
+    // Map blocks are keyed in load order, so dropping the oldest entries keeps
+    // the blocks around the player while bounding memory when zoomed out.
+    let remove = this.mapCache.size - MAX_MAP_BLOCKS + Math.ceil(MAX_MAP_BLOCKS * 0.05);
+    for (const key of this.mapCache.keys()) {
+      if (remove <= 0) break;
+      this.mapCache.delete(key);
+      remove--;
+    }
   }
 
   requestBlockBatch(mapIndex, useX, bx, by) {

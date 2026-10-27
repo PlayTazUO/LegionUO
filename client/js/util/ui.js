@@ -25,6 +25,10 @@ function layoutViewportSize() {
 export function viewportSize() {
   const layout = layoutViewportSize();
   const visual = window.visualViewport;
+  // Pinch zoom changes the visual viewport in both directions. Keep the game
+  // and client panels at the layout size so zooming out cannot allocate an
+  // oversized canvas or move the UI off screen.
+  if (visual && Math.abs((Number(visual.scale) || 1) - 1) > 0.05) return layout;
   const width = Math.round(visual?.width || layout.width);
   const height = Math.round(visual?.height || layout.height);
   // A soft keyboard shrinks the visual viewport while leaving the layout
