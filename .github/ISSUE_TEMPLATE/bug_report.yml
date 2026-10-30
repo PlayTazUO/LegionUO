@@ -1,0 +1,104 @@
+name: Bug report
+description: Report a reproducible problem with LegionUO
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please search existing issues
+        first, and redact account names, passwords, server addresses and secrets
+        from logs and configuration.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong, and what did you expect instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the smallest set of steps that shows the problem.
+      placeholder: |
+        1. Start the server with ...
+        2. Connect to ...
+        3. Open ...
+        4. See ...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: LegionUO version or commit
+      description: Output of `git rev-parse --short HEAD` if you built from source.
+    validations:
+      required: true
+
+  - type: input
+    id: node
+    attributes:
+      label: Node.js version
+      placeholder: "node --version, for example v20.11.0"
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and version
+      placeholder: "Chrome 126, Firefox 127, Safari 17, ..."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      options:
+        - Local server and local UO data
+        - Local server with the mock shard
+        - Remote/exposed server
+        - Browser-only client
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and screenshots
+      description: Paste server console output, browser console errors, or screenshots. Redact sensitive values.
+      render: shell
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant config
+      description: Paste the relevant `config.json` keys with secrets and personal paths removed.
+      render: json
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: I removed passwords, tokens, host addresses and other secrets from this report.
+          required: true

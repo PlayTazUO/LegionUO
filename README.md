@@ -25,14 +25,22 @@ No npm dependencies are required.
 ## Run
 
 ```bash
+cp config.example.json config.json
+# edit config.json and set "uoDir" to your UO data directory
 npm start
-# or
+```
+
+Or pass everything on the command line:
+
+```bash
 node server/index.js --uo-dir "/path/to/Ultima Online" --port 8080
 ```
 
 Then open <http://127.0.0.1:8080>.
 
-`config.json` holds the defaults:
+`config.json` is gitignored so local paths, shard hosts, certificates and
+secrets stay on your machine. The committed template holds every supported
+option with its default value:
 
 ```json
 {
@@ -51,14 +59,25 @@ Then open <http://127.0.0.1:8080>.
   "defaultLoginPort": 2593,
   "loginEncryption": true,
   "gameEncryption": true,
+  "language": "enu",
+  "walkDelay": 400,
+  "runDelay": 200,
+  "mountedWalkDelay": 200,
+  "mountedRunDelay": 100,
+  "moveSpeedMultiplier": 1,
   "sendWebIdentity": false,
-  "webIdentitySecret": ""
+  "webIdentitySecret": "",
+  "shutdownPassphrase": ""
 }
 ```
 
 - `name` - display name shown in the browser tab, login screen, and client
   messages. Defaults to `LegionUO`; set it to customize the shard branding.
 - `uoDir` - UO data directory. Can also be set with `UO_DIR` or `--uo-dir`.
+- `httpPort` / `host` - HTTP listen port and interface. The defaults (`8080` on
+  `127.0.0.1`) only accept local connections. Set `host` to `0.0.0.0` only when
+  you intend to expose the server, and read the security section first. Can
+  also be set with `PORT` and `--port`, or `--host`.
 - `httpsPort` - optional HTTPS port. When set together with `httpsCert` and
   `httpsKey`, the server also listens for TLS traffic on this port. HTTP stays
   available, so existing links keep working; open
@@ -71,6 +90,8 @@ Then open <http://127.0.0.1:8080>.
   `openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 365 -subj "/CN=localhost"`
 - `clientVersion` - version sent to the shard and used for packet lengths and
   encryption keys.
+- `mapCount` - number of map facets to look for (default `6`).
+- `cacheMb` - size of the in-memory decoded asset cache, in megabytes.
 - `allowProxyHosts` - optional host allow-list for the relay. Empty means any
   host is allowed; set this if the server is exposed beyond localhost.
 - `defaultLoginHost` - login server host used by the client.
@@ -80,12 +101,22 @@ Then open <http://127.0.0.1:8080>.
   shard closes the connection silently right after a login packet, try turning
   the matching option off. Server-to-client Huffman compression still works when
   game encryption is off.
+- `language` - cliloc language suffix to load, for example `enu` for
+  `Cliloc.enu`.
+- `walkDelay` / `runDelay` - client movement pacing in milliseconds. The
+  mounted variants (`mountedWalkDelay`, `mountedRunDelay`) override them while
+  mounted.
+- `moveSpeedMultiplier` - scales client movement speed. `1` is normal; higher
+  values move faster.
 - `sendWebIdentity` - set to `true` to send a ClassicUO WebIdentity packet
   (`0xA4`) to the shard after the relay, when the game connection opens. The
   packet identifies the proxy and its real connecting IP.
 - `webIdentitySecret` - pre-shared secret from the shard's web identity config.
   It stays in this server and is never sent to the browser. Leave empty to skip
   sending the packet even when `sendWebIdentity` is `true`.
+- `shutdownPassphrase` - enables the `?shutdown` endpoint. Send the passphrase
+  with HTTP Basic authentication to stop the server. Leave empty to disable the
+  endpoint entirely. Use a long random value and never commit it.
 
 ## What is implemented
 
@@ -255,11 +286,41 @@ node tools/mock-uo.mjs
 The generated data is only for smoke testing: it is a few coloured shapes, not
 real UO art.
 
-## Security note
+## Testing
 
-If "Remember account/password" is checked, the account name and password are
-stored in the browser's `localStorage` in plain text. Use it only on a machine
-you trust. The asset server itself never stores credentials.
+The project has no npm dependencies. The checked-in test scripts only need
+Node.js:
+
+```bash
+npm run check   # syntax-check every .js/.mjs file
+npm test        # generate synthetic data, start the server, check core endpoints
+```
+
+## Security
+
+- If "Remember account/password" is checked, the account name and password are
+  stored in the browser's `localStorage` in plain text. Use it only on a machine
+  you trust. The asset server itself never stores credentials.
+- The server binds to `127.0.0.1` by default. If you expose it, set `host`
+  deliberately, configure `allowProxyHosts`, put HTTPS or a reverse proxy in
+  front, and restrict who can reach the port.
+- `config.json` is gitignored because it can contain local paths, shard hosts,
+  certificate paths and secrets. Never commit `webIdentitySecret` or
+  `shutdownPassphrase`.
+- The `?shutdown` endpoint is disabled unless `shutdownPassphrase` is set. Use a
+  long random value and rotate it if it is ever exposed.
+- The relay forwards raw TCP bytes to the login host. It does not inspect or
+  store account credentials, but an open relay can be abused to reach hosts you
+  did not intend to allow.
+
+To report a vulnerability, follow [SECURITY.md](SECURITY.md) instead of opening a
+public issue.
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+development workflow, coding style and pull request checklist. By participating
+you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Known limitations / next steps
 
@@ -285,3 +346,14 @@ you trust. The asset server itself never stores credentials.
 This is a JavaScript recreation of [TazUO](https://github.com/PlayTazUO/TazUO),
 which is itself based on ClassicUO. UO file formats, packet structures and
 cryptography follow those projects. See `LICENSE.md`.
+
+## License
+
+LegionUO is released under the BSD 2-Clause License. It is a derivative work of
+TazUO and ClassicUO and retains the upstream copyright notice. See
+[LICENSE.md](LICENSE.md).
+
+Ultima Online and related marks are trademarks of Electronic Arts Inc. This
+project is not affiliated with or endorsed by Electronic Arts. No UO game data
+files are included in this repository; you must supply your own legally obtained
+installation.

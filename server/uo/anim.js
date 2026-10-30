@@ -286,9 +286,9 @@ export class AnimationsManager {
     if (primary.length || equip) return primary;
 
     // Legacy MUL installs often have a bodyconv row pointing at the wrong
-    // anim file (Memento's gargoyle 667 exists in anim4, for example), so if
-    // the mapped file has no block, try the same graphic/type in every other
-    // animation archive before giving up.
+    // animation file (a gargoyle body can exist in anim4 rather than the mapped
+    // archive, for example), so if the mapped file has no block, try the same
+    // graphic/type in every other animation archive before giving up.
     const seen = new Set();
     const candidates = [];
     const add = (index, value, valueType) => {

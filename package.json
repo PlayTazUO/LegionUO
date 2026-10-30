@@ -1,12 +1,31 @@
 {
   "name": "legionuo",
   "version": "0.1.0",
-  "private": true,
   "description": "Browser UO client and on-demand asset server, ported from TazUO",
   "type": "module",
+  "license": "BSD-2-Clause",
+  "author": "TazUO contributors",
+  "homepage": "https://github.com/PlayTazUO/LegionUO#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PlayTazUO/LegionUO.git"
+  },
+  "bugs": {
+    "url": "https://github.com/PlayTazUO/LegionUO/issues"
+  },
+  "keywords": [
+    "ultima-online",
+    "uo",
+    "browser",
+    "game-client",
+    "canvas",
+    "nodejs"
+  ],
   "scripts": {
     "start": "node server/index.js",
-    "dev": "node --watch server/index.js"
+    "dev": "node --watch server/index.js",
+    "check": "node tools/check-syntax.mjs",
+    "test": "node tools/smoke-test.mjs"
   },
   "engines": {
     "node": ">=18"

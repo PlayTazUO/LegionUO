@@ -1,6 +1,7 @@
 BSD 2-Clause License
 
 Copyright (c) 2025, andreakarasho
+Copyright (c) 2025-2026, LegionUO contributors
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without

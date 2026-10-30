@@ -23,9 +23,9 @@ export class TileDataManager {
     const reader = Reader.open(filePath);
 
     // Client version is not a reliable indicator of the Tiledata layout:
-    // shards such as Memento ship a modern (8-byte flags) tiledata.mul while
-    // still advertising an old client version. Detect the layout from the
-    // file size instead, using the version only as a tie-breaker.
+    // some shards ship a modern (8-byte flags) tiledata.mul while still
+    // advertising an old client version. Detect the layout from the file size
+    // instead, using the version only as a tie-breaker.
     const layoutFits = (flags) => {
       const landGroup = 4 + LAND_PER_GROUP * (flags + 2 + 20);
       const staticGroup = 4 + LAND_PER_GROUP * (flags + 1 + 1 + 4 + 2 + 2 + 2 + 1 + 20);
